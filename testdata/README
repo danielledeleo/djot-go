@@ -1,0 +1,4 @@
+official/ — Test files from https://github.com/jgm/djot.js (MIT license).
+             Format: triple-backtick blocks, "." separates input from expected HTML.
+             filters.test uses Lua filters (skipped).
+             sourcepos.test uses AST output (separate test path).
