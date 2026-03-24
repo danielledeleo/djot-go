@@ -11,7 +11,34 @@ func parseAllInlines(root *Node, doc *Doc) {
 		switch n.Kind {
 		case Paragraph, Heading, Term, TableCell, Caption:
 			if n.Text != "" {
-				children := parseInline(n.Text, doc)
+				// Compute the source offset for the inline text content.
+				// For headings, text starts after "# " markers.
+				// For other blocks, text starts at the block's content area.
+				baseOffset := n.Start.Offset
+				if n.Kind == Heading && doc != nil && len(doc.Files) > 0 {
+					src := doc.Files[0].Source
+					off := n.Start.Offset
+					// Skip leading whitespace, then skip '#' markers and space.
+					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
+						off++
+					}
+					for off < len(src) && src[off] == '#' {
+						off++
+					}
+					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
+						off++
+					}
+					baseOffset = off
+				} else if n.Kind == Paragraph && doc != nil && len(doc.Files) > 0 {
+					src := doc.Files[0].Source
+					off := n.Start.Offset
+					// Skip leading whitespace on first line.
+					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
+						off++
+					}
+					baseOffset = off
+				}
+				children := parseInline(n.Text, doc, baseOffset)
 				n.Children = children
 				n.Text = ""
 			}
@@ -21,13 +48,15 @@ func parseAllInlines(root *Node, doc *Doc) {
 }
 
 // parseInline parses a djot inline string into a list of inline nodes.
-func parseInline(input string, doc *Doc) []*Node {
+// baseOffset is the source byte offset corresponding to input[0].
+func parseInline(input string, doc *Doc, baseOffset int) []*Node {
 	p := &inlineParser{
-		input:     input,
-		pos:       0,
-		openers:   make(map[byte][]*opener),
-		openerIdx: make(map[int]bool),
-		doc:       doc,
+		input:      input,
+		pos:        0,
+		openers:    make(map[byte][]*opener),
+		openerIdx:  make(map[int]bool),
+		doc:        doc,
+		baseOffset: baseOffset,
 	}
 	return p.parse()
 }
@@ -40,17 +69,25 @@ type opener struct {
 }
 
 type inlineParser struct {
-	input     string
-	pos       int
-	nodes     []*Node
-	openers   map[byte][]*opener
-	openerIdx map[int]bool // set of nodeIdx values that are opener placeholders
-	doc       *Doc
+	input      string
+	pos        int
+	nodes      []*Node
+	openers    map[byte][]*opener
+	openerIdx  map[int]bool // set of nodeIdx values that are opener placeholders
+	doc        *Doc
+	baseOffset int // source byte offset corresponding to input[0]
+}
+
+// srcPos returns a Pos for a position in the inline parser's input.
+func (p *inlineParser) srcPos(offset int) Pos {
+	return Pos{Offset: p.baseOffset + offset}
 }
 
 func (p *inlineParser) parse() []*Node {
 	for p.pos < len(p.input) {
 		c := p.input[p.pos]
+		startPos := p.pos
+		nodesBefore := len(p.nodes)
 
 		switch c {
 		case '\\':
@@ -94,6 +131,18 @@ func (p *inlineParser) parse() []*Node {
 			p.pos++
 		default:
 			p.parseText()
+		}
+
+		// Set positions on newly created nodes.
+		endPos := p.pos
+		for i := nodesBefore; i < len(p.nodes); i++ {
+			n := p.nodes[i]
+			if n.Start.Offset == 0 && n.End.Offset == 0 {
+				n.Start = p.srcPos(startPos)
+				if endPos > 0 {
+					n.End = p.srcPos(endPos - 1)
+				}
+			}
 		}
 	}
 
@@ -185,7 +234,10 @@ func (p *inlineParser) parseVerbatim() {
 
 			content := p.input[p.pos:i]
 			content = stripVerbatimSpaces(content)
-			p.addNode(&Node{Kind: Verbatim, Text: content})
+			node := &Node{Kind: Verbatim, Text: content}
+			node.Start = p.srcPos(start)
+			node.End = p.srcPos(endAfter - 1)
+			p.addNode(node)
 			p.pos = endAfter
 			return
 		}
@@ -284,7 +336,10 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 				copy(childCopy, children)
 				p.invalidateOpenersFrom(op.nodeIdx)
 				p.nodes = p.nodes[:op.nodeIdx]
-				p.addNode(&Node{Kind: kind, Children: childCopy})
+				node := &Node{Kind: kind, Children: childCopy}
+				node.Start = p.srcPos(op.pos)
+				node.End = p.srcPos(p.pos - 1)
+				p.addNode(node)
 				return
 			}
 		}
@@ -426,6 +481,8 @@ func (p *inlineParser) parseDelimiter(char byte) {
 				p.nodes = p.nodes[:op.nodeIdx]
 
 				node := &Node{Kind: kind, Children: childCopy}
+				node.Start = p.srcPos(op.pos)
+				node.End = p.srcPos(p.pos - 1)
 				p.addNode(node)
 				return
 			}
@@ -544,14 +601,20 @@ func (p *inlineParser) parseBracketClose() {
 			target = strings.ReplaceAll(target, "\n", "")
 			target = strings.TrimSpace(target)
 			target = processBackslashEscapes(target)
+			linkStart := p.srcPos(op.pos)
+			p.pos = p.pos + end + 1
+			linkEnd := p.srcPos(p.pos - 1)
 			if isImage {
 				node := &Node{Kind: Image, Target: target, HasTarget: true, Children: childCopy}
+				node.Start = linkStart
+				node.End = linkEnd
 				p.addNode(node)
 			} else {
 				node := &Node{Kind: Link, Target: target, HasTarget: true, Children: childCopy}
+				node.Start = linkStart
+				node.End = linkEnd
 				p.addNode(node)
 			}
-			p.pos = p.pos + end + 1
 			return
 		}
 	}
@@ -585,7 +648,7 @@ func (p *inlineParser) parseBracketClose() {
 		end := findClosingBrace(p.input, p.pos)
 		if end != -1 {
 			inner := p.input[p.pos+1 : end]
-			attrs, attrOrder := ParseAttrsOrdered(inner)
+			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
 				node := &Node{Kind: Span, Children: childCopy, Attrs: attrs, AttrOrder: attrOrder}
 				p.addNode(node)
@@ -740,8 +803,11 @@ func (p *inlineParser) parseCloseBrace() {
 							p.nodes = p.nodes[:op.nodeIdx]
 
 							node := &Node{Kind: NodeKind(markedKind), Children: childCopy}
-							p.addNode(node)
+							// op.pos points to the char after {, so start at op.pos-1.
+							node.Start = p.srcPos(op.pos - 1)
 							p.pos++ // skip }
+							node.End = p.srcPos(p.pos - 1)
+							p.addNode(node)
 							return
 						}
 					}
@@ -806,7 +872,7 @@ func (p *inlineParser) parseInlineAttr() {
 		}
 	}
 
-	attrs, attrOrder := ParseAttrsOrdered(inner)
+	attrs, attrOrder := parseAttrsOrdered(inner)
 	if attrs == nil {
 		p.addTextChar('{')
 		p.pos++
@@ -902,8 +968,11 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 					p.openers[qchar] = append(openers[:i], openers[i+1:]...)
 					p.invalidateOpenersFrom(op.nodeIdx)
 					p.nodes = p.nodes[:op.nodeIdx]
-					p.addNode(&Node{Kind: kind, Children: childCopy})
+					node := &Node{Kind: kind, Children: childCopy}
+					node.Start = p.srcPos(op.pos - 1)
 					p.pos++ // skip }
+					node.End = p.srcPos(p.pos - 1)
+					p.addNode(node)
 					return
 				}
 			}
@@ -930,7 +999,10 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 				p.openers[char] = append(openers[:i], openers[i+1:]...)
 				p.invalidateOpenersFrom(op.nodeIdx)
 				p.nodes = p.nodes[:op.nodeIdx]
-				p.addNode(&Node{Kind: kind, Children: childCopy})
+				node := &Node{Kind: kind, Children: childCopy}
+				node.Start = p.srcPos(op.pos)
+				node.End = p.srcPos(p.pos - 1)
+				p.addNode(node)
 				return
 			}
 		}

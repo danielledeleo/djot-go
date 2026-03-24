@@ -4,13 +4,13 @@ package djot
 // The input should NOT include the surrounding braces.
 // Returns the parsed attributes, or nil if the input is invalid.
 func ParseAttrs(input string) map[string]string {
-	attrs, _ := ParseAttrsOrdered(input)
+	attrs, _ := parseAttrsOrdered(input)
 	return attrs
 }
 
-// ParseAttrsOrdered parses a djot attribute string and returns both the
+// parseAttrsOrdered parses a djot attribute string and returns both the
 // attribute map and the key insertion order.
-func ParseAttrsOrdered(input string) (map[string]string, []string) {
+func parseAttrsOrdered(input string) (map[string]string, []string) {
 	p := attrParser{input: input}
 	return p.parse()
 }

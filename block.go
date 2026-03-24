@@ -55,7 +55,11 @@ func (bp *blockParser) splitLines() {
 
 func (bp *blockParser) parse() *Node {
 	root := &Node{Kind: Document}
+	root.Start = Pos{Offset: 0}
 	bp.parseBlocks(root, 0, "")
+	if len(bp.lines) > 0 {
+		root.End = Pos{Offset: bp.lines[len(bp.lines)-1].end}
+	}
 	return root
 }
 
@@ -104,7 +108,7 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	if len(stripped) > 0 && stripped[0] == '{' {
 		if attrContent, lines := bp.tryBlockAttr(stripped, prefix); attrContent != "" {
 			inner := attrContent[1 : len(attrContent)-1] // strip { and }
-			attrs, attrOrder := ParseAttrsOrdered(inner)
+			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
 				bp.pendingAttrs, bp.pendingAttrOrder = mergeAttrsOrdered(bp.pendingAttrs, bp.pendingAttrOrder, attrs, attrOrder)
 				bp.pos += lines
@@ -117,6 +121,8 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	// consists of 3+ of the same char (*, -, or _) with optional spaces.
 	if isThematicBreak(stripped) && (bp.isPrecededByBlank(parent) || bp.pendingAttrs != nil) {
 		node := &Node{Kind: ThematicBreak}
+		node.Start = Pos{Offset: line.start}
+		node.End = Pos{Offset: line.end}
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
 		bp.pos++
@@ -201,9 +207,12 @@ func (bp *blockParser) parseHeading(parent *Node, level int, stripped, prefix st
 	// Content starts after the # markers and any whitespace.
 	content := strings.TrimSpace(stripped[level:])
 
+	startLine := bp.currentLine()
 	node := &Node{Kind: Heading, Level: level}
+	node.Start = Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
 
+	lastEnd := startLine.end
 	bp.pos++
 
 	// Continuation lines: any line that doesn't start a new block.
@@ -251,9 +260,11 @@ func (bp *blockParser) parseHeading(parent *Node, level int, stripped, prefix st
 			textBuf.WriteByte('\n')
 		}
 		textBuf.WriteString(line_content)
+		lastEnd = line.end
 		bp.pos++
 	}
 
+	node.End = Pos{Offset: lastEnd}
 	node.Text = textBuf.String()
 	parent.Children = append(parent.Children, node)
 }
@@ -267,14 +278,17 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 	}
 
 	lang := strings.TrimSpace(fence[fenceLen:])
+	openLine := bp.currentLine()
 
 	// Check for raw block: ``` =html
 	if len(lang) > 1 && lang[0] == '=' {
 		format := lang[1:]
 		node := &Node{Kind: RawBlock, Format: format}
+		node.Start = Pos{Offset: openLine.start}
 		// Don't attach pending attrs to raw blocks.
 		bp.pendingAttrs = nil
 		bp.pos++
+		lastEnd := openLine.end
 		var textBuf strings.Builder
 		for bp.pos < len(bp.lines) {
 			line := bp.currentLine()
@@ -288,24 +302,29 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 			}
 			s := strings.TrimLeft(text, " \t")
 			if isClosingCodeFence(s, fenceChar, fenceLen) {
+				lastEnd = line.end
 				bp.pos++
 				break
 			}
 			content := stripIndent(text, baseIndent)
 			textBuf.WriteString(content)
 			textBuf.WriteByte('\n')
+			lastEnd = line.end
 			bp.pos++
 		}
+		node.End = Pos{Offset: lastEnd}
 		node.Text = textBuf.String()
 		parent.Children = append(parent.Children, node)
 		return
 	}
 
 	node := &Node{Kind: CodeBlock, Lang: lang}
+	node.Start = Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 
 	bp.pos++
 
+	lastEnd := openLine.end
 	var textBuf strings.Builder
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -321,6 +340,7 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 		s := strings.TrimLeft(text, " \t")
 		// Check for closing fence.
 		if isClosingCodeFence(s, fenceChar, fenceLen) {
+			lastEnd = line.end
 			bp.pos++
 			break
 		}
@@ -329,18 +349,23 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 		content := stripIndent(text, baseIndent)
 		textBuf.WriteString(content)
 		textBuf.WriteByte('\n')
+		lastEnd = line.end
 		bp.pos++
 	}
 
+	node.End = Pos{Offset: lastEnd}
 	node.Text = textBuf.String()
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix string) {
 	node := &Node{Kind: BlockQuote}
+	startLine := bp.currentLine()
+	node.Start = Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
 
 	var contentLines []string
+	lastEnd := startLine.start
 
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -370,6 +395,7 @@ func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix str
 			// Lazy continuation.
 			contentLines = append(contentLines, stripped)
 		}
+		lastEnd = line.end
 		bp.pos++
 	}
 
@@ -378,6 +404,7 @@ func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix str
 	subBP := newBlockParser(subInput)
 	subBP.parseBlocks(node, 0, "")
 
+	node.End = Pos{Offset: lastEnd}
 	parent.Children = append(parent.Children, node)
 }
 
@@ -389,7 +416,9 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 
 	className := strings.TrimSpace(stripped[fenceLen:])
 
+	openLine := bp.currentLine()
 	node := &Node{Kind: Div}
+	node.Start = Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 	if className != "" {
 		node.AddClass(className)
@@ -400,6 +429,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 	// Collect inner content, parse as blocks.
 	// Track code fences so that ::: inside a code block doesn't close the div.
 	var contentLines []string
+	lastEnd := openLine.end
 	inCodeFence := false
 	codeFenceChar := byte(0)
 	codeFenceLen := 0
@@ -431,12 +461,14 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 				}
 			} else if isClosingDivFence(s, fenceLen) {
 				// Closing fence: at least fenceLen colons, nothing else.
+				lastEnd = line.end
 				bp.pos++
 				break
 			}
 		}
 
 		contentLines = append(contentLines, text)
+		lastEnd = line.end
 		bp.pos++
 	}
 
@@ -444,11 +476,13 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 	subBP := newBlockParser(subInput)
 	subBP.parseBlocks(node, 0, "")
 
+	node.End = Pos{Offset: lastEnd}
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker string, indent int, prefix string) {
 	node := &Node{Kind: BulletList}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	hasBlankBetweenItems := false
@@ -502,6 +536,7 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 		}
 
 		item := &Node{Kind: ListItem}
+		item.Start = Pos{Offset: line.start}
 		bp.pos++
 
 		var contentLines []string
@@ -580,6 +615,10 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 		subBP := newBlockParser(subInput)
 		subBP.parseBlocks(item, 0, "")
 
+		// Set item end to last consumed line.
+		if bp.pos > 0 {
+			item.End = Pos{Offset: bp.lines[bp.pos-1].end}
+		}
 		node.Children = append(node.Children, item)
 	}
 
@@ -614,6 +653,10 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 		node.SetAttr("tight", "true")
 	}
 
+	// Set list end from last item.
+	if len(node.Children) > 0 {
+		node.End = node.Children[len(node.Children)-1].End
+	}
 	parent.Children = append(parent.Children, node)
 }
 
@@ -627,6 +670,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 	firstEnum, firstDelim, _ := extractOrderedMarkerParts(firstStripped)
 
 	node := &Node{Kind: OrderedList, ListStart: start, ListStyle: style}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	hasBlankBetweenItems := false
@@ -702,6 +746,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 		}
 
 		item := &Node{Kind: ListItem}
+		item.Start = Pos{Offset: line.start}
 		bp.pos++
 
 		var contentLines []string
@@ -783,6 +828,9 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 		subBP := newBlockParser(subInput)
 		subBP.parseBlocks(item, 0, "")
 
+		if bp.pos > 0 {
+			item.End = Pos{Offset: bp.lines[bp.pos-1].end}
+		}
 		node.Children = append(node.Children, item)
 	}
 
@@ -813,12 +861,17 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 		node.SetAttr("tight", "true")
 	}
 
+	if len(node.Children) > 0 {
+		node.End = node.Children[len(node.Children)-1].End
+	}
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	var textBuf strings.Builder
 	openBraces := 0
+	startOffset := bp.currentLine().start
+	lastEnd := bp.currentLine().end
 
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -860,11 +913,14 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 		textBuf.WriteString(strings.TrimLeft(text, " \t"))
 		// Track unclosed braces (respecting quotes/escapes).
 		openBraces = countOpenBraces(textBuf.String())
+		lastEnd = line.end
 		bp.pos++
 	}
 
 	if textBuf.Len() > 0 {
 		node := &Node{Kind: Paragraph, Text: strings.TrimRight(textBuf.String(), " \t")}
+		node.Start = Pos{Offset: startOffset}
+		node.End = Pos{Offset: lastEnd}
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
 	}
@@ -1447,6 +1503,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 	}
 
 	node := &Node{Kind: Footnote, Label: label}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.pos++
 
 	var contentLines []string
@@ -1500,6 +1557,9 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 		subBP.parseBlocks(node, 0, "")
 	}
 
+	if bp.pos > 0 {
+		node.End = Pos{Offset: bp.lines[bp.pos-1].end}
+	}
 	parent.Children = append(parent.Children, node)
 }
 
@@ -1510,6 +1570,7 @@ func isTaskListItem(after string) bool {
 
 func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, prefix string) {
 	node := &Node{Kind: TaskList}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	tight := true
@@ -1564,6 +1625,7 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 		afterCheckbox := after[4:] // skip "[ ] " or "[x] "
 
 		item := &Node{Kind: TaskListItem, Checked: checked}
+		item.Start = Pos{Offset: line.start}
 		bp.pos++
 
 		var contentLines []string
@@ -1618,6 +1680,9 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 		subBP := newBlockParser(subInput)
 		subBP.parseBlocks(item, 0, "")
 
+		if bp.pos > 0 {
+			item.End = Pos{Offset: bp.lines[bp.pos-1].end}
+		}
 		node.Children = append(node.Children, item)
 	}
 
@@ -1625,6 +1690,9 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 		node.SetAttr("tight", "true")
 	}
 
+	if len(node.Children) > 0 {
+		node.End = node.Children[len(node.Children)-1].End
+	}
 	parent.Children = append(parent.Children, node)
 }
 
@@ -1668,6 +1736,7 @@ func isTableRow(s string) bool {
 
 func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix string) {
 	node := &Node{Kind: DefinitionList}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	tight := true
@@ -1719,6 +1788,7 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 
 		// Collect item content lines (like a bullet list item).
 		afterMarker := stripped[2:]
+		itemStartOffset := line.start
 		bp.pos++
 
 		var contentLines []string
@@ -1781,7 +1851,12 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		subBP.parseBlocks(itemNode, 0, "")
 
 		// Split: first paragraph is the term, rest is the definition.
+		itemEndOffset := itemStartOffset
+		if bp.pos > 0 {
+			itemEndOffset = bp.lines[bp.pos-1].end
+		}
 		term := &Node{Kind: Term}
+		term.Start = Pos{Offset: itemStartOffset}
 		def := &Node{Kind: Definition}
 
 		if len(itemNode.Children) > 0 && itemNode.Children[0].Kind == Paragraph {
@@ -1789,13 +1864,18 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 			term.Text = itemNode.Children[0].Text
 			term.Children = itemNode.Children[0].Children
 			term.Attrs = itemNode.Children[0].Attrs
+			term.End = term.Start // term is first line
+			def.Start = term.Start
 			for _, rest := range itemNode.Children[1:] {
 				def.Children = append(def.Children, rest)
 			}
 		} else {
 			// No paragraph — empty term, everything is definition.
+			term.End = term.Start
+			def.Start = Pos{Offset: itemStartOffset}
 			def.Children = itemNode.Children
 		}
+		def.End = Pos{Offset: itemEndOffset}
 
 		node.Children = append(node.Children, term, def)
 	}
@@ -1804,11 +1884,15 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		node.SetAttr("tight", "true")
 	}
 
+	if len(node.Children) > 0 {
+		node.End = node.Children[len(node.Children)-1].End
+	}
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, prefix string) {
 	node := &Node{Kind: Table}
+	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	// Track current alignment from the most recent separator row.
@@ -1851,6 +1935,8 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 		}
 
 		row := parseTableRow(stripped)
+		row.Start = Pos{Offset: line.start}
+		row.End = Pos{Offset: line.end}
 		// Apply current alignment to data row cells.
 		if currentAligns != nil {
 			for i, cell := range row.Children {
@@ -1892,8 +1978,10 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 		trimmed := strings.TrimLeft(text, " \t")
 		if len(trimmed) >= 2 && trimmed[0] == '^' && trimmed[1] == ' ' {
 			// Collect caption lines: first line after "^ ", then continuation lines.
+			captionStart := line.start
 			var captionLines []string
 			captionLines = append(captionLines, trimmed[2:])
+			captionLastEnd := line.end
 			bp.pos++
 			for bp.pos < len(bp.lines) {
 				cLine := bp.currentLine()
@@ -1911,15 +1999,20 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 				cTrimmed := strings.TrimLeft(cText, " \t")
 				// A new caption line starting with ^ replaces the current caption.
 				if len(cTrimmed) >= 2 && cTrimmed[0] == '^' && cTrimmed[1] == ' ' {
+					captionStart = cLine.start
 					captionLines = []string{cTrimmed[2:]}
+					captionLastEnd = cLine.end
 					bp.pos++
 					continue
 				}
 				captionLines = append(captionLines, cTrimmed)
+				captionLastEnd = cLine.end
 				bp.pos++
 			}
 			captionText := strings.Join(captionLines, "\n")
 			captionNode := &Node{Kind: Caption, Text: captionText}
+			captionNode.Start = Pos{Offset: captionStart}
+			captionNode.End = Pos{Offset: captionLastEnd}
 			// Prepend caption as first child of table.
 			node.Children = append([]*Node{captionNode}, node.Children...)
 		}
@@ -1949,6 +2042,10 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 		}
 	}
 
+	// Set table end from last child (caption or last row).
+	if len(node.Children) > 0 {
+		node.End = node.Children[len(node.Children)-1].End
+	}
 	parent.Children = append(parent.Children, node)
 }
 

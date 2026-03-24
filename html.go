@@ -6,18 +6,48 @@ import (
 	"strings"
 )
 
-// RenderHTML renders a parsed document to HTML.
-func RenderHTML(doc *Doc) string {
+// RenderOption configures HTML rendering.
+type RenderOption func(*renderConfig)
+
+// NodeRenderFunc is a hook that overrides rendering for a specific node kind.
+type NodeRenderFunc func(n *Node, r NodeRenderer)
+
+// NodeRenderer provides access to the rendering pipeline from within a hook.
+type NodeRenderer interface {
+	Children() // render this node's children through the full pipeline
+	Default()  // render this node as if no hook were registered
+	Write(s string)
+}
+
+type renderConfig struct {
+	hooks map[NodeKind]NodeRenderFunc
+}
+
+// WithNodeRenderer registers a render hook for the given node kind.
+// If called multiple times for the same kind, the last one wins.
+func WithNodeRenderer(kind NodeKind, fn NodeRenderFunc) RenderOption {
+	return func(cfg *renderConfig) {
+		if cfg.hooks == nil {
+			cfg.hooks = make(map[NodeKind]NodeRenderFunc)
+		}
+		cfg.hooks[kind] = fn
+	}
+}
+
+// RenderHTML renders a parsed document to an HTML string. Optional
+// [RenderOption] values can customize rendering via [WithNodeRenderer].
+func RenderHTML(doc *Doc, opts ...RenderOption) string {
 	var b strings.Builder
-	r := newHTMLRenderer(&b, doc)
+	r := newHTMLRenderer(&b, doc, opts...)
 	r.renderChildren(doc.Root)
 	r.renderFootnotesSection()
 	return b.String()
 }
 
-// RenderHTMLTo renders a parsed document to the given writer.
-func RenderHTMLTo(w io.Writer, doc *Doc) error {
-	r := newHTMLRenderer(w, doc)
+// RenderHTMLTo renders a parsed document as HTML to the given writer.
+// It returns the first write error encountered, if any.
+func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
+	r := newHTMLRenderer(w, doc, opts...)
 	r.renderChildren(doc.Root)
 	r.renderFootnotesSection()
 	return r.err
@@ -34,6 +64,9 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
+	hooks      map[NodeKind]NodeRenderFunc
+	bypassHook bool // when true, renderNode skips hook lookup (used by Default)
+
 	// Footnote numbering: label → sequential number
 	footnoteNums map[string]int
 	// Ordered list of referenced footnotes (by first reference order)
@@ -42,10 +75,15 @@ type htmlRenderer struct {
 	nextFootnoteNum int
 }
 
-func newHTMLRenderer(w io.Writer, doc *Doc) *htmlRenderer {
+func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer {
+	var cfg renderConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	r := &htmlRenderer{
 		w:               w,
 		doc:             doc,
+		hooks:           cfg.hooks,
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
 	}
@@ -112,7 +150,35 @@ func (r *htmlRenderer) write(s string) {
 	_, r.err = io.WriteString(r.w, s)
 }
 
+// nodeRendererImpl implements NodeRenderer for use in hooks.
+type nodeRendererImpl struct {
+	r *htmlRenderer
+	n *Node
+}
+
+func (nr *nodeRendererImpl) Children() {
+	for _, child := range nr.n.Children {
+		nr.r.renderNode(child)
+	}
+}
+
+func (nr *nodeRendererImpl) Default() {
+	nr.r.bypassHook = true
+	nr.r.renderNode(nr.n)
+	nr.r.bypassHook = false
+}
+
+func (nr *nodeRendererImpl) Write(s string) {
+	nr.r.write(s)
+}
+
 func (r *htmlRenderer) renderNode(n *Node) {
+	if !r.bypassHook {
+		if fn, ok := r.hooks[n.Kind]; ok {
+			fn(n, &nodeRendererImpl{r: r, n: n})
+			return
+		}
+	}
 	switch n.Kind {
 	case Document:
 		r.renderChildren(n)

@@ -50,6 +50,7 @@ var kindNames = [...]string{
 	EnDash:             "en_dash",
 }
 
+// String returns the snake_case name of the node kind (e.g. "heading", "bullet_list").
 func (k NodeKind) String() string {
 	if int(k) < len(kindNames) {
 		return kindNames[k]

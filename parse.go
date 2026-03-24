@@ -1,6 +1,7 @@
 package djot
 
-// Parse parses a djot document and returns the AST.
+// Parse parses a djot document and returns the complete AST with resolved
+// references, footnotes, and auto-generated section IDs.
 func Parse(input string) *Doc {
 	bp := newBlockParser(input)
 	root := bp.parse()

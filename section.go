@@ -131,6 +131,12 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 			section.Children = append(section.Children[:1], buildSections(rest, idCounts)...)
 		}
 
+		// Set section position: start from heading, end from last child.
+		if len(section.Children) > 0 {
+			section.Start = section.Children[0].Start
+			section.End = section.Children[len(section.Children)-1].End
+		}
+
 		result = append(result, section)
 	}
 

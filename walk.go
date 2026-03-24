@@ -1,6 +1,7 @@
 package djot
 
 // Action controls the walker's behavior after visiting a node.
+// It is the return type for the [Continue], [SkipChildren], and [Remove] constants.
 type Action int
 
 const (
