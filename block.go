@@ -1826,7 +1826,14 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 
 			nextIndent := countLeadingSpaces(nextText)
 			if nextIndent >= contentIndent {
-				contentLines = append(contentLines, nextText[contentIndent:])
+				// contentIndent may exceed len(nextText) when tabs inflate
+				// the column count beyond the byte length. Clamp to avoid
+				// a slice-bounds panic.
+				ci := contentIndent
+				if ci > len(nextText) {
+					ci = len(nextText)
+				}
+				contentLines = append(contentLines, nextText[ci:])
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
@@ -1836,7 +1843,11 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 				}
 				// Lazy continuation (indented beyond marker but less than content).
 				if nextIndent > markerIndent {
-					contentLines = append(contentLines, nextText[markerIndent+1:])
+					mi := markerIndent + 1
+					if mi > len(nextText) {
+						mi = len(nextText)
+					}
+					contentLines = append(contentLines, nextText[mi:])
 					bp.pos++
 				} else {
 					break

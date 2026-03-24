@@ -466,7 +466,10 @@ func (p *inlineParser) parseDelimiter(char byte) {
 					}
 				}
 				if allOpenerPlaceholders {
-					continue
+					// Older openers will have a strict superset of these
+					// placeholder children, so they'll also be all-placeholders.
+					// No point checking further.
+					break
 				}
 
 				p.openers[char] = append(openers[:i], openers[i+1:]...)
