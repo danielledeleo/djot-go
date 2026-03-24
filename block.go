@@ -5,10 +5,12 @@ import (
 )
 
 type blockParser struct {
-	input        string
-	lines        []blockLine
-	pos          int
-	pendingAttrs map[string]string
+	input            string
+	lines            []blockLine
+	pos              int
+	pendingAttrs     map[string]string
+	pendingAttrOrder []string
+	references       map[string]*Node // label → ref node (for link reference definitions)
 }
 
 type blockLine struct {
@@ -20,7 +22,7 @@ type blockLine struct {
 }
 
 func newBlockParser(input string) *blockParser {
-	bp := &blockParser{input: input}
+	bp := &blockParser{input: input, references: make(map[string]*Node)}
 	bp.splitLines()
 	return bp
 }
@@ -78,6 +80,9 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 
 	// Blank line.
 	if isBlankLine(line.text) {
+		// Discard pending block attributes — they can't attach across blank lines.
+		bp.pendingAttrs = nil
+		bp.pendingAttrOrder = nil
 		bp.pos++
 		return true
 	}
@@ -96,20 +101,21 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	indent := len(text) - len(stripped)
 
 	// Block-level attributes.
-	if len(stripped) > 0 && stripped[0] == '{' && strings.HasSuffix(strings.TrimRight(stripped, " \t"), "}") {
-		inner := strings.TrimRight(stripped, " \t")
-		inner = inner[1 : len(inner)-1]
-		attrs := ParseAttrs(inner)
-		if attrs != nil {
-			bp.pendingAttrs = mergeAttrs(bp.pendingAttrs, attrs)
-			bp.pos++
-			return true
+	if len(stripped) > 0 && stripped[0] == '{' {
+		if attrContent, lines := bp.tryBlockAttr(stripped, prefix); attrContent != "" {
+			inner := attrContent[1 : len(attrContent)-1] // strip { and }
+			attrs, attrOrder := ParseAttrsOrdered(inner)
+			if attrs != nil {
+				bp.pendingAttrs, bp.pendingAttrOrder = mergeAttrsOrdered(bp.pendingAttrs, bp.pendingAttrOrder, attrs, attrOrder)
+				bp.pos += lines
+				return true
+			}
 		}
 	}
 
-	// Thematic break: must be preceded by blank line or at start, and
+	// Thematic break: must be preceded by blank line or at start (or block attrs), and
 	// consists of 3+ of the same char (*, -, or _) with optional spaces.
-	if isThematicBreak(stripped) && bp.isPrecededByBlank(parent) {
+	if isThematicBreak(stripped) && (bp.isPrecededByBlank(parent) || bp.pendingAttrs != nil) {
 		node := &Node{Kind: ThematicBreak}
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
@@ -141,8 +147,13 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 		return true
 	}
 
-	// Bullet list.
+	// Bullet list (or task list).
 	if marker, after, ok := bulletListMarker(stripped); ok {
+		// Check for task list: "- [ ] " or "- [x] "
+		if isTaskListItem(after) {
+			bp.parseTaskList(parent, marker, indent, prefix)
+			return true
+		}
 		bp.parseBulletList(parent, marker, after, indent, prefix)
 		return true
 	}
@@ -150,6 +161,30 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	// Ordered list.
 	if start, style, after, ok := orderedListMarker(stripped); ok {
 		bp.parseOrderedList(parent, start, style, after, indent, prefix)
+		return true
+	}
+
+	// Reference definition: [label]: url
+	if isReferenceDefinition(stripped) {
+		bp.parseReferenceDefinition(parent, stripped, indent, prefix)
+		return true
+	}
+
+	// Footnote definition: [^label]:
+	if isFootnoteDefinition(stripped) {
+		bp.parseFootnoteDefinition(parent, stripped, indent, prefix)
+		return true
+	}
+
+	// Definition list.
+	if isDefinitionListMarker(stripped) {
+		bp.parseDefinitionList(parent, indent, prefix)
+		return true
+	}
+
+	// Table.
+	if isTableRow(stripped) && bp.isPrecededByBlank(parent) {
+		bp.parseTable(parent, stripped, indent, prefix)
 		return true
 	}
 
@@ -233,6 +268,39 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 
 	lang := strings.TrimSpace(fence[fenceLen:])
 
+	// Check for raw block: ``` =html
+	if len(lang) > 1 && lang[0] == '=' {
+		format := lang[1:]
+		node := &Node{Kind: RawBlock, Format: format}
+		// Don't attach pending attrs to raw blocks.
+		bp.pendingAttrs = nil
+		bp.pos++
+		var textBuf strings.Builder
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			s := strings.TrimLeft(text, " \t")
+			if isClosingCodeFence(s, fenceChar, fenceLen) {
+				bp.pos++
+				break
+			}
+			content := stripIndent(text, baseIndent)
+			textBuf.WriteString(content)
+			textBuf.WriteByte('\n')
+			bp.pos++
+		}
+		node.Text = textBuf.String()
+		parent.Children = append(parent.Children, node)
+		return
+	}
+
 	node := &Node{Kind: CodeBlock, Lang: lang}
 	bp.attachPendingAttrs(node)
 
@@ -292,14 +360,11 @@ func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix str
 			break
 		}
 
-		if len(stripped) > 0 && stripped[0] == '>' {
+		if len(stripped) > 0 && stripped[0] == '>' && (len(stripped) == 1 || stripped[1] == ' ') {
 			if len(stripped) == 1 {
 				contentLines = append(contentLines, "")
-			} else if stripped[1] == ' ' {
-				contentLines = append(contentLines, stripped[2:])
 			} else {
-				// >text without space — not a blockquote continuation.
-				break
+				contentLines = append(contentLines, stripped[2:])
 			}
 		} else {
 			// Lazy continuation.
@@ -333,7 +398,11 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 	bp.pos++
 
 	// Collect inner content, parse as blocks.
+	// Track code fences so that ::: inside a code block doesn't close the div.
 	var contentLines []string
+	inCodeFence := false
+	codeFenceChar := byte(0)
+	codeFenceLen := 0
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
 		text := line.text
@@ -346,10 +415,25 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 		}
 		s := strings.TrimLeft(text, " \t")
 
-		// Closing fence: at least fenceLen colons, nothing else.
-		if isClosingDivFence(s, fenceLen) {
-			bp.pos++
-			break
+		if inCodeFence {
+			// Check for closing code fence.
+			if isClosingCodeFence(s, codeFenceChar, codeFenceLen) {
+				inCodeFence = false
+			}
+		} else {
+			// Check for opening code fence.
+			if isCodeFenceOpen(s) {
+				inCodeFence = true
+				codeFenceChar = s[0]
+				codeFenceLen = 0
+				for codeFenceLen < len(s) && s[codeFenceLen] == codeFenceChar {
+					codeFenceLen++
+				}
+			} else if isClosingDivFence(s, fenceLen) {
+				// Closing fence: at least fenceLen colons, nothing else.
+				bp.pos++
+				break
+			}
 		}
 
 		contentLines = append(contentLines, text)
@@ -367,10 +451,34 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 	node := &Node{Kind: BulletList}
 	bp.attachPendingAttrs(node)
 
-	// Track tightness.
-	tight := true
+	hasBlankBetweenItems := false
+	hasBlankWithinItem := false // blank within item followed by non-sublist content
+	markerIndent := indent      // indent level of the list marker
 
 	for bp.pos < len(bp.lines) {
+		// Skip blank lines between items.
+		blanksBefore := 0
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if !isBlankLine(text) {
+				break
+			}
+			blanksBefore++
+			bp.pos++
+		}
+
+		if bp.pos >= len(bp.lines) {
+			break
+		}
+
 		line := bp.currentLine()
 		text := line.text
 		if prefix != "" {
@@ -381,19 +489,29 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			}
 		}
 		stripped := strings.TrimLeft(text, " \t")
+		itemIndent := len(text) - len(stripped)
 		m, after, ok := bulletListMarker(stripped)
-		if !ok || m != marker {
+		if !ok || m != marker || itemIndent != markerIndent {
+			// Put back the blank lines we consumed.
+			bp.pos -= blanksBefore
 			break
+		}
+
+		if blanksBefore > 0 && len(node.Children) > 0 {
+			hasBlankBetweenItems = true
 		}
 
 		item := &Node{Kind: ListItem}
 		bp.pos++
 
-		// Collect item content.
 		var contentLines []string
-		contentLines = append(contentLines, after)
-
-		contentIndent := len(text) - len(stripped) + 2 // marker + space
+		// Strip all continuation lines by stripAmount (markerIndent + 1),
+		// which preserves relative indentation for sublists at varying depths.
+		// Prepend padding to `after` so it aligns with content at contentIndent.
+		stripAmount := itemIndent + 1
+		contentIndent := itemIndent + 2 // marker + space
+		padding := strings.Repeat(" ", contentIndent-stripAmount)
+		contentLines = append(contentLines, padding+after)
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -407,15 +525,23 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			}
 
 			if isBlankLine(nextText) {
-				// Check if next non-blank line is still indented.
+				// Check if next non-blank line is still indented (continuation).
 				if bp.pos+1 < len(bp.lines) {
 					peekText := bp.lines[bp.pos+1].text
 					if prefix != "" && strings.HasPrefix(peekText, prefix) {
 						peekText = peekText[len(prefix):]
 					}
 					peekIndent := countLeadingSpaces(peekText)
-					if peekIndent >= contentIndent && !isBlankLine(peekText) {
-						tight = false
+					// Continue item if next line is indented beyond marker start.
+					if peekIndent > markerIndent && !isBlankLine(peekText) {
+						// Check if the next line starts a sublist — if so,
+						// the blank line doesn't make the parent list loose.
+						peekStripped := strings.TrimLeft(peekText, " \t")
+						_, _, isBullet := bulletListMarker(peekStripped)
+						_, _, _, isOrd := orderedListMarker(peekStripped)
+						if !isBullet && !isOrd {
+							hasBlankWithinItem = true
+						}
 						contentLines = append(contentLines, "")
 						bp.pos++
 						continue
@@ -425,17 +551,26 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			}
 
 			nextIndent := countLeadingSpaces(nextText)
-			if nextIndent >= contentIndent {
-				contentLines = append(contentLines, nextText[contentIndent:])
+			if nextIndent > markerIndent {
+				contentLines = append(contentLines, stripIndent(nextText, stripAmount))
 				bp.pos++
 			} else {
-				// Check if it's a new list item at same level.
+				// Check if it's a new list item at the SAME indent.
 				ns := strings.TrimLeft(nextText, " \t")
+				ni := len(nextText) - len(ns)
 				_, _, isItem := bulletListMarker(ns)
-				if isItem {
+				if isItem && ni == markerIndent {
 					break
 				}
-				// Lazy continuation.
+				_, _, _, isOrdItem := orderedListMarker(ns)
+				if isOrdItem && ni == markerIndent {
+					break
+				}
+				// Not a same-level item. Could be lazy continuation
+				// only if it doesn't look like a block element.
+				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
+					break
+				}
 				contentLines = append(contentLines, strings.TrimLeft(nextText, " \t"))
 				bp.pos++
 			}
@@ -448,7 +583,33 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 		node.Children = append(node.Children, item)
 	}
 
-	// If tight, unwrap single paragraphs in items.
+	// Determine tight/loose:
+	// A list is loose if any item has multiple paragraph children (blank within item),
+	// or if there are blank lines between items and NO item contains block-level
+	// children like sublists (meaning all items are simple text).
+	tight := true
+	if hasBlankWithinItem {
+		tight = false
+	}
+	if hasBlankBetweenItems && tight {
+		// Check if any item has non-paragraph block children (sublists, etc.).
+		anyBlockChildren := false
+		for _, child := range node.Children {
+			for _, gc := range child.Children {
+				if gc.Kind != Paragraph {
+					anyBlockChildren = true
+					break
+				}
+			}
+			if anyBlockChildren {
+				break
+			}
+		}
+		if !anyBlockChildren {
+			tight = false
+		}
+	}
+
 	if tight {
 		node.SetAttr("tight", "true")
 	}
@@ -457,12 +618,45 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 }
 
 func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle, afterMarker string, indent int, prefix string) {
+	// Extract the first item's enum text and delimiter for potential reinterpretation.
+	firstLine := bp.lines[bp.pos].text
+	if prefix != "" && strings.HasPrefix(firstLine, prefix) {
+		firstLine = firstLine[len(prefix):]
+	}
+	firstStripped := strings.TrimLeft(firstLine, " \t")
+	firstEnum, firstDelim, _ := extractOrderedMarkerParts(firstStripped)
+
 	node := &Node{Kind: OrderedList, ListStart: start, ListStyle: style}
 	bp.attachPendingAttrs(node)
 
-	tight := true
+	hasBlankBetweenItems := false
+	hasBlankWithinItem := false
+	markerIndent := indent
 
 	for bp.pos < len(bp.lines) {
+		// Skip blank lines between items.
+		blanksBefore := 0
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if !isBlankLine(text) {
+				break
+			}
+			blanksBefore++
+			bp.pos++
+		}
+
+		if bp.pos >= len(bp.lines) {
+			break
+		}
+
 		line := bp.currentLine()
 		text := line.text
 		if prefix != "" {
@@ -473,19 +667,47 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			}
 		}
 		stripped := strings.TrimLeft(text, " \t")
-		_, _, after, ok := orderedListMarker(stripped)
-		if !ok {
+		itemIndent := len(text) - len(stripped)
+		_, itemStyle, after, ok := orderedListMarker(stripped)
+		if !ok || itemIndent != markerIndent {
+			bp.pos -= blanksBefore
 			break
+		}
+		// Check delimiter type matches.
+		_, itemDelim, _ := extractOrderedMarkerParts(stripped)
+		if itemDelim != firstDelim {
+			bp.pos -= blanksBefore
+			break
+		}
+		if itemStyle != style {
+			// Try to reinterpret: if this is the second item and the first
+			// item's enumerator can be parsed as the new style, switch.
+			if len(node.Children) == 1 {
+				if newNum, ok2 := parseOrderedEnumAs(firstEnum, itemStyle); ok2 {
+					style = itemStyle
+					node.ListStyle = style
+					node.ListStart = newNum
+				} else {
+					bp.pos -= blanksBefore
+					break
+				}
+			} else {
+				bp.pos -= blanksBefore
+				break
+			}
+		}
+
+		if blanksBefore > 0 && len(node.Children) > 0 {
+			hasBlankBetweenItems = true
 		}
 
 		item := &Node{Kind: ListItem}
 		bp.pos++
 
 		var contentLines []string
-		contentLines = append(contentLines, after)
 
 		// Find the column where content starts.
-		markerEnd := len(text) - len(stripped)
+		markerEnd := itemIndent
 		for i := 0; i < len(stripped); i++ {
 			if stripped[i] == '.' || stripped[i] == ')' {
 				markerEnd += i + 2 // past marker + space
@@ -493,6 +715,11 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			}
 		}
 		contentIndent := markerEnd
+
+		// Strip all continuation lines by stripAmount to preserve relative indentation.
+		stripAmount := itemIndent + 1
+		padding := strings.Repeat(" ", contentIndent-stripAmount)
+		contentLines = append(contentLines, padding+after)
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -512,8 +739,15 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 						peekText = peekText[len(prefix):]
 					}
 					peekIndent := countLeadingSpaces(peekText)
-					if peekIndent >= contentIndent && !isBlankLine(peekText) {
-						tight = false
+					if peekIndent > markerIndent && !isBlankLine(peekText) {
+						// Check if the next line starts a sublist — if so,
+						// the blank line doesn't make the parent list loose.
+						peekStripped := strings.TrimLeft(peekText, " \t")
+						_, _, isBullet := bulletListMarker(peekStripped)
+						_, _, _, isOrd := orderedListMarker(peekStripped)
+						if !isBullet && !isOrd {
+							hasBlankWithinItem = true
+						}
 						contentLines = append(contentLines, "")
 						bp.pos++
 						continue
@@ -523,13 +757,21 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			}
 
 			nextIndent := countLeadingSpaces(nextText)
-			if nextIndent >= contentIndent {
-				contentLines = append(contentLines, nextText[contentIndent:])
+			if nextIndent > markerIndent {
+				contentLines = append(contentLines, stripIndent(nextText, stripAmount))
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
+				ni := len(nextText) - len(ns)
 				_, _, _, isItem := orderedListMarker(ns)
-				if isItem {
+				if isItem && ni == markerIndent {
+					break
+				}
+				_, _, isBulletItem := bulletListMarker(ns)
+				if isBulletItem && ni == markerIndent {
+					break
+				}
+				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
 					break
 				}
 				contentLines = append(contentLines, strings.TrimLeft(nextText, " \t"))
@@ -542,6 +784,29 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 		subBP.parseBlocks(item, 0, "")
 
 		node.Children = append(node.Children, item)
+	}
+
+	// Determine tight/loose using same rules as bullet lists.
+	tight := true
+	if hasBlankWithinItem {
+		tight = false
+	}
+	if hasBlankBetweenItems && tight {
+		anyBlockChildren := false
+		for _, child := range node.Children {
+			for _, gc := range child.Children {
+				if gc.Kind != Paragraph {
+					anyBlockChildren = true
+					break
+				}
+			}
+			if anyBlockChildren {
+				break
+			}
+		}
+		if !anyBlockChildren {
+			tight = false
+		}
 	}
 
 	if tight {
@@ -553,6 +818,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 
 func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	var textBuf strings.Builder
+	openBraces := 0
 
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -571,23 +837,19 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 
 		stripped := strings.TrimLeft(text, " \t")
 
-		// Stop if we see a block-level element that can interrupt a paragraph.
-		if headingLevel(stripped) > 0 {
-			break
-		}
-		if isCodeFenceOpen(stripped) {
-			break
-		}
-		if len(stripped) > 0 && stripped[0] == '>' && (len(stripped) == 1 || stripped[1] == ' ') {
-			break
-		}
-		if len(stripped) > 0 && stripped[0] == '{' && strings.HasSuffix(strings.TrimRight(stripped, " \t"), "}") {
-			inner := strings.TrimRight(stripped, " \t")
-			inner = inner[1 : len(inner)-1]
-			if attrs := ParseAttrs(inner); attrs != nil {
+		// Only break for block-level elements if we don't have unclosed braces.
+		// Unclosed { means we're inside an inline attribute that spans lines,
+		// so the next line is a continuation, not a new block.
+		if openBraces == 0 {
+			// Stop if we see a block-level element that can interrupt a paragraph.
+			if headingLevel(stripped) > 0 {
 				break
 			}
+			// Note: code fences do NOT interrupt paragraphs in djot.
 		}
+
+		// Note: {.class} lines do NOT break paragraphs. Block attributes only
+		// apply before a block, not within a paragraph.
 
 		// Thematic breaks and divs cannot interrupt paragraphs.
 		// (They require a preceding blank line.)
@@ -595,7 +857,9 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 		if textBuf.Len() > 0 {
 			textBuf.WriteByte('\n')
 		}
-		textBuf.WriteString(text)
+		textBuf.WriteString(strings.TrimLeft(text, " \t"))
+		// Track unclosed braces (respecting quotes/escapes).
+		openBraces = countOpenBraces(textBuf.String())
 		bp.pos++
 	}
 
@@ -606,9 +870,48 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	}
 }
 
+// countOpenBraces counts the number of unclosed { in a string,
+// respecting quoted strings and backslash escapes.
+func countOpenBraces(s string) int {
+	depth := 0
+	inQuote := byte(0)
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if inQuote != 0 {
+			if c == inQuote {
+				inQuote = 0
+			}
+			continue
+		}
+		if c == '"' || c == '\'' {
+			inQuote = c
+			continue
+		}
+		if c == '{' {
+			depth++
+		} else if c == '}' {
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth
+}
+
 func (bp *blockParser) attachPendingAttrs(node *Node) {
 	if bp.pendingAttrs != nil {
-		for k, v := range bp.pendingAttrs {
+		// Apply in order.
+		for _, k := range bp.pendingAttrOrder {
+			v := bp.pendingAttrs[k]
 			if k == "class" {
 				node.AddClass(v)
 			} else {
@@ -616,6 +919,7 @@ func (bp *blockParser) attachPendingAttrs(node *Node) {
 			}
 		}
 		bp.pendingAttrs = nil
+		bp.pendingAttrOrder = nil
 	}
 }
 
@@ -625,6 +929,48 @@ func (bp *blockParser) isPrecededByBlank(parent *Node) bool {
 	}
 	prev := bp.lines[bp.pos-1]
 	return isBlankLine(prev.text)
+}
+
+// tryBlockAttr checks if the current line starts a block-level attribute.
+// Returns the full attribute content (including braces) and the number of lines consumed.
+// If not a valid attribute block, returns ("", 0).
+func (bp *blockParser) tryBlockAttr(stripped, prefix string) (string, int) {
+	trimmed := strings.TrimRight(stripped, " \t")
+	// Single-line case: {attrs}
+	if strings.HasSuffix(trimmed, "}") {
+		return trimmed, 1
+	}
+
+	// Multi-line case: { starts an attr block, continuation lines must be indented.
+	var buf strings.Builder
+	buf.WriteString(stripped)
+	lines := 1
+	for i := bp.pos + 1; i < len(bp.lines); i++ {
+		line := bp.lines[i]
+		text := line.text
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				return "", 0
+			}
+		}
+		contStripped := strings.TrimLeft(text, " \t")
+		contIndent := len(text) - len(contStripped)
+		// Continuation lines must be indented (at least 1 space).
+		if contIndent == 0 || isBlankLine(text) {
+			return "", 0
+		}
+		buf.WriteByte(' ')
+		buf.WriteString(strings.TrimSpace(text))
+		lines++
+		trimmedBuf := strings.TrimRight(buf.String(), " \t")
+		if strings.HasSuffix(trimmedBuf, "}") {
+			return trimmedBuf, lines
+		}
+	}
+
+	return "", 0
 }
 
 // Block detection helpers.
@@ -671,8 +1017,7 @@ func isThematicBreak(s string) bool {
 	if len(s) < 3 {
 		return false
 	}
-	// Must be 3+ of the same character (* - _) optionally with spaces.
-	var char byte
+	// Must be 3+ of * or - (any mix) optionally with spaces.
 	count := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
@@ -680,11 +1025,6 @@ func isThematicBreak(s string) bool {
 			continue
 		}
 		if c == '*' || c == '-' {
-			if char == 0 {
-				char = c
-			} else if c != char {
-				return false
-			}
 			count++
 		} else {
 			return false
@@ -708,11 +1048,15 @@ func isCodeFenceOpen(s string) bool {
 	if n < 3 {
 		return false
 	}
-	// For backtick fences, the info string must not contain backticks.
+	rest := strings.TrimSpace(s[n:])
 	if char == '`' {
-		rest := s[n:]
-		// If the rest also ends with backticks and has content, it's inline code.
+		// For backtick fences, the info string must not contain backticks.
 		if strings.ContainsRune(rest, '`') {
+			return false
+		}
+		// The info string (language) must be a single word (no spaces).
+		// If it contains spaces, this is inline code, not a code fence.
+		if strings.ContainsRune(rest, ' ') {
 			return false
 		}
 	}
@@ -763,8 +1107,21 @@ func bulletListMarker(s string) (marker byte, after string, ok bool) {
 }
 
 func orderedListMarker(s string) (start int, style ListStyle, after string, ok bool) {
+	// Try parenthesized form: (num), (a), (A), (i), (I)
+	if len(s) > 0 && s[0] == '(' {
+		closeParen := strings.IndexByte(s, ')')
+		if closeParen > 1 && closeParen+1 < len(s) && s[closeParen+1] == ' ' {
+			inner := s[1:closeParen]
+			if num, sty, ok2 := parseOrderedEnum(inner); ok2 {
+				return num, sty, s[closeParen+2:], true
+			}
+		}
+		return 0, 0, "", false
+	}
+
+	// Try suffix form: num. num) a. a) i. i) etc.
 	i := 0
-	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+	for i < len(s) && !isSuffixDelim(s[i]) {
 		i++
 	}
 	if i == 0 || i >= len(s) {
@@ -777,12 +1134,210 @@ func orderedListMarker(s string) (start int, style ListStyle, after string, ok b
 		return 0, 0, "", false
 	}
 
-	num := 0
-	for _, c := range s[:i] {
-		num = num*10 + int(c-'0')
+	enum := s[:i]
+	num, sty, ok2 := parseOrderedEnum(enum)
+	if !ok2 {
+		return 0, 0, "", false
+	}
+	return num, sty, s[i+2:], true
+}
+
+func isSuffixDelim(c byte) bool {
+	return c == '.' || c == ')'
+}
+
+// orderedDelim describes the delimiter format for ordered lists.
+type orderedDelim int
+
+const (
+	delimDot   orderedDelim = iota // "1."
+	delimParen                     // "1)"
+	delimWrap                      // "(1)"
+)
+
+// extractOrderedMarkerParts returns the raw enum string and delimiter type from a stripped line.
+func extractOrderedMarkerParts(s string) (enum string, delim orderedDelim, ok bool) {
+	if len(s) > 0 && s[0] == '(' {
+		closeParen := strings.IndexByte(s, ')')
+		if closeParen > 1 && closeParen+1 < len(s) && s[closeParen+1] == ' ' {
+			return s[1:closeParen], delimWrap, true
+		}
+		return "", 0, false
+	}
+	i := 0
+	for i < len(s) && !isSuffixDelim(s[i]) {
+		i++
+	}
+	if i == 0 || i >= len(s) {
+		return "", 0, false
+	}
+	if s[i] == '.' {
+		return s[:i], delimDot, true
+	}
+	if s[i] == ')' {
+		return s[:i], delimParen, true
+	}
+	return "", 0, false
+}
+
+// parseOrderedEnumAs tries to parse an enum string as a specific style.
+func parseOrderedEnumAs(s string, style ListStyle) (int, bool) {
+	switch style {
+	case ListDecimal:
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				return 0, false
+			}
+		}
+		n := 0
+		for _, c := range s {
+			n = n*10 + int(c-'0')
+		}
+		return n, true
+	case ListAlphaLower:
+		if len(s) == 1 && s[0] >= 'a' && s[0] <= 'z' {
+			return int(s[0]-'a') + 1, true
+		}
+		return 0, false
+	case ListAlphaUpper:
+		if len(s) == 1 && s[0] >= 'A' && s[0] <= 'Z' {
+			return int(s[0]-'A') + 1, true
+		}
+		return 0, false
+	case ListRomanLower:
+		if isAllLower(s) {
+			return parseRoman(strings.ToUpper(s))
+		}
+		return 0, false
+	case ListRomanUpper:
+		if isAllUpper(s) {
+			return parseRoman(s)
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
+// parseOrderedEnum parses an ordered list enumerator string (without delimiters)
+// and returns the numeric value and style. It handles decimal, lower/upper alpha,
+// and lower/upper roman numerals. When ambiguous (e.g. "i" could be alpha or roman),
+// roman numerals are preferred.
+func parseOrderedEnum(s string) (num int, style ListStyle, ok bool) {
+	if len(s) == 0 {
+		return 0, 0, false
 	}
 
-	return num, ListDecimal, s[i+2:], true
+	// Decimal
+	if s[0] >= '0' && s[0] <= '9' {
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				return 0, 0, false
+			}
+		}
+		n := 0
+		for _, c := range s {
+			n = n*10 + int(c-'0')
+		}
+		return n, ListDecimal, true
+	}
+
+	// Lower letters: try roman first, then alpha
+	if isAllLower(s) {
+		if rn, ok2 := parseRoman(strings.ToUpper(s)); ok2 {
+			return rn, ListRomanLower, true
+		}
+		if len(s) == 1 {
+			return int(s[0]-'a') + 1, ListAlphaLower, true
+		}
+		return 0, 0, false
+	}
+
+	// Upper letters: try roman first, then alpha
+	if isAllUpper(s) {
+		if rn, ok2 := parseRoman(s); ok2 {
+			return rn, ListRomanUpper, true
+		}
+		if len(s) == 1 {
+			return int(s[0]-'A') + 1, ListAlphaUpper, true
+		}
+		return 0, 0, false
+	}
+
+	return 0, 0, false
+}
+
+func isAllLower(s string) bool {
+	for _, c := range s {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func isAllUpper(s string) bool {
+	for _, c := range s {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// parseRoman parses an uppercase Roman numeral string and returns its value.
+func parseRoman(s string) (int, bool) {
+	if len(s) == 0 {
+		return 0, false
+	}
+	romanValues := map[byte]int{
+		'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000,
+	}
+	total := 0
+	prev := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		val, exists := romanValues[s[i]]
+		if !exists {
+			return 0, false
+		}
+		if val < prev {
+			total -= val
+		} else {
+			total += val
+		}
+		prev = val
+	}
+	if total <= 0 {
+		return 0, false
+	}
+	// Validate by checking that the roman numeral round-trips
+	if toRoman(total) != s {
+		return 0, false
+	}
+	return total, true
+}
+
+// toRoman converts an integer to an uppercase Roman numeral string.
+func toRoman(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	type pair struct {
+		value  int
+		symbol string
+	}
+	pairs := []pair{
+		{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"},
+		{100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"},
+		{10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"},
+	}
+	var buf strings.Builder
+	for _, p := range pairs {
+		for n >= p.value {
+			buf.WriteString(p.symbol)
+			n -= p.value
+		}
+	}
+	return buf.String()
 }
 
 func stripIndent(text string, n int) string {
@@ -802,6 +1357,696 @@ func stripIndent(text string, n int) string {
 	return text
 }
 
+func isReferenceDefinition(s string) bool {
+	if len(s) < 4 || s[0] != '[' {
+		return false
+	}
+	// Must not be a footnote definition [^...]
+	if len(s) > 1 && s[1] == '^' {
+		return false
+	}
+	closeBracket := strings.IndexByte(s, ']')
+	if closeBracket < 2 {
+		return false
+	}
+	if closeBracket+1 >= len(s) || s[closeBracket+1] != ':' {
+		return false
+	}
+	return true
+}
+
+func (bp *blockParser) parseReferenceDefinition(parent *Node, stripped string, indent int, prefix string) {
+	closeBracket := strings.IndexByte(stripped, ']')
+	label := stripped[1:closeBracket]
+
+	after := ""
+	if closeBracket+2 < len(stripped) {
+		after = strings.TrimSpace(stripped[closeBracket+2:])
+	}
+
+	bp.pos++
+
+	// URL can continue on following lines if they start with whitespace
+	var urlParts []string
+	if after != "" {
+		urlParts = append(urlParts, after)
+	}
+	for bp.pos < len(bp.lines) {
+		nextLine := bp.currentLine()
+		nextText := nextLine.text
+		if prefix != "" {
+			if strings.HasPrefix(nextText, prefix) {
+				nextText = nextText[len(prefix):]
+			} else {
+				break
+			}
+		}
+		if isBlankLine(nextText) {
+			break
+		}
+		// Continuation lines must start with whitespace
+		if nextText[0] != ' ' && nextText[0] != '\t' {
+			break
+		}
+		trimmed := strings.TrimSpace(nextText)
+		// If continuation looks like another ref def, stop
+		if isReferenceDefinition(trimmed) || isFootnoteDefinition(trimmed) {
+			break
+		}
+		urlParts = append(urlParts, trimmed)
+		bp.pos++
+	}
+
+	url := strings.Join(urlParts, "")
+	ref := &Node{Kind: Link, Target: url, Label: label}
+	bp.attachPendingAttrs(ref)
+	bp.references[label] = ref
+}
+
+func isFootnoteDefinition(s string) bool {
+	if len(s) < 5 || s[0] != '[' || s[1] != '^' {
+		return false
+	}
+	closeBracket := strings.IndexByte(s, ']')
+	if closeBracket < 3 {
+		return false
+	}
+	if closeBracket+1 >= len(s) || s[closeBracket+1] != ':' {
+		return false
+	}
+	return true
+}
+
+func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, indent int, prefix string) {
+	closeBracket := strings.IndexByte(stripped, ']')
+	label := stripped[2:closeBracket]
+
+	after := ""
+	if closeBracket+2 < len(stripped) {
+		after = strings.TrimSpace(stripped[closeBracket+2:])
+	}
+
+	node := &Node{Kind: Footnote, Label: label}
+	bp.pos++
+
+	var contentLines []string
+	if after != "" {
+		contentLines = append(contentLines, after)
+	}
+
+	// Footnote continuation lines must be indented. Use a fixed indent
+	// of 2 spaces (like list item continuation in djot).
+	contentIndent := indent + 2
+
+	for bp.pos < len(bp.lines) {
+		nextLine := bp.currentLine()
+		nextText := nextLine.text
+		if prefix != "" {
+			if strings.HasPrefix(nextText, prefix) {
+				nextText = nextText[len(prefix):]
+			} else {
+				break
+			}
+		}
+
+		if isBlankLine(nextText) {
+			if bp.pos+1 < len(bp.lines) {
+				peekText := bp.lines[bp.pos+1].text
+				if prefix != "" && strings.HasPrefix(peekText, prefix) {
+					peekText = peekText[len(prefix):]
+				}
+				peekIndent := countLeadingSpaces(peekText)
+				if peekIndent >= contentIndent && !isBlankLine(peekText) {
+					contentLines = append(contentLines, "")
+					bp.pos++
+					continue
+				}
+			}
+			break
+		}
+
+		nextIndent := countLeadingSpaces(nextText)
+		if nextIndent >= contentIndent {
+			contentLines = append(contentLines, nextText[contentIndent:])
+			bp.pos++
+		} else {
+			break
+		}
+	}
+
+	if len(contentLines) > 0 {
+		subInput := strings.Join(contentLines, "\n")
+		subBP := newBlockParser(subInput)
+		subBP.parseBlocks(node, 0, "")
+	}
+
+	parent.Children = append(parent.Children, node)
+}
+
+func isTaskListItem(after string) bool {
+	return (strings.HasPrefix(after, "[ ] ") || strings.HasPrefix(after, "[x] ") ||
+		strings.HasPrefix(after, "[X] "))
+}
+
+func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, prefix string) {
+	node := &Node{Kind: TaskList}
+	bp.attachPendingAttrs(node)
+
+	tight := true
+	markerIndent := indent
+
+	for bp.pos < len(bp.lines) {
+		// Skip blank lines between items (they make the list loose).
+		blanksBefore := 0
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if !isBlankLine(text) {
+				break
+			}
+			blanksBefore++
+			bp.pos++
+		}
+
+		if bp.pos >= len(bp.lines) {
+			break
+		}
+
+		line := bp.currentLine()
+		text := line.text
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				break
+			}
+		}
+		stripped := strings.TrimLeft(text, " \t")
+		itemIndent := len(text) - len(stripped)
+		m, after, ok := bulletListMarker(stripped)
+		if !ok || m != marker || !isTaskListItem(after) || itemIndent != markerIndent {
+			bp.pos -= blanksBefore
+			break
+		}
+
+		if blanksBefore > 0 && len(node.Children) > 0 {
+			tight = false
+		}
+
+		checked := after[1] == 'x' || after[1] == 'X'
+		afterCheckbox := after[4:] // skip "[ ] " or "[x] "
+
+		item := &Node{Kind: TaskListItem, Checked: checked}
+		bp.pos++
+
+		var contentLines []string
+		contentLines = append(contentLines, afterCheckbox)
+
+		contentIndent := len(text) - len(stripped) + 2 // marker + space
+
+		for bp.pos < len(bp.lines) {
+			nextLine := bp.currentLine()
+			nextText := nextLine.text
+			if prefix != "" {
+				if strings.HasPrefix(nextText, prefix) {
+					nextText = nextText[len(prefix):]
+				} else {
+					break
+				}
+			}
+
+			if isBlankLine(nextText) {
+				if bp.pos+1 < len(bp.lines) {
+					peekText := bp.lines[bp.pos+1].text
+					if prefix != "" && strings.HasPrefix(peekText, prefix) {
+						peekText = peekText[len(prefix):]
+					}
+					peekIndent := countLeadingSpaces(peekText)
+					if peekIndent >= contentIndent && !isBlankLine(peekText) {
+						tight = false
+						contentLines = append(contentLines, "")
+						bp.pos++
+						continue
+					}
+				}
+				break
+			}
+
+			nextIndent := countLeadingSpaces(nextText)
+			if nextIndent >= contentIndent {
+				contentLines = append(contentLines, nextText[contentIndent:])
+				bp.pos++
+			} else {
+				ns := strings.TrimLeft(nextText, " \t")
+				_, _, isItem := bulletListMarker(ns)
+				if isItem {
+					break
+				}
+				contentLines = append(contentLines, strings.TrimLeft(nextText, " \t"))
+				bp.pos++
+			}
+		}
+
+		subInput := strings.Join(contentLines, "\n")
+		subBP := newBlockParser(subInput)
+		subBP.parseBlocks(item, 0, "")
+
+		node.Children = append(node.Children, item)
+	}
+
+	if tight {
+		node.SetAttr("tight", "true")
+	}
+
+	parent.Children = append(parent.Children, node)
+}
+
+func isDefinitionListMarker(s string) bool {
+	// Definition list item starts with ": " (colon + space)
+	return len(s) >= 2 && s[0] == ':' && s[1] == ' '
+}
+
+func isTableRow(s string) bool {
+	if len(s) == 0 || s[0] != '|' {
+		return false
+	}
+	// Count unescaped, un-backticked pipe characters.
+	// A valid table row needs at least 2 (the leading | plus one cell separator).
+	pipes := 0
+	escaped := false
+	inBacktick := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if c == '`' {
+			inBacktick = !inBacktick
+			continue
+		}
+		if c == '|' && !inBacktick {
+			pipes++
+			if pipes >= 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix string) {
+	node := &Node{Kind: DefinitionList}
+	bp.attachPendingAttrs(node)
+
+	tight := true
+	markerIndent := indent
+
+	for bp.pos < len(bp.lines) {
+		// Skip blank lines between items (they make the list loose).
+		blanksBefore := 0
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if !isBlankLine(text) {
+				break
+			}
+			blanksBefore++
+			bp.pos++
+		}
+
+		if bp.pos >= len(bp.lines) {
+			break
+		}
+
+		line := bp.currentLine()
+		text := line.text
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				break
+			}
+		}
+		stripped := strings.TrimLeft(text, " \t")
+		itemIndent := len(text) - len(stripped)
+		if !isDefinitionListMarker(stripped) || itemIndent != markerIndent {
+			bp.pos -= blanksBefore
+			break
+		}
+
+		if blanksBefore > 0 && len(node.Children) > 0 {
+			tight = false
+		}
+
+		// Collect item content lines (like a bullet list item).
+		afterMarker := stripped[2:]
+		bp.pos++
+
+		var contentLines []string
+		contentLines = append(contentLines, afterMarker)
+
+		contentIndent := itemIndent + 2 // marker + space
+
+		for bp.pos < len(bp.lines) {
+			nextLine := bp.currentLine()
+			nextText := nextLine.text
+			if prefix != "" {
+				if strings.HasPrefix(nextText, prefix) {
+					nextText = nextText[len(prefix):]
+				} else {
+					break
+				}
+			}
+
+			if isBlankLine(nextText) {
+				if bp.pos+1 < len(bp.lines) {
+					peekText := bp.lines[bp.pos+1].text
+					if prefix != "" && strings.HasPrefix(peekText, prefix) {
+						peekText = peekText[len(prefix):]
+					}
+					peekIndent := countLeadingSpaces(peekText)
+					if peekIndent >= contentIndent && !isBlankLine(peekText) {
+						tight = false
+						contentLines = append(contentLines, "")
+						bp.pos++
+						continue
+					}
+				}
+				break
+			}
+
+			nextIndent := countLeadingSpaces(nextText)
+			if nextIndent >= contentIndent {
+				contentLines = append(contentLines, nextText[contentIndent:])
+				bp.pos++
+			} else {
+				ns := strings.TrimLeft(nextText, " \t")
+				ni := len(nextText) - len(ns)
+				if isDefinitionListMarker(ns) && ni == markerIndent {
+					break
+				}
+				// Lazy continuation (indented beyond marker but less than content).
+				if nextIndent > markerIndent {
+					contentLines = append(contentLines, nextText[markerIndent+1:])
+					bp.pos++
+				} else {
+					break
+				}
+			}
+		}
+
+		// Parse collected content as blocks.
+		subInput := strings.Join(contentLines, "\n")
+		subBP := newBlockParser(subInput)
+		itemNode := &Node{Kind: Document} // temporary container
+		subBP.parseBlocks(itemNode, 0, "")
+
+		// Split: first paragraph is the term, rest is the definition.
+		term := &Node{Kind: Term}
+		def := &Node{Kind: Definition}
+
+		if len(itemNode.Children) > 0 && itemNode.Children[0].Kind == Paragraph {
+			// The first paragraph's text becomes the term.
+			term.Text = itemNode.Children[0].Text
+			term.Children = itemNode.Children[0].Children
+			term.Attrs = itemNode.Children[0].Attrs
+			for _, rest := range itemNode.Children[1:] {
+				def.Children = append(def.Children, rest)
+			}
+		} else {
+			// No paragraph — empty term, everything is definition.
+			def.Children = itemNode.Children
+		}
+
+		node.Children = append(node.Children, term, def)
+	}
+
+	if tight {
+		node.SetAttr("tight", "true")
+	}
+
+	parent.Children = append(parent.Children, node)
+}
+
+func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, prefix string) {
+	node := &Node{Kind: Table}
+	bp.attachPendingAttrs(node)
+
+	// Track current alignment from the most recent separator row.
+	var currentAligns []CellAlign
+
+	for bp.pos < len(bp.lines) {
+		line := bp.currentLine()
+		text := line.text
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				break
+			}
+		}
+
+		stripped := strings.TrimLeft(text, " \t")
+		if !isTableRow(stripped) {
+			break
+		}
+
+		// Check if this is a separator row (alignment indicators).
+		if isTableSeparator(stripped) {
+			// Apply alignment to all cells in the previous row (mark as header).
+			aligns := parseTableAlignments(stripped)
+			if len(node.Children) > 0 {
+				lastRow := node.Children[len(node.Children)-1]
+				if lastRow.Kind == TableRow {
+					for i, cell := range lastRow.Children {
+						cell.IsHeader = true
+						if i < len(aligns) {
+							cell.CellAlign = aligns[i]
+						}
+					}
+				}
+			}
+			currentAligns = aligns
+			bp.pos++
+			continue
+		}
+
+		row := parseTableRow(stripped)
+		// Apply current alignment to data row cells.
+		if currentAligns != nil {
+			for i, cell := range row.Children {
+				if i < len(currentAligns) {
+					cell.CellAlign = currentAligns[i]
+				}
+			}
+		}
+		node.Children = append(node.Children, row)
+		bp.pos++
+	}
+
+	// Check for caption: skip blank lines, then look for ^ prefix.
+	savedPos := bp.pos
+	for bp.pos < len(bp.lines) {
+		line := bp.currentLine()
+		text := line.text
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				break
+			}
+		}
+		if isBlankLine(text) {
+			bp.pos++
+			continue
+		}
+		break
+	}
+
+	// Check if the next non-blank line starts with "^ "
+	if bp.pos < len(bp.lines) {
+		line := bp.currentLine()
+		text := line.text
+		if prefix != "" && strings.HasPrefix(text, prefix) {
+			text = text[len(prefix):]
+		}
+		trimmed := strings.TrimLeft(text, " \t")
+		if len(trimmed) >= 2 && trimmed[0] == '^' && trimmed[1] == ' ' {
+			// Collect caption lines: first line after "^ ", then continuation lines.
+			var captionLines []string
+			captionLines = append(captionLines, trimmed[2:])
+			bp.pos++
+			for bp.pos < len(bp.lines) {
+				cLine := bp.currentLine()
+				cText := cLine.text
+				if prefix != "" {
+					if strings.HasPrefix(cText, prefix) {
+						cText = cText[len(prefix):]
+					} else {
+						break
+					}
+				}
+				if isBlankLine(cText) {
+					break
+				}
+				cTrimmed := strings.TrimLeft(cText, " \t")
+				// A new caption line starting with ^ replaces the current caption.
+				if len(cTrimmed) >= 2 && cTrimmed[0] == '^' && cTrimmed[1] == ' ' {
+					captionLines = []string{cTrimmed[2:]}
+					bp.pos++
+					continue
+				}
+				captionLines = append(captionLines, cTrimmed)
+				bp.pos++
+			}
+			captionText := strings.Join(captionLines, "\n")
+			captionNode := &Node{Kind: Caption, Text: captionText}
+			// Prepend caption as first child of table.
+			node.Children = append([]*Node{captionNode}, node.Children...)
+		}
+	}
+
+	// If no caption was found, restore position (blank lines consumed should stay consumed
+	// only if caption was found). Actually, blank lines between table and non-caption
+	// content are fine to consume — but let's be safe.
+	if len(node.Children) == 0 || node.Children[0].Kind != Caption {
+		bp.pos = savedPos
+		// Re-skip blank lines (they are normally consumed by the main loop).
+		for bp.pos < len(bp.lines) {
+			line := bp.currentLine()
+			text := line.text
+			if prefix != "" {
+				if strings.HasPrefix(text, prefix) {
+					text = text[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if isBlankLine(text) {
+				bp.pos++
+				continue
+			}
+			break
+		}
+	}
+
+	parent.Children = append(parent.Children, node)
+}
+
+func isTableSeparator(s string) bool {
+	// A separator row: |---|---|, possibly with : for alignment
+	s = strings.TrimSpace(s)
+	if len(s) == 0 || s[0] != '|' {
+		return false
+	}
+	for _, c := range s {
+		if c != '|' && c != '-' && c != ':' && c != ' ' && c != '\t' {
+			return false
+		}
+	}
+	// Must have at least one -
+	return strings.ContainsRune(s, '-')
+}
+
+func parseTableAlignments(s string) []CellAlign {
+	s = strings.TrimSpace(s)
+	if len(s) > 0 && s[0] == '|' {
+		s = s[1:]
+	}
+	if len(s) > 0 && s[len(s)-1] == '|' {
+		s = s[:len(s)-1]
+	}
+	parts := strings.Split(s, "|")
+	var aligns []CellAlign
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		left := len(part) > 0 && part[0] == ':'
+		right := len(part) > 0 && part[len(part)-1] == ':'
+		switch {
+		case left && right:
+			aligns = append(aligns, AlignCenter)
+		case left:
+			aligns = append(aligns, AlignLeft)
+		case right:
+			aligns = append(aligns, AlignRight)
+		default:
+			aligns = append(aligns, AlignDefault)
+		}
+	}
+	return aligns
+}
+
+func parseTableRow(s string) *Node {
+	row := &Node{Kind: TableRow}
+	s = strings.TrimSpace(s)
+	if len(s) > 0 && s[0] == '|' {
+		s = s[1:]
+	}
+	if len(s) > 0 && s[len(s)-1] == '|' {
+		s = s[:len(s)-1]
+	}
+
+	cells := splitTableCells(s)
+	for _, cellText := range cells {
+		cell := &Node{Kind: TableCell, Text: strings.TrimSpace(cellText)}
+		row.Children = append(row.Children, cell)
+	}
+	return row
+}
+
+func splitTableCells(s string) []string {
+	var cells []string
+	var current strings.Builder
+	escaped := false
+	inBacktick := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			current.WriteByte(c)
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			current.WriteByte(c)
+			continue
+		}
+		if c == '`' {
+			inBacktick = !inBacktick
+			current.WriteByte(c)
+			continue
+		}
+		if c == '|' && !inBacktick {
+			cells = append(cells, current.String())
+			current.Reset()
+			continue
+		}
+		current.WriteByte(c)
+	}
+	cells = append(cells, current.String())
+	return cells
+}
+
 func mergeAttrs(dst, src map[string]string) map[string]string {
 	if dst == nil {
 		return src
@@ -818,4 +2063,27 @@ func mergeAttrs(dst, src map[string]string) map[string]string {
 		}
 	}
 	return dst
+}
+
+func mergeAttrsOrdered(dst map[string]string, dstOrder []string, src map[string]string, srcOrder []string) (map[string]string, []string) {
+	if dst == nil {
+		return src, srcOrder
+	}
+	for _, k := range srcOrder {
+		v := src[k]
+		if k == "class" {
+			if existing, ok := dst["class"]; ok {
+				dst["class"] = existing + " " + v
+			} else {
+				dstOrder = append(dstOrder, "class")
+				dst["class"] = v
+			}
+		} else {
+			if _, exists := dst[k]; !exists {
+				dstOrder = append(dstOrder, k)
+			}
+			dst[k] = v
+		}
+	}
+	return dst, dstOrder
 }

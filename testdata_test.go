@@ -16,6 +16,7 @@ type TestCase struct {
 	Expected string
 	File     string
 	Line     int
+	IsAST    bool // true if expected output is AST format (``` a blocks)
 }
 
 // parseTestFile reads a djot .test file and returns its test cases.
@@ -32,8 +33,10 @@ func parseTestFile(path string) ([]TestCase, error) {
 	var desc string
 	var inBlock bool
 	var inExpected bool
+	var isAST bool
 	var input, expected strings.Builder
 	var blockLine int
+	var blockFence string
 
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
@@ -43,6 +46,19 @@ func parseTestFile(path string) ([]TestCase, error) {
 
 		if !inBlock {
 			if strings.HasPrefix(line, "```") {
+				// Count the backtick fence length.
+				fence := ""
+				for _, c := range line {
+					if c == '`' {
+						fence += "`"
+					} else {
+						break
+					}
+				}
+				blockFence = fence
+				// Check for AST format marker (e.g., "``` a")
+				suffix := strings.TrimSpace(line[len(fence):])
+				isAST = suffix == "a"
 				inBlock = true
 				inExpected = false
 				input.Reset()
@@ -59,8 +75,8 @@ func parseTestFile(path string) ([]TestCase, error) {
 		}
 
 		// Inside a block.
-		if strings.HasPrefix(line, "```") {
-			// End of block.
+		if strings.HasPrefix(line, blockFence) && strings.TrimSpace(line) == blockFence {
+			// End of block — must match the exact opening fence.
 			name := desc
 			if name == "" {
 				name = fmt.Sprintf("line %d", blockLine)
@@ -71,6 +87,7 @@ func parseTestFile(path string) ([]TestCase, error) {
 				Expected: expected.String(),
 				File:     filepath.Base(path),
 				Line:     blockLine,
+				IsAST:    isAST,
 			})
 			inBlock = false
 			desc = ""
@@ -106,6 +123,7 @@ func loadOfficialTests(t *testing.T) map[string][]TestCase {
 	skip := map[string]bool{
 		"filters.test":   true, // requires Lua filter execution
 		"sourcepos.test": true, // AST output, not HTML
+		"symb.test":      true, // AST output, not HTML
 	}
 
 	files, err := filepath.Glob("testdata/official/*.test")

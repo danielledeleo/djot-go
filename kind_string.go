@@ -21,6 +21,7 @@ var kindNames = [...]string{
 	Table:              "table",
 	TableRow:           "table_row",
 	TableCell:          "table_cell",
+	Caption:            "caption",
 	Footnote:           "footnote",
 	Text:               "text",
 	SoftBreak:          "soft_break",

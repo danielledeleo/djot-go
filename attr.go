@@ -4,6 +4,13 @@ package djot
 // The input should NOT include the surrounding braces.
 // Returns the parsed attributes, or nil if the input is invalid.
 func ParseAttrs(input string) map[string]string {
+	attrs, _ := ParseAttrsOrdered(input)
+	return attrs
+}
+
+// ParseAttrsOrdered parses a djot attribute string and returns both the
+// attribute map and the key insertion order.
+func ParseAttrsOrdered(input string) (map[string]string, []string) {
 	p := attrParser{input: input}
 	return p.parse()
 }
@@ -23,12 +30,13 @@ const (
 )
 
 type attrParser struct {
-	input string
-	pos   int
-	attrs map[string]string
+	input    string
+	pos      int
+	attrs    map[string]string
+	keyOrder []string
 }
 
-func (p *attrParser) parse() map[string]string {
+func (p *attrParser) parse() (map[string]string, []string) {
 	p.attrs = make(map[string]string)
 	state := attrScanning
 	var key string
@@ -55,7 +63,7 @@ func (p *attrParser) parse() map[string]string {
 			case isWhitespace(c):
 				// skip
 			default:
-				return nil
+				return nil, nil
 			}
 
 		case attrScanningClass:
@@ -63,7 +71,7 @@ func (p *attrParser) parse() map[string]string {
 				buf = append(buf, c)
 			} else {
 				if len(buf) == 0 {
-					return nil
+					return nil, nil
 				}
 				p.addClass(string(buf))
 				state = attrScanning
@@ -75,9 +83,9 @@ func (p *attrParser) parse() map[string]string {
 				buf = append(buf, c)
 			} else {
 				if len(buf) == 0 {
-					return nil
+					return nil, nil
 				}
-				p.attrs["id"] = string(buf)
+				p.setAttr("id", string(buf))
 				state = attrScanning
 				continue
 			}
@@ -90,7 +98,7 @@ func (p *attrParser) parse() map[string]string {
 				state = attrScanningValue
 			} else {
 				// Boolean attribute (key with no value).
-				p.attrs[string(buf)] = ""
+				p.setAttr(string(buf), "")
 				state = attrScanning
 				continue
 			}
@@ -104,26 +112,26 @@ func (p *attrParser) parse() map[string]string {
 				buf = append(buf[:0], c)
 				state = attrScanningBare
 			} else {
-				return nil
+				return nil, nil
 			}
 
 		case attrScanningBare:
 			if isBareValueChar(c) {
 				buf = append(buf, c)
 			} else if isWhitespace(c) {
-				p.attrs[key] = string(buf)
+				p.setAttr(key, string(buf))
 				state = attrScanning
 			} else {
 				// Bare values can only be terminated by whitespace or end of input.
 				// Any other character (like '.' or '/') fails the entire attribute.
-				return nil
+				return nil, nil
 			}
 
 		case attrScanningQuoted:
 			if c == '\\' {
 				state = attrScanningEscape
 			} else if c == quoteChar {
-				p.attrs[key] = string(buf)
+				p.setAttr(key, string(buf))
 				state = attrScanning
 			} else {
 				buf = append(buf, c)
@@ -137,6 +145,7 @@ func (p *attrParser) parse() map[string]string {
 			if c == '%' {
 				state = attrScanning
 			}
+			// Comment runs to % or end of input — both are valid.
 		}
 
 		p.pos++
@@ -146,32 +155,42 @@ func (p *attrParser) parse() map[string]string {
 	switch state {
 	case attrScanning:
 		// ok
+	case attrScanningComment:
+		// Comment at end of input is valid (comment extends to closing brace).
 	case attrScanningClass:
 		if len(buf) == 0 {
-			return nil
+			return nil, nil
 		}
 		p.addClass(string(buf))
 	case attrScanningID:
 		if len(buf) == 0 {
-			return nil
+			return nil, nil
 		}
-		p.attrs["id"] = string(buf)
+		p.setAttr("id", string(buf))
 	case attrScanningKey:
 		// Boolean attribute at end.
-		p.attrs[string(buf)] = ""
+		p.setAttr(string(buf), "")
 	case attrScanningBare:
-		p.attrs[key] = string(buf)
+		p.setAttr(key, string(buf))
 	default:
-		return nil // unclosed quote or comment
+		return nil, nil // unclosed quote
 	}
 
-	return p.attrs
+	return p.attrs, p.keyOrder
+}
+
+func (p *attrParser) setAttr(key, value string) {
+	if _, exists := p.attrs[key]; !exists {
+		p.keyOrder = append(p.keyOrder, key)
+	}
+	p.attrs[key] = value
 }
 
 func (p *attrParser) addClass(class string) {
 	if existing, ok := p.attrs["class"]; ok {
 		p.attrs["class"] = existing + " " + class
 	} else {
+		p.keyOrder = append(p.keyOrder, "class")
 		p.attrs["class"] = class
 	}
 }

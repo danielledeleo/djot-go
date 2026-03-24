@@ -29,6 +29,7 @@ const (
 	Table
 	TableRow
 	TableCell
+	Caption
 
 	Footnote
 
@@ -133,11 +134,12 @@ const (
 // Node is the single AST node type for all djot elements.
 // Kind-specific fields are zero-valued when not applicable.
 type Node struct {
-	Kind     NodeKind
-	Children []*Node
-	Attrs    map[string]string
-	Start    Pos
-	End      Pos
+	Kind      NodeKind
+	Children  []*Node
+	Attrs     map[string]string
+	AttrOrder []string // tracks insertion order of attribute keys
+	Start     Pos
+	End       Pos
 
 	// Text content (Text, Verbatim, RawInline, RawBlock, CodeBlock)
 	Text string
@@ -146,7 +148,8 @@ type Node struct {
 	Level int
 
 	// Link, Image
-	Target string
+	Target    string
+	HasTarget bool // true when target was explicitly set (even if empty)
 
 	// Symbol
 	Name string
@@ -181,9 +184,13 @@ func (n *Node) Attr(key string) string {
 }
 
 // SetAttr sets an attribute on the node, allocating the map if needed.
+// Tracks insertion order for deterministic rendering.
 func (n *Node) SetAttr(key, value string) {
 	if n.Attrs == nil {
 		n.Attrs = make(map[string]string)
+	}
+	if _, exists := n.Attrs[key]; !exists {
+		n.AttrOrder = append(n.AttrOrder, key)
 	}
 	n.Attrs[key] = value
 }

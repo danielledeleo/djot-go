@@ -6,7 +6,9 @@ import (
 
 // wrapSections wraps headings and their content in <section> elements.
 // Each heading creates a section that contains everything up to the next
-// heading of the same or higher level.
+// heading of the same or higher level. Sections are only created at the
+// document root level. Headings inside block containers (blockquotes, divs,
+// list items) get their auto-ID placed directly on the heading element.
 func wrapSections(root *Node) {
 	// Pre-populate ID set with any explicitly-set IDs on non-heading nodes.
 	usedIDs := make(map[string]int)
@@ -18,7 +20,54 @@ func wrapSections(root *Node) {
 		}
 		return Continue
 	})
+	// Assign IDs to headings inside block containers (no section wrapping).
+	assignContainerHeadingIDs(root, usedIDs)
+	// Wrap top-level headings in sections.
 	root.Children = buildSections(root.Children, usedIDs)
+}
+
+// isBlockContainer returns true for node kinds that are block containers
+// where headings should NOT be wrapped in sections.
+func isBlockContainer(kind NodeKind) bool {
+	switch kind {
+	case BlockQuote, Div, ListItem, TaskListItem:
+		return true
+	}
+	return false
+}
+
+// assignContainerHeadingIDs walks into block containers and assigns auto-IDs
+// directly to headings found inside them (without section wrapping).
+func assignContainerHeadingIDs(node *Node, idCounts map[string]int) {
+	for _, child := range node.Children {
+		if isBlockContainer(child.Kind) {
+			assignHeadingIDsInContainer(child, idCounts)
+		} else if child.Kind != Heading {
+			// Recurse into non-heading, non-container nodes too
+			// (e.g. the document root itself on first call).
+			assignContainerHeadingIDs(child, idCounts)
+		}
+	}
+}
+
+// assignHeadingIDsInContainer assigns auto-IDs to all headings within a
+// block container, recursing into nested containers.
+func assignHeadingIDsInContainer(node *Node, idCounts map[string]int) {
+	for _, child := range node.Children {
+		if child.Kind == Heading {
+			id := child.Attr("id")
+			explicit := id != ""
+			if !explicit {
+				id = autoID(child)
+				id = uniqueID(id, idCounts)
+			} else {
+				idCounts[id]++
+			}
+			child.SetAttr("id", id)
+		} else if isBlockContainer(child.Kind) {
+			assignHeadingIDsInContainer(child, idCounts)
+		}
+	}
 }
 
 func buildSections(nodes []*Node, idCounts map[string]int) []*Node {

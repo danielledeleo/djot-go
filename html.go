@@ -3,28 +3,106 @@ package djot
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
 // RenderHTML renders a parsed document to HTML.
 func RenderHTML(doc *Doc) string {
 	var b strings.Builder
-	r := &htmlRenderer{w: &b}
+	r := newHTMLRenderer(&b, doc)
 	r.renderChildren(doc.Root)
+	r.renderFootnotesSection()
 	return b.String()
 }
 
 // RenderHTMLTo renders a parsed document to the given writer.
 func RenderHTMLTo(w io.Writer, doc *Doc) error {
-	r := &htmlRenderer{w: w}
+	r := newHTMLRenderer(w, doc)
 	r.renderChildren(doc.Root)
+	r.renderFootnotesSection()
 	return r.err
+}
+
+type footnoteInfo struct {
+	num   int
+	label string
+	node  *Node // may be nil if undefined
 }
 
 type htmlRenderer struct {
 	w   io.Writer
 	err error
+	doc *Doc
+
+	// Footnote numbering: label → sequential number
+	footnoteNums map[string]int
+	// Ordered list of referenced footnotes (by first reference order)
+	footnoteOrder []*footnoteInfo
+	// Counter for assigning numbers
+	nextFootnoteNum int
+}
+
+func newHTMLRenderer(w io.Writer, doc *Doc) *htmlRenderer {
+	r := &htmlRenderer{
+		w:               w,
+		doc:             doc,
+		footnoteNums:    make(map[string]int),
+		nextFootnoteNum: 1,
+	}
+	// Walk the entire AST (including footnote definitions) to assign numbers
+	// in document order. We need to process the main document first, then
+	// footnote contents are processed as we encounter them.
+	r.assignFootnoteNumbers(doc)
+	return r
+}
+
+// assignFootnoteNumbers walks the AST to assign sequential numbers to footnote
+// references in document order. Footnote definitions' content is also walked
+// (in reference order) to find nested footnote references.
+func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
+	// First pass: walk the main document tree (skipping Footnote definition nodes)
+	// to find all FootnoteReference nodes in order.
+	var walkForRefs func(n *Node)
+	walkForRefs = func(n *Node) {
+		if n.Kind == Footnote {
+			return // skip footnote definition bodies in first pass
+		}
+		if n.Kind == FootnoteReference {
+			r.getFootnoteNum(n.Label)
+		}
+		for _, child := range n.Children {
+			walkForRefs(child)
+		}
+	}
+	walkForRefs(doc.Root)
+
+	// Now process footnote contents in number order, which may introduce
+	// more footnote references (and thus more footnotes to process).
+	for i := 0; i < len(r.footnoteOrder); i++ {
+		fi := r.footnoteOrder[i]
+		if fi.node != nil {
+			for _, child := range fi.node.Children {
+				walkForRefs(child)
+			}
+		}
+	}
+}
+
+// getFootnoteNum returns the sequential number for a footnote label,
+// assigning one if this is the first reference.
+func (r *htmlRenderer) getFootnoteNum(label string) int {
+	if num, ok := r.footnoteNums[label]; ok {
+		return num
+	}
+	num := r.nextFootnoteNum
+	r.nextFootnoteNum++
+	r.footnoteNums[label] = num
+	fi := &footnoteInfo{num: num, label: label}
+	if r.doc != nil {
+		fi.node = r.doc.Footnotes[label]
+	}
+	r.footnoteOrder = append(r.footnoteOrder, fi)
+	return num
 }
 
 func (r *htmlRenderer) write(s string) {
@@ -68,11 +146,12 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write(">\n")
 
 	case CodeBlock:
-		r.write("<pre><code")
+		r.write("<pre")
+		r.renderAttrs(n)
+		r.write("><code")
 		if n.Lang != "" {
 			r.write(fmt.Sprintf(" class=\"language-%s\"", escapeAttr(n.Lang)))
 		}
-		r.renderAttrs(n)
 		r.write(">")
 		r.write(escapeHTML(n.Text))
 		r.write("</code></pre>\n")
@@ -111,6 +190,16 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		if n.ListStart != 1 {
 			r.write(fmt.Sprintf(" start=\"%d\"", n.ListStart))
 		}
+		switch n.ListStyle {
+		case ListAlphaLower:
+			r.write(" type=\"a\"")
+		case ListAlphaUpper:
+			r.write(" type=\"A\"")
+		case ListRomanLower:
+			r.write(" type=\"i\"")
+		case ListRomanUpper:
+			r.write(" type=\"I\"")
+		}
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
 		tight := n.Attr("tight") == "true"
@@ -126,6 +215,11 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.renderChildren(n)
 		r.write("</table>\n")
 
+	case Caption:
+		r.write("<caption>")
+		r.renderInlineChildren(n)
+		r.write("</caption>\n")
+
 	case TableRow:
 		r.write("<tr")
 		r.renderAttrs(n)
@@ -139,10 +233,68 @@ func (r *htmlRenderer) renderNode(n *Node) {
 			tag = "th"
 		}
 		r.write("<" + tag)
+		if n.CellAlign != AlignDefault {
+			var alignStr string
+			switch n.CellAlign {
+			case AlignLeft:
+				alignStr = "left"
+			case AlignRight:
+				alignStr = "right"
+			case AlignCenter:
+				alignStr = "center"
+			}
+			r.write(fmt.Sprintf(` style="text-align: %s;"`, alignStr))
+		}
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</" + tag + ">\n")
+
+	case DefinitionList:
+		r.write("<dl")
+		r.renderNonInternalAttrs(n)
+		r.write(">\n")
+		tight := n.Attr("tight") == "true"
+		for _, child := range n.Children {
+			switch child.Kind {
+			case Term:
+				r.write("<dt>")
+				r.renderInlineChildren(child)
+				r.write("</dt>\n")
+			case Definition:
+				r.write("<dd>\n")
+				if tight {
+					for _, c := range child.Children {
+						if c.Kind == Paragraph {
+							r.renderInlineChildren(c)
+							r.write("\n")
+						} else {
+							r.renderNode(c)
+						}
+					}
+				} else {
+					r.renderChildren(child)
+				}
+				r.write("</dd>\n")
+			}
+		}
+		r.write("</dl>\n")
+
+	case TaskList:
+		r.write("<ul class=\"task-list\"")
+		r.renderNonInternalAttrs(n)
+		r.write(">\n")
+		tight := n.Attr("tight") == "true"
+		for _, child := range n.Children {
+			r.renderTaskListItem(child, tight)
+		}
+		r.write("</ul>\n")
+
+	case TaskListItem:
+		// Handled by TaskList rendering
+		r.write("<li>\n")
+		r.renderChildren(n)
+		r.write("</li>\n")
 
 	// Inline nodes.
 	case Text:
@@ -208,7 +360,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 
 	case Link:
 		r.write("<a")
-		if n.Target != "" {
+		if n.Target != "" || n.HasTarget {
 			r.write(fmt.Sprintf(" href=\"%s\"", escapeAttr(n.Target)))
 		}
 		r.renderAttrs(n)
@@ -218,12 +370,12 @@ func (r *htmlRenderer) renderNode(n *Node) {
 
 	case Image:
 		r.write("<img")
-		if n.Target != "" {
-			r.write(fmt.Sprintf(" src=\"%s\"", escapeAttr(n.Target)))
-		}
 		alt := collectText(n)
 		if alt != "" {
 			r.write(fmt.Sprintf(" alt=\"%s\"", escapeAttr(alt)))
+		}
+		if n.Target != "" || n.HasTarget {
+			r.write(fmt.Sprintf(" src=\"%s\"", escapeAttr(n.Target)))
 		}
 		r.renderAttrs(n)
 		r.write(">")
@@ -258,17 +410,31 @@ func (r *htmlRenderer) renderNode(n *Node) {
 	case Symbol:
 		r.write(":" + n.Name + ":")
 
+	case Footnote:
+		// Footnote definitions are rendered in the endnotes section, not inline.
+		return
+
 	case FootnoteReference:
-		// Simplified footnote reference rendering.
-		r.write(fmt.Sprintf(`<a id="fnref%s" href="#fn%s" role="doc-noteref"><sup>%s</sup></a>`,
-			n.Label, n.Label, n.Label))
+		num := r.footnoteNums[n.Label]
+		r.write(fmt.Sprintf(`<a id="fnref%d" href="#fn%d" role="doc-noteref"><sup>%d</sup></a>`,
+			num, num, num))
+
+	case DoubleQuoted:
+		r.write("\u201c")
+		r.renderInlineChildren(n)
+		r.write("\u201d")
+
+	case SingleQuoted:
+		r.write("\u2018")
+		r.renderInlineChildren(n)
+		r.write("\u2019")
 
 	case Ellipsis:
-		r.write("…")
+		r.write("\u2026")
 	case EmDash:
-		r.write("—")
+		r.write("\u2014")
 	case EnDash:
-		r.write("–")
+		r.write("\u2013")
 	}
 }
 
@@ -282,6 +448,29 @@ func (r *htmlRenderer) renderInlineChildren(n *Node) {
 	for _, child := range n.Children {
 		r.renderNode(child)
 	}
+}
+
+func (r *htmlRenderer) renderTaskListItem(n *Node, tight bool) {
+	r.write("<li>\n")
+	if n.Checked {
+		r.write(`<input disabled="" type="checkbox" checked=""/>`)
+	} else {
+		r.write(`<input disabled="" type="checkbox"/>`)
+	}
+	r.write("\n")
+	if tight {
+		for _, child := range n.Children {
+			if child.Kind == Paragraph {
+				r.renderInlineChildren(child)
+				r.write("\n")
+			} else {
+				r.renderNode(child)
+			}
+		}
+	} else {
+		r.renderChildren(n)
+	}
+	r.write("</li>\n")
 }
 
 func (r *htmlRenderer) renderListItem(n *Node, tight bool) {
@@ -304,21 +493,61 @@ func (r *htmlRenderer) renderListItem(n *Node, tight bool) {
 	r.write("</li>\n")
 }
 
+func (r *htmlRenderer) renderFootnotesSection() {
+	if len(r.footnoteOrder) == 0 {
+		return
+	}
+	r.write("<section role=\"doc-endnotes\">\n<hr>\n<ol>\n")
+	for _, fi := range r.footnoteOrder {
+		r.write(fmt.Sprintf("<li id=\"fn%d\">\n", fi.num))
+		if fi.node != nil && len(fi.node.Children) > 0 {
+			// Render all children. Append back-reference to the last paragraph.
+			children := fi.node.Children
+			lastParagraphIdx := -1
+			for i, child := range children {
+				if child.Kind == Paragraph {
+					lastParagraphIdx = i
+				}
+			}
+			backref := fmt.Sprintf(`<a href="#fnref%d" role="doc-backlink">↩︎</a>`, fi.num)
+			for i, child := range children {
+				if i == lastParagraphIdx {
+					// Render paragraph with backref appended inside <p>.
+					r.write("<p")
+					r.renderAttrs(child)
+					r.write(">")
+					r.renderInlineChildren(child)
+					r.write(backref)
+					r.write("</p>\n")
+				} else {
+					r.renderNode(child)
+				}
+			}
+			if lastParagraphIdx == -1 {
+				// No paragraph found; add backref in its own paragraph.
+				r.write(fmt.Sprintf("<p>%s</p>\n", backref))
+			}
+		} else {
+			// Empty or undefined footnote: just the back-reference.
+			r.write(fmt.Sprintf("<p><a href=\"#fnref%d\" role=\"doc-backlink\">↩︎</a></p>\n", fi.num))
+		}
+		r.write("</li>\n")
+	}
+	r.write("</ol>\n</section>\n")
+}
+
 func (r *htmlRenderer) renderAttrs(n *Node) {
 	if n.Attrs == nil || len(n.Attrs) == 0 {
 		return
 	}
-	// Sort attributes alphabetically for deterministic output.
-	keys := make([]string, 0, len(n.Attrs))
-	for k := range n.Attrs {
+	// Use insertion order (AttrOrder) for deterministic output.
+	for _, k := range n.AttrOrder {
 		if k == "tight" {
 			continue // internal attribute
 		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(n.Attrs[k])))
+		if v, ok := n.Attrs[k]; ok {
+			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))
+		}
 	}
 }
 
@@ -326,20 +555,34 @@ func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
 	if n.Attrs == nil || len(n.Attrs) == 0 {
 		return
 	}
-	keys := make([]string, 0, len(n.Attrs))
-	for k := range n.Attrs {
+	for _, k := range n.AttrOrder {
 		if k == "tight" {
 			continue
 		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(n.Attrs[k])))
+		if v, ok := n.Attrs[k]; ok {
+			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))
+		}
 	}
 }
 
 func escapeHTML(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+func escapeAttr(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
@@ -356,8 +599,4 @@ func escapeHTML(s string) string {
 		}
 	}
 	return b.String()
-}
-
-func escapeAttr(s string) string {
-	return escapeHTML(s)
 }
