@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danielledeleo/homedoc/djot"
+	"github.com/danielledeleo/djot-go"
 )
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ package djot_test
 import (
 	"testing"
 
-	"github.com/danielledeleo/homedoc/djot"
+	"github.com/danielledeleo/djot-go"
 )
 
 // TestOfficial runs all official djot spec tests.
