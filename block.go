@@ -933,7 +933,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 
 func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	var textBuf strings.Builder
-	openBraces := 0
+	var braces braceState
 	startOffset := bp.currentLine().start
 	lastEnd := bp.currentLine().end
 
@@ -957,7 +957,7 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 		// Only break for block-level elements if we don't have unclosed braces.
 		// Unclosed { means we're inside an inline attribute that spans lines,
 		// so the next line is a continuation, not a new block.
-		if openBraces == 0 {
+		if braces.depth == 0 {
 			// Stop if we see a block-level element that can interrupt a paragraph.
 			if headingLevel(stripped) > 0 {
 				break
@@ -975,8 +975,8 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 			textBuf.WriteByte('\n')
 		}
 		textBuf.WriteString(strings.TrimLeft(text, " \t"))
-		// Track unclosed braces (respecting quotes/escapes).
-		openBraces = countOpenBraces(textBuf.String())
+		// Track unclosed braces incrementally (respecting quotes/escapes).
+		braces = countOpenBraces(strings.TrimLeft(text, " \t"), braces)
 		lastEnd = line.end
 		bp.pos++
 	}
@@ -990,41 +990,46 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	}
 }
 
-// countOpenBraces counts the number of unclosed { in a string,
-// respecting quoted strings and backslash escapes.
-func countOpenBraces(s string) int {
-	depth := 0
-	inQuote := byte(0)
-	escaped := false
+// braceState tracks the state of brace counting across incremental calls.
+type braceState struct {
+	depth   int
+	inQuote byte
+	escaped bool
+}
+
+// countOpenBraces counts the number of unclosed { in s, respecting quoted
+// strings and backslash escapes. It updates and returns the state so that
+// it can be called incrementally on successive lines.
+func countOpenBraces(s string, st braceState) braceState {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if escaped {
-			escaped = false
+		if st.escaped {
+			st.escaped = false
 			continue
 		}
 		if c == '\\' {
-			escaped = true
+			st.escaped = true
 			continue
 		}
-		if inQuote != 0 {
-			if c == inQuote {
-				inQuote = 0
+		if st.inQuote != 0 {
+			if c == st.inQuote {
+				st.inQuote = 0
 			}
 			continue
 		}
 		if c == '"' || c == '\'' {
-			inQuote = c
+			st.inQuote = c
 			continue
 		}
 		if c == '{' {
-			depth++
+			st.depth++
 		} else if c == '}' {
-			if depth > 0 {
-				depth--
+			if st.depth > 0 {
+				st.depth--
 			}
 		}
 	}
-	return depth
+	return st
 }
 
 func (bp *blockParser) attachPendingAttrs(node *Node) {

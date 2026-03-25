@@ -474,7 +474,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		}
 
 	case Symbol:
-		r.write(":" + n.Name + ":")
+		r.write(":" + escapeHTML(n.Name) + ":")
 
 	case Footnote:
 		// Footnote definitions are rendered in the endnotes section, not inline.
