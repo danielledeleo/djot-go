@@ -44,6 +44,7 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := djot.Parse(input)
 		_ = djot.RenderHTML(doc)
+		_ = djot.RenderAST(doc, true)
 	})
 }
 
@@ -70,6 +71,10 @@ func FuzzParseAttrs(f *testing.F) {
 
 func FuzzWalk(f *testing.F) {
 	f.Add("# Hello\n\n*world*\n\n- a\n- b")
+	f.Add("| a | b |\n|---|---|\n| c | d |\n\ntext[^1]\n\n[^1]: footnote")
+	f.Add(": term\n  definition\n\n> nested\n> > deep")
+	f.Add("::: div\n- list\n  - nested\n:::")
+	f.Add("*_interleaved **emphasis**_*")
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := djot.Parse(input)
 		djot.Walk(doc.Root, func(n *djot.Node) any {

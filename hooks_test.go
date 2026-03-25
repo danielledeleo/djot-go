@@ -74,12 +74,14 @@ func TestRenderHooks(t *testing.T) {
 		}
 	})
 
-	t.Run("no hook is default behavior", func(t *testing.T) {
+	t.Run("noop hook matches default behavior", func(t *testing.T) {
 		doc := djot.Parse("Hello *world*")
-		withHooks := djot.RenderHTML(doc)
+		withHook := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.Strong, func(n *djot.Node, r djot.NodeRenderer) {
+			r.Default()
+		}))
 		without := djot.RenderHTML(doc)
-		if withHooks != without {
-			t.Errorf("no-hook output differs:\n%s\nvs\n%s", withHooks, without)
+		if withHook != without {
+			t.Errorf("no-op hook output differs:\n%s\nvs\n%s", withHook, without)
 		}
 	})
 

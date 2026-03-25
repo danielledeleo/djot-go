@@ -100,9 +100,9 @@ func TestPositionCodeBlock(t *testing.T) {
 	if cb.Start.Offset != 0 {
 		t.Errorf("code block Start.Offset = %d, want 0", cb.Start.Offset)
 	}
-	// Code block ends at the closing fence "```" which ends at offset 21.
-	if cb.End.Offset == 0 {
-		t.Error("code block End.Offset should be non-zero")
+	// Code block: "```go\nfmt.Println()\n```" = 5+1+13+1+3 = 23 bytes.
+	if cb.End.Offset != 23 {
+		t.Errorf("code block End.Offset = %d, want 23", cb.End.Offset)
 	}
 }
 
@@ -125,8 +125,9 @@ func TestPositionThematicBreak(t *testing.T) {
 	if tb.Start.Offset != 7 {
 		t.Errorf("thematic break Start.Offset = %d, want 7", tb.Start.Offset)
 	}
-	if tb.End.Offset == 0 {
-		t.Error("thematic break End.Offset should be non-zero")
+	// "* * *" ends at offset 12.
+	if tb.End.Offset != 12 {
+		t.Errorf("thematic break End.Offset = %d, want 12", tb.End.Offset)
 	}
 }
 
@@ -147,8 +148,9 @@ func TestPositionList(t *testing.T) {
 	if list.Start.Offset != 0 {
 		t.Errorf("list Start.Offset = %d, want 0", list.Start.Offset)
 	}
-	if list.End.Offset == 0 {
-		t.Error("list End.Offset should be non-zero")
+	// "- one\n- two" ends at offset 11.
+	if list.End.Offset != 11 {
+		t.Errorf("list End.Offset = %d, want 11", list.End.Offset)
 	}
 
 	// Check items.
@@ -184,8 +186,9 @@ func TestPositionBlockQuote(t *testing.T) {
 	if bq.Start.Offset != 0 {
 		t.Errorf("block quote Start.Offset = %d, want 0", bq.Start.Offset)
 	}
-	if bq.End.Offset == 0 {
-		t.Error("block quote End.Offset should be non-zero")
+	// "> hello" ends at offset 7.
+	if bq.End.Offset != 7 {
+		t.Errorf("block quote End.Offset = %d, want 7", bq.End.Offset)
 	}
 }
 
@@ -206,9 +209,9 @@ func TestPositionDiv(t *testing.T) {
 	if div.Start.Offset != 0 {
 		t.Errorf("div Start.Offset = %d, want 0", div.Start.Offset)
 	}
-	// Div ends at closing ":::" which ends at offset 20.
-	if div.End.Offset == 0 {
-		t.Error("div End.Offset should be non-zero")
+	// Div ends at closing ":::" which ends at offset 21.
+	if div.End.Offset != 21 {
+		t.Errorf("div End.Offset = %d, want 21", div.End.Offset)
 	}
 }
 
