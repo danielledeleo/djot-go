@@ -101,16 +101,18 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 
 		section.SetAttr("id", id)
 
-		// Move any non-id attributes from heading to section.
+		// Move any non-id attributes from heading to section,
+		// preserving insertion order.
 		if node.Attrs != nil {
-			for k, v := range node.Attrs {
+			for _, k := range node.attrOrder {
 				if k != "id" {
-					section.SetAttr(k, v)
+					section.SetAttr(k, node.Attrs[k])
 				}
 			}
 		}
 		// Clear heading attrs (ID lives on the section now).
 		node.Attrs = nil
+		node.attrOrder = nil
 
 		section.Children = append(section.Children, node)
 		i++

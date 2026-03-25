@@ -622,15 +622,10 @@ func (r *htmlRenderer) renderAttrs(n *Node) {
 	}
 }
 
+// renderNonInternalAttrs is an alias for renderAttrs, kept for call-site clarity
+// on list containers where internal attributes were historically filtered.
 func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
-	if len(n.Attrs) == 0 {
-		return
-	}
-	for _, k := range n.attrOrder {
-		if v, ok := n.Attrs[k]; ok {
-			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
-		}
-	}
+	r.renderAttrs(n)
 }
 
 func escapeHTML(s string) string {
