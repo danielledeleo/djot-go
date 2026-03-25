@@ -1175,7 +1175,7 @@ func (p *inlineParser) addTextChar(c byte) {
 		idx := len(p.nodes) - 1
 		prev := p.nodes[idx]
 		if prev.Kind == Text && !p.openerIdx[idx] {
-			prev.Text += string(c)
+			prev.Text = prev.Text + string(c)
 			return
 		}
 	}

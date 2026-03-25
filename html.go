@@ -1,8 +1,8 @@
 package djot
 
 import (
-	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -199,7 +199,13 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("</p>\n")
 
 	case Heading:
-		tag := fmt.Sprintf("h%d", n.Level)
+		level := n.Level
+		if level < 1 {
+			level = 1
+		} else if level > 6 {
+			level = 6
+		}
+		tag := "h" + strconv.Itoa(level)
 		r.write("<" + tag)
 		r.renderAttrs(n)
 		r.write(">")
@@ -216,7 +222,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.renderAttrs(n)
 		r.write("><code")
 		if n.Lang != "" {
-			r.write(fmt.Sprintf(" class=\"language-%s\"", escapeAttr(n.Lang)))
+			r.write(" class=\"language-" + escapeAttr(n.Lang) + "\"")
 		}
 		r.write(">")
 		r.write(escapeHTML(n.Text))
@@ -254,7 +260,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 	case OrderedList:
 		r.write("<ol")
 		if n.ListStart != 1 {
-			r.write(fmt.Sprintf(" start=\"%d\"", n.ListStart))
+			r.write(" start=\"" + strconv.Itoa(n.ListStart) + "\"")
 		}
 		switch n.ListStyle {
 		case ListAlphaLower:
@@ -309,7 +315,8 @@ func (r *htmlRenderer) renderNode(n *Node) {
 			case AlignCenter:
 				alignStr = "center"
 			}
-			r.write(fmt.Sprintf(` style="text-align: %s;"`, alignStr))
+			r.write(` style="text-align: ` + alignStr + `;"`)
+
 		}
 		r.renderAttrs(n)
 		r.write(">")
@@ -427,7 +434,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 	case Link:
 		r.write("<a")
 		if n.Target != "" || n.HasTarget {
-			r.write(fmt.Sprintf(" href=\"%s\"", escapeAttr(n.Target)))
+			r.write(" href=\"" + escapeAttr(n.Target) + "\"")
 		}
 		r.renderAttrs(n)
 		r.write(">")
@@ -438,10 +445,10 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<img")
 		alt := collectText(n)
 		if alt != "" {
-			r.write(fmt.Sprintf(" alt=\"%s\"", escapeAttr(alt)))
+			r.write(" alt=\"" + escapeAttr(alt) + "\"")
 		}
 		if n.Target != "" || n.HasTarget {
-			r.write(fmt.Sprintf(" src=\"%s\"", escapeAttr(n.Target)))
+			r.write(" src=\"" + escapeAttr(n.Target) + "\"")
 		}
 		r.renderAttrs(n)
 		r.write(">")
@@ -482,8 +489,8 @@ func (r *htmlRenderer) renderNode(n *Node) {
 
 	case FootnoteReference:
 		num := r.footnoteNums[n.Label]
-		r.write(fmt.Sprintf(`<a id="fnref%d" href="#fn%d" role="doc-noteref"><sup>%d</sup></a>`,
-			num, num, num))
+		ns := strconv.Itoa(num)
+		r.write(`<a id="fnref` + ns + `" href="#fn` + ns + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
 
 	case DoubleQuoted:
 		r.write("\u201c")
@@ -565,7 +572,8 @@ func (r *htmlRenderer) renderFootnotesSection() {
 	}
 	r.write("<section role=\"doc-endnotes\">\n<hr>\n<ol>\n")
 	for _, fi := range r.footnoteOrder {
-		r.write(fmt.Sprintf("<li id=\"fn%d\">\n", fi.num))
+		ns := strconv.Itoa(fi.num)
+		r.write("<li id=\"fn" + ns + "\">\n")
 		if fi.node != nil && len(fi.node.Children) > 0 {
 			// Render all children. Append back-reference to the last paragraph.
 			children := fi.node.Children
@@ -575,7 +583,7 @@ func (r *htmlRenderer) renderFootnotesSection() {
 					lastParagraphIdx = i
 				}
 			}
-			backref := fmt.Sprintf(`<a href="#fnref%d" role="doc-backlink">↩︎</a>`, fi.num)
+			backref := `<a href="#fnref` + ns + `" role="doc-backlink">↩︎</a>`
 			for i, child := range children {
 				if i == lastParagraphIdx {
 					// Render paragraph with backref appended inside <p>.
@@ -591,11 +599,11 @@ func (r *htmlRenderer) renderFootnotesSection() {
 			}
 			if lastParagraphIdx == -1 {
 				// No paragraph found; add backref in its own paragraph.
-				r.write(fmt.Sprintf("<p>%s</p>\n", backref))
+				r.write("<p>" + backref + "</p>\n")
 			}
 		} else {
 			// Empty or undefined footnote: just the back-reference.
-			r.write(fmt.Sprintf("<p><a href=\"#fnref%d\" role=\"doc-backlink\">↩︎</a></p>\n", fi.num))
+			r.write("<p><a href=\"#fnref" + ns + "\" role=\"doc-backlink\">↩︎</a></p>\n")
 		}
 		r.write("</li>\n")
 	}
@@ -612,7 +620,7 @@ func (r *htmlRenderer) renderAttrs(n *Node) {
 			continue // internal metadata, not an HTML attribute
 		}
 		if v, ok := n.Attrs[k]; ok {
-			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))
+			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
 		}
 	}
 }
@@ -626,14 +634,27 @@ func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
 			continue // internal metadata, not an HTML attribute
 		}
 		if v, ok := n.Attrs[k]; ok {
-			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))
+			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
 		}
 	}
 }
 
 func escapeHTML(s string) string {
-	var b strings.Builder
+	// Fast path: no escaping needed.
 	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '&', '<', '>':
+			return escapeHTMLSlow(s, i)
+		}
+	}
+	return s
+}
+
+func escapeHTMLSlow(s string, first int) string {
+	var b strings.Builder
+	b.Grow(len(s) + 10)
+	b.WriteString(s[:first])
+	for i := first; i < len(s); i++ {
 		switch s[i] {
 		case '&':
 			b.WriteString("&amp;")
@@ -649,8 +670,21 @@ func escapeHTML(s string) string {
 }
 
 func escapeAttr(s string) string {
-	var b strings.Builder
+	// Fast path: no escaping needed.
 	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '&', '<', '>', '"':
+			return escapeAttrSlow(s, i)
+		}
+	}
+	return s
+}
+
+func escapeAttrSlow(s string, first int) string {
+	var b strings.Builder
+	b.Grow(len(s) + 10)
+	b.WriteString(s[:first])
+	for i := first; i < len(s); i++ {
 		switch s[i] {
 		case '&':
 			b.WriteString("&amp;")
