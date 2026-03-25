@@ -83,7 +83,7 @@ func (r *astRenderer) renderFields(n *Node) {
 		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
 
 	case BulletList:
-		if n.Attr("tight") == "true" {
+		if n.tight {
 			r.write(" tight=true")
 		}
 		if n.Marker != 0 {
@@ -91,7 +91,7 @@ func (r *astRenderer) renderFields(n *Node) {
 		}
 
 	case OrderedList:
-		if n.Attr("tight") == "true" {
+		if n.tight {
 			r.write(" tight=true")
 		}
 		r.write(fmt.Sprintf(" style=%s", astStringify(astListStyle(n.ListStyle))))
@@ -100,7 +100,7 @@ func (r *astRenderer) renderFields(n *Node) {
 		}
 
 	case TaskList:
-		if n.Attr("tight") == "true" {
+		if n.tight {
 			r.write(" tight=true")
 		}
 
@@ -173,11 +173,7 @@ func (r *astRenderer) renderAttrs(n *Node) {
 	if n.Attrs == nil {
 		return
 	}
-	for _, k := range n.AttrOrder {
-		// Skip internal attributes already rendered as dedicated fields.
-		if k == "tight" {
-			continue
-		}
+	for _, k := range n.attrOrder {
 		v := n.Attrs[k]
 		r.write(fmt.Sprintf(" %s=%s", k, astStringify(v)))
 	}

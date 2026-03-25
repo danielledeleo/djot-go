@@ -653,7 +653,7 @@ func (p *inlineParser) parseBracketClose() {
 			inner := p.input[p.pos+1 : end]
 			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
-				node := &Node{Kind: Span, Children: childCopy, Attrs: attrs, AttrOrder: attrOrder}
+				node := &Node{Kind: Span, Children: childCopy, Attrs: attrs, attrOrder: attrOrder}
 				p.addNode(node)
 				p.pos = end + 1
 				return
@@ -896,7 +896,7 @@ func (p *inlineParser) parseInlineAttr() {
 			lastSpace := strings.LastIndexByte(text, ' ')
 			if lastSpace == -1 {
 				p.nodes = p.nodes[:len(p.nodes)-1]
-				span := &Node{Kind: Span, Attrs: attrs, AttrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: text}}}
+				span := &Node{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: text}}}
 				p.addNode(span)
 			} else {
 				word := text[lastSpace+1:]
@@ -906,7 +906,7 @@ func (p *inlineParser) parseInlineAttr() {
 					return
 				}
 				prev.Text = text[:lastSpace+1]
-				span := &Node{Kind: Span, Attrs: attrs, AttrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: word}}}
+				span := &Node{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: word}}}
 				p.addNode(span)
 			}
 		} else {

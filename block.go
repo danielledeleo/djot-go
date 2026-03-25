@@ -710,7 +710,7 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 	}
 
 	if tight {
-		node.SetAttr("tight", "true")
+		node.tight = true
 	}
 
 	// Set list end from last item.
@@ -922,7 +922,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 	}
 
 	if tight {
-		node.SetAttr("tight", "true")
+		node.tight = true
 	}
 
 	if len(node.Children) > 0 {
@@ -1768,7 +1768,7 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 	}
 
 	if tight {
-		node.SetAttr("tight", "true")
+		node.tight = true
 	}
 
 	if len(node.Children) > 0 {
@@ -1976,7 +1976,7 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 	}
 
 	if tight {
-		node.SetAttr("tight", "true")
+		node.tight = true
 	}
 
 	if len(node.Children) > 0 {

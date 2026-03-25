@@ -139,7 +139,7 @@ type Node struct {
 	Kind      NodeKind
 	Children  []*Node
 	Attrs     map[string]string
-	AttrOrder []string // tracks insertion order of attribute keys
+	attrOrder []string // tracks insertion order of attribute keys
 	Start     Pos
 	End       Pos
 
@@ -161,6 +161,9 @@ type Node struct {
 
 	// RawBlock, RawInline
 	Format string
+
+	// BulletList, OrderedList, TaskList, DefinitionList
+	tight bool // true for tight (compact) lists
 
 	// BulletList
 	Marker byte // list marker character (e.g., '-', '*', '+')
@@ -195,7 +198,7 @@ func (n *Node) SetAttr(key, value string) {
 		n.Attrs = make(map[string]string)
 	}
 	if _, exists := n.Attrs[key]; !exists {
-		n.AttrOrder = append(n.AttrOrder, key)
+		n.attrOrder = append(n.attrOrder, key)
 	}
 	n.Attrs[key] = value
 }

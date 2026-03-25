@@ -251,7 +251,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<ul")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.Attr("tight") == "true"
+		tight := n.tight
 		for _, child := range n.Children {
 			r.renderListItem(child, tight)
 		}
@@ -274,7 +274,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		}
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.Attr("tight") == "true"
+		tight := n.tight
 		for _, child := range n.Children {
 			r.renderListItem(child, tight)
 		}
@@ -327,7 +327,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<dl")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.Attr("tight") == "true"
+		tight := n.tight
 		for _, child := range n.Children {
 			switch child.Kind {
 			case Term:
@@ -357,7 +357,7 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<ul class=\"task-list\"")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.Attr("tight") == "true"
+		tight := n.tight
 		for _, child := range n.Children {
 			r.renderTaskListItem(child, tight)
 		}
@@ -614,11 +614,8 @@ func (r *htmlRenderer) renderAttrs(n *Node) {
 	if len(n.Attrs) == 0 {
 		return
 	}
-	// Use insertion order (AttrOrder) for deterministic output.
-	for _, k := range n.AttrOrder {
-		if k == "tight" {
-			continue // internal metadata, not an HTML attribute
-		}
+	// Use insertion order (attrOrder) for deterministic output.
+	for _, k := range n.attrOrder {
 		if v, ok := n.Attrs[k]; ok {
 			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
 		}
@@ -629,10 +626,7 @@ func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
 	if len(n.Attrs) == 0 {
 		return
 	}
-	for _, k := range n.AttrOrder {
-		if k == "tight" {
-			continue // internal metadata, not an HTML attribute
-		}
+	for _, k := range n.attrOrder {
 		if v, ok := n.Attrs[k]; ok {
 			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
 		}

@@ -54,8 +54,8 @@ func walkChildren(n *Node, fn FilterFunc) {
 			walkChildren(v.Replacement, fn)
 			i++
 		default:
-			walkChildren(child, fn)
-			i++
+			panic("Walk: FilterFunc must return Continue, SkipChildren, Remove, or Replace()")
+
 		}
 	}
 }
