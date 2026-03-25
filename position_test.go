@@ -211,3 +211,94 @@ func TestPositionDiv(t *testing.T) {
 		t.Error("div End.Offset should be non-zero")
 	}
 }
+
+// TestPositionSubParsers verifies that content inside containers (blockquotes,
+// divs, list items, etc.) has positions that refer back to the original source,
+// not the reconstructed sub-parser input.
+func TestPositionSubParsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:  "blockquote content positions",
+			input: "> hello\n> world",
+			expected: `doc
+  block_quote (1:1:0-3:0:15)
+    para (1:3:2-3:0:15)
+      str (1:3:2-1:7:6) text="hello"
+      soft_break (1:8:7-2:0:7)
+      str (2:1:8-2:5:12) text="world"`,
+		},
+		{
+			name:  "div content positions",
+			input: "::: note\nfirst\n\nsecond\n:::",
+			expected: `doc
+  div (1:1:0-6:0:26) class="note"
+    para (2:1:9-3:0:14)
+      str (2:1:9-2:5:13) text="first"
+    para (4:1:16-5:0:22)
+      str (4:1:16-4:6:21) text="second"`,
+		},
+		{
+			name:  "bullet list item content positions",
+			input: " - alpha\n - beta",
+			expected: `doc
+  bullet_list (1:2:1-3:0:16) tight=true style="-"
+    list_item (1:2:1-2:1:9)
+      para (1:4:3-2:0:8)
+        str (1:4:3-1:8:7) text="alpha"
+    list_item (2:2:10-3:0:16)
+      para (2:4:12-3:0:16)
+        str (2:4:12-2:7:15) text="beta"`,
+		},
+		{
+			name:  "ordered list item content positions",
+			input: "1. first\n2. second",
+			expected: `doc
+  ordered_list (1:1:0-3:0:18) tight=true style="1."
+    list_item (1:1:0-2:0:8)
+      para (1:4:3-2:0:8)
+        str (1:4:3-1:8:7) text="first"
+    list_item (2:1:9-3:0:18)
+      para (2:4:12-3:0:18)
+        str (2:4:12-2:9:17) text="second"`,
+		},
+		{
+			name:  "nested blockquote in list",
+			input: "- > quoted",
+			expected: `doc
+  bullet_list (1:1:0-2:0:10) tight=true style="-"
+    list_item (1:1:0-2:0:10)
+      block_quote (1:3:2-2:0:10)
+        para (1:6:5-2:0:10)
+          str (1:6:5-2:0:10) text="quoted"`,
+		},
+		{
+			name:  "long line column numbers",
+			input: "This has *emphasis* at column ten and a [link](https://example.com) further along.",
+			expected: `doc
+  para (1:1:0-2:0:82)
+    str (1:1:0-1:9:8) text="This has "
+    strong (1:10:9-1:19:18)
+      str (1:11:10-1:18:17) text="emphasis"
+    str (1:20:19-1:40:39) text=" at column ten and a "
+    link (1:41:40-1:67:66) destination="https://example.com"
+      str (1:42:41-1:45:44) text="link"
+    str (1:68:67-1:81:80) text=" further along."`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := djot.Parse(tc.input)
+			got := trimTrailingNewline(djot.RenderAST(doc, true))
+			expected := trimTrailingNewline(tc.expected)
+			if got != expected {
+				t.Errorf("input: %q\n\nexpected:\n%s\n\ngot:\n%s", tc.input, expected, got)
+			}
+		})
+	}
+}
+

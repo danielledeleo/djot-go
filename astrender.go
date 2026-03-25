@@ -30,7 +30,7 @@ func (r *astRenderer) renderNode(n *Node, indent int) {
 	r.write(strings.Repeat(" ", indent))
 	r.write(astTagName(n))
 
-	if r.positions {
+	if r.positions && n.Kind != Document {
 		r.renderPos(n)
 	}
 
@@ -49,10 +49,22 @@ func (r *astRenderer) renderPos(n *Node) {
 	}
 	fi := &r.doc.Files[n.Start.File]
 	sLine, sCol := fi.Position(n.Start.Offset)
-	eLine, eCol := fi.Position(n.End.Offset)
+	eLine, eCol := r.endPosition(fi, n.End.Offset)
 	r.write(fmt.Sprintf(" (%d:%d:%d-%d:%d:%d)",
 		sLine, sCol, n.Start.Offset,
 		eLine, eCol, n.End.Offset))
+}
+
+// endPosition resolves an end offset to line:col using the djot.js convention:
+// newline characters and end-of-input map to the next line at column 0.
+func (r *astRenderer) endPosition(fi *FileInfo, offset int) (line, col int) {
+	src := fi.Source
+	if offset >= len(src) || (offset < len(src) && src[offset] == '\n') {
+		// Position is at a newline or past the end — report as next line, col 0.
+		line, _ = fi.Position(offset)
+		return line + 1, 0
+	}
+	return fi.Position(offset)
 }
 
 func (r *astRenderer) renderFields(n *Node) {

@@ -124,8 +124,7 @@ func loadOfficialTests(t *testing.T) map[string][]TestCase {
 	t.Helper()
 
 	skip := map[string]bool{
-		"filters.test":   true, // requires Lua filter execution
-		"sourcepos.test": true, // block-level position tracking needs work
+		"filters.test": true, // requires Lua filter execution
 	}
 
 	files, err := filepath.Glob("testdata/official/*.test")
