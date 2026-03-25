@@ -154,7 +154,9 @@ func (p *inlineParser) parse() []*Node {
 
 func (p *inlineParser) parseEscape() {
 	if p.pos+1 >= len(p.input) {
-		p.addTextChar('\\')
+		// Trailing backslash at end of input = hard break.
+		p.trimTrailingSpaces()
+		p.addNode(&Node{Kind: HardBreak})
 		p.pos++
 		return
 	}

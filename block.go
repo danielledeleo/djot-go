@@ -1223,11 +1223,16 @@ func isClosingDivFence(s string, minLen int) bool {
 }
 
 func bulletListMarker(s string) (marker byte, after string, ok bool) {
-	if len(s) < 2 {
+	if len(s) == 0 {
 		return 0, "", false
 	}
-	if (s[0] == '-' || s[0] == '*' || s[0] == '+') && s[1] == ' ' {
-		return s[0], s[2:], true
+	if s[0] == '-' || s[0] == '*' || s[0] == '+' {
+		if len(s) == 1 {
+			return s[0], "", true // marker at end of input (empty item)
+		}
+		if s[1] == ' ' {
+			return s[0], s[2:], true
+		}
 	}
 	return 0, "", false
 }

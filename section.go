@@ -2,6 +2,7 @@ package djot
 
 import (
 	"strings"
+	"unicode"
 )
 
 // wrapSections wraps headings and their content in <section> elements.
@@ -148,7 +149,7 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 // autoID generates a section ID from heading text content.
 func autoID(heading *Node) string {
 	text := collectText(heading)
-	// Replace whitespace runs with single hyphen, keep alphanumeric and hyphens.
+	// Replace whitespace runs with single hyphen, keep letters, digits, and hyphens.
 	var b strings.Builder
 	prevWasSpace := false
 	for _, r := range text {
@@ -157,8 +158,7 @@ func autoID(heading *Node) string {
 				b.WriteByte('-')
 			}
 			prevWasSpace = true
-		} else if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' {
+		} else if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
 			b.WriteRune(r)
 			prevWasSpace = false
 		} else {
