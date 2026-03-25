@@ -597,15 +597,15 @@ func (p *inlineParser) parseBracketClose() {
 
 	// Check what follows: (url), [ref], {attrs}, or nothing.
 	if p.pos < len(p.input) && p.input[p.pos] == '(' {
-		// Inline link/image.
-		end := strings.IndexByte(p.input[p.pos:], ')')
+		// Inline link/image — find closing ) with balanced parentheses.
+		end := findBalancedParen(p.input, p.pos)
 		if end != -1 {
-			target := p.input[p.pos+1 : p.pos+end]
+			target := p.input[p.pos+1 : end]
 			target = strings.ReplaceAll(target, "\n", "")
 			target = strings.TrimSpace(target)
 			target = processBackslashEscapes(target)
 			linkStart := p.srcPos(op.pos)
-			p.pos = p.pos + end + 1
+			p.pos = end + 1
 			linkEnd := p.srcPos(p.pos - 1)
 			if isImage {
 				node := &Node{Kind: Image, Target: target, HasTarget: true, Children: childCopy}
@@ -1235,6 +1235,24 @@ func (p *inlineParser) resolveUnclosedOpeners() {
 }
 
 // findClosingBrace finds the matching } for a { at pos, respecting quoted strings.
+// findBalancedParen finds the closing ')' that matches the '(' at pos,
+// tracking nested parentheses. Returns the index of the closing ')' or -1.
+func findBalancedParen(input string, pos int) int {
+	depth := 0
+	for i := pos; i < len(input); i++ {
+		switch input[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 func findClosingBrace(input string, pos int) int {
 	depth := 0
 	inQuote := byte(0)
