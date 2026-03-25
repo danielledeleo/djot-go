@@ -102,6 +102,39 @@ func TestLinkBalancedParentheses(t *testing.T) {
 	}
 }
 
+func TestReferenceDefinitionScoping(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			"ref inside blockquote used outside",
+			"> [foo]: https://example.com\n\n[click][foo]\n",
+			"<blockquote>\n</blockquote>\n<p><a href=\"https://example.com\">click</a></p>\n",
+		},
+		{
+			"ref inside list item used outside",
+			"- [bar]: https://example.com\n\n[click][bar]\n",
+			"<ul>\n<li>\n</li>\n</ul>\n<p><a href=\"https://example.com\">click</a></p>\n",
+		},
+		{
+			"ref at top level used inside blockquote",
+			"[baz]: https://example.com\n\n> [click][baz]\n",
+			"<blockquote>\n<p><a href=\"https://example.com\">click</a></p>\n</blockquote>\n",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := djot.Parse(tc.input)
+			got := djot.RenderHTML(doc)
+			if got != tc.want {
+				t.Errorf("got:  %q\nwant: %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRenderHTMLToDiscard(t *testing.T) {
 	// Verify no panic when writing to io.Discard.
 	doc := djot.Parse("# Heading\n\nParagraph with *emphasis* and a [link](url).\n")

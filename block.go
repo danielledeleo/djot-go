@@ -53,10 +53,11 @@ func (cl *contentLines) addBlank(srcStart, srcEnd int) {
 }
 
 // subParser creates a block parser from the collected content lines,
-// with source positions mapped back to the original input.
-func (cl *contentLines) subParser() *blockParser {
+// with source positions mapped back to the original input. The refs map
+// is shared with the parent parser so reference definitions are globally visible.
+func (cl *contentLines) subParser(refs map[string]*Node) *blockParser {
 	input := strings.Join(cl.lines, "\n")
-	bp := &blockParser{input: input, references: make(map[string]*Node)}
+	bp := &blockParser{input: input, references: refs}
 	bp.splitLines()
 	for i := range bp.lines {
 		if i < len(cl.spans) {
@@ -444,7 +445,7 @@ func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix str
 	}
 
 	// Parse the collected content as blocks.
-	subBP := content.subParser()
+	subBP := content.subParser(bp.references)
 	subBP.parseBlocks(node, 0, "")
 
 	node.End = Pos{Offset: lastEnd}
@@ -516,7 +517,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 		bp.pos++
 	}
 
-	subBP := content.subParser()
+	subBP := content.subParser(bp.references)
 	subBP.parseBlocks(node, 0, "")
 
 	node.End = Pos{Offset: lastEnd}
@@ -663,7 +664,7 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			}
 		}
 
-		subBP := content.subParser()
+		subBP := content.subParser(bp.references)
 		subBP.parseBlocks(item, 0, "")
 
 		// Set item end past the newline that terminates the last consumed
@@ -889,7 +890,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			}
 		}
 
-		subBP := content.subParser()
+		subBP := content.subParser(bp.references)
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
@@ -1629,7 +1630,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 	}
 
 	if len(content.lines) > 0 {
-		subBP := content.subParser()
+		subBP := content.subParser(bp.references)
 		subBP.parseBlocks(node, 0, "")
 	}
 
@@ -1758,7 +1759,7 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 			}
 		}
 
-		subBP := content.subParser()
+		subBP := content.subParser(bp.references)
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
@@ -1941,7 +1942,7 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		}
 
 		// Parse collected content as blocks.
-		subBP := content.subParser()
+		subBP := content.subParser(bp.references)
 		itemNode := &Node{Kind: Document} // temporary container
 		subBP.parseBlocks(itemNode, 0, "")
 
