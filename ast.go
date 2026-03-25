@@ -162,6 +162,9 @@ type Node struct {
 	// RawBlock, RawInline
 	Format string
 
+	// BulletList
+	Marker byte // list marker character (e.g., '-', '*', '+')
+
 	// OrderedList
 	ListStyle ListStyle
 	ListStart int // starting number

@@ -603,13 +603,13 @@ func (r *htmlRenderer) renderFootnotesSection() {
 }
 
 func (r *htmlRenderer) renderAttrs(n *Node) {
-	if n.Attrs == nil || len(n.Attrs) == 0 {
+	if len(n.Attrs) == 0 {
 		return
 	}
 	// Use insertion order (AttrOrder) for deterministic output.
 	for _, k := range n.AttrOrder {
 		if k == "tight" {
-			continue // internal attribute
+			continue // internal metadata, not an HTML attribute
 		}
 		if v, ok := n.Attrs[k]; ok {
 			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))
@@ -618,12 +618,12 @@ func (r *htmlRenderer) renderAttrs(n *Node) {
 }
 
 func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
-	if n.Attrs == nil || len(n.Attrs) == 0 {
+	if len(n.Attrs) == 0 {
 		return
 	}
 	for _, k := range n.AttrOrder {
 		if k == "tight" {
-			continue
+			continue // internal metadata, not an HTML attribute
 		}
 		if v, ok := n.Attrs[k]; ok {
 			r.write(fmt.Sprintf(` %s="%s"`, k, escapeAttr(v)))

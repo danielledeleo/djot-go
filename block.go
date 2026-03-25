@@ -483,6 +483,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker string, indent int, prefix string) {
 	node := &Node{Kind: BulletList}
 	node.Start = Pos{Offset: bp.currentLine().start}
+	node.Marker = marker
 	bp.attachPendingAttrs(node)
 
 	hasBlankBetweenItems := false
@@ -1979,54 +1980,79 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 		break
 	}
 
-	// Check if the next non-blank line starts with "^ "
-	if bp.pos < len(bp.lines) {
+	// Look for caption blocks: each starts with "^ ". A later caption
+	// replaces an earlier one, even if separated by blank lines.
+	var captionNode *Node
+	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
 		text := line.text
-		if prefix != "" && strings.HasPrefix(text, prefix) {
-			text = text[len(prefix):]
+		if prefix != "" {
+			if strings.HasPrefix(text, prefix) {
+				text = text[len(prefix):]
+			} else {
+				break
+			}
 		}
 		trimmed := strings.TrimLeft(text, " \t")
-		if len(trimmed) >= 2 && trimmed[0] == '^' && trimmed[1] == ' ' {
-			// Collect caption lines: first line after "^ ", then continuation lines.
-			captionStart := line.start
-			var captionLines []string
-			captionLines = append(captionLines, trimmed[2:])
-			captionLastEnd := line.end
-			bp.pos++
-			for bp.pos < len(bp.lines) {
-				cLine := bp.currentLine()
-				cText := cLine.text
-				if prefix != "" {
-					if strings.HasPrefix(cText, prefix) {
-						cText = cText[len(prefix):]
-					} else {
-						break
-					}
-				}
-				if isBlankLine(cText) {
+		if !(len(trimmed) >= 2 && trimmed[0] == '^' && trimmed[1] == ' ') {
+			break
+		}
+		// Found a caption start. Collect this caption's lines.
+		captionStart := line.start
+		var captionLines []string
+		captionLines = append(captionLines, trimmed[2:])
+		captionLastEnd := line.end
+		bp.pos++
+		for bp.pos < len(bp.lines) {
+			cLine := bp.currentLine()
+			cText := cLine.text
+			if prefix != "" {
+				if strings.HasPrefix(cText, prefix) {
+					cText = cText[len(prefix):]
+				} else {
 					break
 				}
-				cTrimmed := strings.TrimLeft(cText, " \t")
-				// A new caption line starting with ^ replaces the current caption.
-				if len(cTrimmed) >= 2 && cTrimmed[0] == '^' && cTrimmed[1] == ' ' {
-					captionStart = cLine.start
-					captionLines = []string{cTrimmed[2:]}
-					captionLastEnd = cLine.end
-					bp.pos++
-					continue
-				}
-				captionLines = append(captionLines, cTrimmed)
+			}
+			if isBlankLine(cText) {
+				break
+			}
+			cTrimmed := strings.TrimLeft(cText, " \t")
+			// A new ^ line within the same block replaces the caption.
+			if len(cTrimmed) >= 2 && cTrimmed[0] == '^' && cTrimmed[1] == ' ' {
+				captionStart = cLine.start
+				captionLines = []string{cTrimmed[2:]}
 				captionLastEnd = cLine.end
 				bp.pos++
+				continue
 			}
-			captionText := strings.Join(captionLines, "\n")
-			captionNode := &Node{Kind: Caption, Text: captionText}
-			captionNode.Start = Pos{Offset: captionStart}
-			captionNode.End = Pos{Offset: captionLastEnd}
-			// Prepend caption as first child of table.
-			node.Children = append([]*Node{captionNode}, node.Children...)
+			captionLines = append(captionLines, cTrimmed)
+			captionLastEnd = cLine.end
+			bp.pos++
 		}
+		captionText := strings.Join(captionLines, "\n")
+		captionNode = &Node{Kind: Caption, Text: captionText}
+		captionNode.Start = Pos{Offset: captionStart}
+		captionNode.End = Pos{Offset: captionLastEnd}
+		// Skip blank lines before checking for another caption.
+		for bp.pos < len(bp.lines) {
+			bl := bp.currentLine()
+			bt := bl.text
+			if prefix != "" {
+				if strings.HasPrefix(bt, prefix) {
+					bt = bt[len(prefix):]
+				} else {
+					break
+				}
+			}
+			if !isBlankLine(bt) {
+				break
+			}
+			bp.pos++
+		}
+	}
+	if captionNode != nil {
+		// Prepend caption as first child of table.
+		node.Children = append([]*Node{captionNode}, node.Children...)
 	}
 
 	// If no caption was found, restore position (blank lines consumed should stay consumed

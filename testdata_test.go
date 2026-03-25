@@ -16,7 +16,8 @@ type TestCase struct {
 	Expected string
 	File     string
 	Line     int
-	IsAST    bool // true if expected output is AST format (``` a blocks)
+	IsAST       bool // true if expected output is AST format (``` a blocks)
+	ASTPositions bool // true if AST output includes source positions (``` ap blocks)
 }
 
 // parseTestFile reads a djot .test file and returns its test cases.
@@ -33,7 +34,7 @@ func parseTestFile(path string) ([]TestCase, error) {
 	var desc string
 	var inBlock bool
 	var inExpected bool
-	var isAST bool
+	var isAST, astPositions bool
 	var input, expected strings.Builder
 	var blockLine int
 	var blockFence string
@@ -58,7 +59,8 @@ func parseTestFile(path string) ([]TestCase, error) {
 				blockFence = fence
 				// Check for AST format marker (e.g., "``` a")
 				suffix := strings.TrimSpace(line[len(fence):])
-				isAST = suffix == "a"
+				isAST = suffix == "a" || suffix == "ap"
+				astPositions = suffix == "ap"
 				inBlock = true
 				inExpected = false
 				input.Reset()
@@ -82,12 +84,13 @@ func parseTestFile(path string) ([]TestCase, error) {
 				name = fmt.Sprintf("line %d", blockLine)
 			}
 			cases = append(cases, TestCase{
-				Name:     name,
-				Input:    input.String(),
-				Expected: expected.String(),
-				File:     filepath.Base(path),
-				Line:     blockLine,
-				IsAST:    isAST,
+				Name:         name,
+				Input:        input.String(),
+				Expected:     expected.String(),
+				File:         filepath.Base(path),
+				Line:         blockLine,
+				IsAST:        isAST,
+				ASTPositions: astPositions,
 			})
 			inBlock = false
 			desc = ""
@@ -122,8 +125,7 @@ func loadOfficialTests(t *testing.T) map[string][]TestCase {
 
 	skip := map[string]bool{
 		"filters.test":   true, // requires Lua filter execution
-		"sourcepos.test": true, // AST output, not HTML
-		"symb.test":      true, // AST output, not HTML
+		"sourcepos.test": true, // block-level position tracking needs work
 	}
 
 	files, err := filepath.Glob("testdata/official/*.test")

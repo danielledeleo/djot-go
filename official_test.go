@@ -14,11 +14,13 @@ func TestOfficial(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			for _, tc := range cases {
 				t.Run(tc.Name, func(t *testing.T) {
-					if tc.IsAST {
-						t.Skip("AST-format test, not supported by HTML test runner")
-					}
 					doc := djot.Parse(tc.Input)
-					got := djot.RenderHTML(doc)
+					var got string
+					if tc.IsAST {
+						got = djot.RenderAST(doc, tc.ASTPositions)
+					} else {
+						got = djot.RenderHTML(doc)
+					}
 
 					// Trim trailing newline for comparison.
 					got = trimTrailingNewline(got)
