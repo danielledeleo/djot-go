@@ -50,11 +50,14 @@ func parseAllInlines(root *Node, doc *Doc) {
 // parseInline parses a djot inline string into a list of inline nodes.
 // baseOffset is the source byte offset corresponding to input[0].
 func parseInline(input string, doc *Doc, baseOffset int) []*Node {
+	// Rough heuristic: ~1 node per 8 bytes of input.
+	estNodes := len(input)/8 + 4
 	p := &inlineParser{
 		input:      input,
 		pos:        0,
-		openers:    make(map[byte][]*opener),
-		openerIdx:  make(map[int]bool),
+		nodes:      make([]*Node, 0, estNodes),
+		openers:    make(map[byte][]*opener, 4),
+		openerIdx:  make(map[int]bool, 8),
 		doc:        doc,
 		baseOffset: baseOffset,
 	}

@@ -57,18 +57,33 @@ func (cl *contentLines) addBlank(srcStart, srcEnd int) {
 // is shared with the parent parser so reference definitions are globally visible.
 func (cl *contentLines) subParser(refs map[string]*Node) *blockParser {
 	input := strings.Join(cl.lines, "\n")
-	bp := &blockParser{input: input, references: refs}
-	bp.splitLines()
-	for i := range bp.lines {
-		if i < len(cl.spans) {
-			bp.lines[i].start = cl.spans[i].start
-			bp.lines[i].end = cl.spans[i].end
+	// Build blockLines directly from the already-split content lines,
+	// avoiding the cost of re-splitting the joined string.
+	lines := make([]blockLine, len(cl.lines))
+	offset := 0
+	for i, text := range cl.lines {
+		indent := countLeadingSpaces(text)
+		lines[i] = blockLine{
+			start:  offset,
+			end:    offset + len(text),
+			text:   text,
+			indent: indent,
+			strip:  text,
 		}
+		// Overwrite with original source positions if available.
+		if i < len(cl.spans) {
+			lines[i].start = cl.spans[i].start
+			lines[i].end = cl.spans[i].end
+		}
+		offset += len(text) + 1 // +1 for the \n separator
 	}
-	return bp
+	return &blockParser{input: input, lines: lines, references: refs}
 }
 
 func (bp *blockParser) splitLines() {
+	// Pre-count lines to avoid repeated slice growth.
+	n := strings.Count(bp.input, "\n") + 1
+	bp.lines = make([]blockLine, 0, n)
 	offset := 0
 	for offset < len(bp.input) {
 		end := strings.IndexByte(bp.input[offset:], '\n')
