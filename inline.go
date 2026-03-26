@@ -988,7 +988,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 	}
 
 	canClose := p.canCloseQuote(start)
-	canOpen := p.canOpenQuote(start)
+	canOpen := p.canOpenQuote(start, char)
 
 	// Try to close first.
 	if canClose {
@@ -997,6 +997,10 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 				op := openers[i]
 				if op.marked {
 					continue // non-marked closer can't close a marked opener
+				}
+				// Reject empty spans (e.g. '' should nest, not close immediately).
+				if op.nodeIdx+1 >= len(p.nodes) {
+					continue
 				}
 				children := p.nodes[op.nodeIdx+1:]
 				childCopy := make([]*Node, len(children))
@@ -1035,20 +1039,24 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 }
 
 // canOpenQuote checks if a quote at position start can open.
-func (p *inlineParser) canOpenQuote(start int) bool {
-	// Must not be followed by whitespace or end of input.
+// For double quotes, the opentest is always true (matching djot.js).
+// For single quotes, the character must be preceded by whitespace, or
+// one of: " ' - ( [
+func (p *inlineParser) canOpenQuote(start int, char byte) bool {
+	// Must be followed by a non-space character.
 	if p.pos >= len(p.input) || isUnicodeWhitespace(p.input[p.pos]) {
 		return false
 	}
-	// Cannot open after ] or ).
-	if start > 0 && (p.input[start-1] == ']' || p.input[start-1] == ')') {
-		return false
+	if char == '"' {
+		return true
 	}
-	// Cannot open if preceded by alphanumeric (would be apostrophe/contraction).
-	if start > 0 && isAlphanumeric(p.input[start-1]) {
-		return false
+	// Single quote: can only open at start or after specific characters.
+	if start == 0 {
+		return true
 	}
-	return true
+	prev := p.input[start-1]
+	return prev == ' ' || prev == '\t' || prev == '\n' || prev == '\r' ||
+		prev == '"' || prev == '\'' || prev == '-' || prev == '(' || prev == '['
 }
 
 // canCloseQuote checks if a quote at position start can close.
@@ -1056,20 +1064,10 @@ func (p *inlineParser) canCloseQuote(start int) bool {
 	if start == 0 {
 		return false
 	}
-	// Must not be preceded by whitespace.
-	if isUnicodeWhitespace(p.input[start-1]) {
-		return false
-	}
-	// Cannot close if followed by alphanumeric (would be apostrophe/contraction).
-	if p.pos < len(p.input) && isAlphanumeric(p.input[p.pos]) {
-		return false
-	}
-	return true
+	// Must be preceded by a non-space character.
+	return !isUnicodeWhitespace(p.input[start-1])
 }
 
-func isAlphanumeric(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-}
 
 func (p *inlineParser) parseDashes() {
 	start := p.pos
