@@ -324,25 +324,30 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 
 	if canClose {
 		if openers, ok := p.openers[char]; ok && len(openers) > 0 {
+			// Only check the most recent non-marked opener.
+			var op *opener
+			var opIdx int
 			for i := len(openers) - 1; i >= 0; i-- {
-				op := openers[i]
-				if op.marked {
-					continue
+				if !openers[i].marked {
+					op = openers[i]
+					opIdx = i
+					break
 				}
+			}
+			if op != nil {
 				children := p.nodes[op.nodeIdx+1:]
-				if len(children) == 0 {
-					continue
+				if len(children) > 0 {
+					p.openers[char] = append(openers[:opIdx], openers[opIdx+1:]...)
+					childCopy := make([]*Node, len(children))
+					copy(childCopy, children)
+					p.invalidateOpenersFrom(op.nodeIdx)
+					p.nodes = p.nodes[:op.nodeIdx]
+					node := &Node{Kind: kind, Children: childCopy}
+					node.Start = p.srcPos(op.pos)
+					node.End = p.srcPos(p.pos - 1)
+					p.addNode(node)
+					return
 				}
-				p.openers[char] = append(openers[:i], openers[i+1:]...)
-				childCopy := make([]*Node, len(children))
-				copy(childCopy, children)
-				p.invalidateOpenersFrom(op.nodeIdx)
-				p.nodes = p.nodes[:op.nodeIdx]
-				node := &Node{Kind: kind, Children: childCopy}
-				node.Start = p.srcPos(op.pos)
-				node.End = p.srcPos(p.pos - 1)
-				p.addNode(node)
-				return
 			}
 		}
 	}
@@ -440,56 +445,41 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	canClose := p.canCloseDelimiter(start)
 	canOpen := p.canOpenDelimiter(start)
 
-	// Try to close first.
+	// Try to close first. Like djot.js, only check the most recent
+	// non-marked opener — don't loop back to older ones if it can't match.
 	if canClose {
 		if openers, ok := p.openers[char]; ok && len(openers) > 0 {
 			// Find the last non-marked opener.
+			var op *opener
+			var opIdx int
 			for i := len(openers) - 1; i >= 0; i-- {
-				op := openers[i]
-				if op.marked {
-					continue // non-marked closer can't close a marked opener
-				}
-
-				// Check for empty emphasis (no content between opener and closer).
-				children := p.nodes[op.nodeIdx+1:]
-				if len(children) == 0 {
-					continue // no empty emphasis
-				}
-
-				// Also reject if all children are opener placeholders
-				// for the same delimiter char (e.g., ___ = all underscores).
-				// Only count actual opener placeholders, not escaped chars.
-				allOpenerPlaceholders := true
-				for ci, ch := range children {
-					childIdx := op.nodeIdx + 1 + ci
-					if !(ch.Kind == Text && ch.Text == string(char) && p.openerIdx[childIdx]) {
-						allOpenerPlaceholders = false
-						break
-					}
-				}
-				if allOpenerPlaceholders {
-					// Older openers will have a strict superset of these
-					// placeholder children, so they'll also be all-placeholders.
-					// No point checking further.
+				if !openers[i].marked {
+					op = openers[i]
+					opIdx = i
 					break
 				}
+			}
+			if op != nil {
+				children := p.nodes[op.nodeIdx+1:]
+				// Reject empty emphasis (opener adjacent to closer with no content).
+				if len(children) > 0 {
+					p.openers[char] = append(openers[:opIdx], openers[opIdx+1:]...)
 
-				p.openers[char] = append(openers[:i], openers[i+1:]...)
+					childCopy := make([]*Node, len(children))
+					copy(childCopy, children)
 
-				childCopy := make([]*Node, len(children))
-				copy(childCopy, children)
+					// Invalidate any openers whose nodeIdx >= op.nodeIdx.
+					p.invalidateOpenersFrom(op.nodeIdx)
 
-				// Invalidate any openers whose nodeIdx >= op.nodeIdx.
-				p.invalidateOpenersFrom(op.nodeIdx)
+					// Remove opener placeholder and children from nodes.
+					p.nodes = p.nodes[:op.nodeIdx]
 
-				// Remove opener placeholder and children from nodes.
-				p.nodes = p.nodes[:op.nodeIdx]
-
-				node := &Node{Kind: kind, Children: childCopy}
-				node.Start = p.srcPos(op.pos)
-				node.End = p.srcPos(p.pos - 1)
-				p.addNode(node)
-				return
+					node := &Node{Kind: kind, Children: childCopy}
+					node.Start = p.srcPos(op.pos)
+					node.End = p.srcPos(p.pos - 1)
+					p.addNode(node)
+					return
+				}
 			}
 		}
 	}
