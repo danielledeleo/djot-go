@@ -1207,7 +1207,19 @@ func isDivFenceOpen(s string) bool {
 	for n < len(s) && s[n] == ':' {
 		n++
 	}
-	return n >= 3
+	if n < 3 {
+		return false
+	}
+	// Validate the class name: only [a-zA-Z0-9_-] allowed.
+	className := strings.TrimSpace(s[n:])
+	for i := 0; i < len(className); i++ {
+		c := className[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func isClosingDivFence(s string, minLen int) bool {
@@ -1784,8 +1796,11 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 }
 
 func isDefinitionListMarker(s string) bool {
-	// Definition list item starts with ": " (colon + space)
-	return len(s) >= 2 && s[0] == ':' && s[1] == ' '
+	// Definition list item starts with ":" followed by a space or end of line.
+	if len(s) == 0 || s[0] != ':' {
+		return false
+	}
+	return len(s) == 1 || s[1] == ' '
 }
 
 func isTableRow(s string) bool {
@@ -1874,7 +1889,10 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		}
 
 		// Collect item content lines (like a bullet list item).
-		afterMarker := stripped[2:]
+		afterMarker := ""
+		if len(stripped) > 2 {
+			afterMarker = stripped[2:]
+		}
 		itemStartOffset := line.start
 		bp.pos++
 

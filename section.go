@@ -102,18 +102,19 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 
 		section.SetAttr("id", id)
 
-		// Move any non-id attributes from heading to section,
-		// preserving insertion order.
+		// Remove id from heading (it lives on the section now).
+		// All other attributes stay on the heading.
 		if node.Attrs != nil {
+			delete(node.Attrs, "id")
+			// Rebuild attrOrder without "id".
+			filtered := node.attrOrder[:0]
 			for _, k := range node.attrOrder {
 				if k != "id" {
-					section.SetAttr(k, node.Attrs[k])
+					filtered = append(filtered, k)
 				}
 			}
+			node.attrOrder = filtered
 		}
-		// Clear heading attrs (ID lives on the section now).
-		node.Attrs = nil
-		node.attrOrder = nil
 
 		section.Children = append(section.Children, node)
 		i++
