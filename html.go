@@ -6,17 +6,30 @@ import (
 	"strings"
 )
 
-// RenderOption configures HTML rendering.
+// RenderOption configures HTML rendering. Pass to [RenderHTML] or [RenderHTMLTo].
 type RenderOption func(*renderConfig)
 
 // NodeRenderFunc is a hook that overrides rendering for a specific node kind.
+// It receives the node being rendered and a [NodeRenderer] for controlling output.
 type NodeRenderFunc func(n *Node, r NodeRenderer)
 
-// NodeRenderer provides access to the rendering pipeline from within a hook.
+// NodeRenderer provides methods for controlling output from within a render hook.
+//
+//   - [NodeRenderer.Write] emits raw HTML to the output.
+//   - [NodeRenderer.Children] renders the node's children through the full
+//     pipeline (including any hooks registered for child node kinds),
+//     without emitting the node's own wrapper element.
+//   - [NodeRenderer.Default] renders the node exactly as if no hook were
+//     registered. Calling Default does not re-trigger the hook.
 type NodeRenderer interface {
-	Children() // render this node's children through the full pipeline
-	Default()  // render this node as if no hook were registered
+	// Write emits a raw HTML string to the output.
 	Write(s string)
+	// Children renders this node's children through the full rendering
+	// pipeline, including any hooks for child node kinds.
+	Children()
+	// Default renders this node using the built-in renderer, as if no
+	// hook were registered. Does not re-trigger the hook.
+	Default()
 }
 
 type renderConfig struct {
@@ -24,7 +37,11 @@ type renderConfig struct {
 }
 
 // WithNodeRenderer registers a render hook for the given node kind.
+// The hook receives the [Node] and a [NodeRenderer] for full control over output.
 // If called multiple times for the same kind, the last one wins.
+//
+// Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
+// For simpler cases where you just need to return an HTML string, see [WithRenderFunc].
 func WithNodeRenderer(kind NodeKind, fn NodeRenderFunc) RenderOption {
 	return func(cfg *renderConfig) {
 		if cfg.hooks == nil {
@@ -32,6 +49,29 @@ func WithNodeRenderer(kind NodeKind, fn NodeRenderFunc) RenderOption {
 		}
 		cfg.hooks[kind] = fn
 	}
+}
+
+// WithRenderFunc registers a simple render hook for the given node kind.
+// The function receives the node and returns an HTML string to emit.
+// If it returns an empty string, the default rendering is used.
+//
+// This is convenient for leaf nodes like [Symbol] where you don't need
+// [NodeRenderer.Children] or [NodeRenderer.Default]:
+//
+//	html := RenderHTML(doc, WithRenderFunc(Symbol, func(n *Node) string {
+//	    if n.Name == "star" {
+//	        return "⭐"
+//	    }
+//	    return "" // fall through to default
+//	}))
+func WithRenderFunc(kind NodeKind, fn func(n *Node) string) RenderOption {
+	return WithNodeRenderer(kind, func(n *Node, r NodeRenderer) {
+		if s := fn(n); s != "" {
+			r.Write(s)
+			return
+		}
+		r.Default()
+	})
 }
 
 // RenderHTML renders a parsed document to an HTML string. Optional
@@ -67,6 +107,9 @@ type htmlRenderer struct {
 	hooks      map[NodeKind]NodeRenderFunc
 	bypassHook bool // when true, renderNode skips hook lookup (used by Default)
 
+	// Footnote definitions derived from the AST at render time.
+	// This ensures correctness even after AST mutations (e.g., include/splice).
+	footnotes map[string]*Node
 	// Footnote numbering: label → sequential number
 	footnoteNums map[string]int
 	// Ordered list of referenced footnotes (by first reference order)
@@ -84,6 +127,7 @@ func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer 
 		w:               w,
 		doc:             doc,
 		hooks:           cfg.hooks,
+		footnotes:       make(map[string]*Node),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
 	}
@@ -100,6 +144,15 @@ func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer 
 func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 	// First pass: walk the main document tree (skipping Footnote definition nodes)
 	// to find all FootnoteReference nodes in order.
+	// Collect footnote definitions from the AST so the renderer is
+	// independent of Doc.Footnotes (which may be stale after AST mutations).
+	Walk(doc.Root, func(n *Node) any {
+		if n.Kind == Footnote {
+			r.footnotes[n.Label] = n
+		}
+		return Continue
+	})
+
 	var walkForRefs func(n *Node)
 	walkForRefs = func(n *Node) {
 		if n.Kind == Footnote {
@@ -136,9 +189,7 @@ func (r *htmlRenderer) getFootnoteNum(label string) int {
 	r.nextFootnoteNum++
 	r.footnoteNums[label] = num
 	fi := &footnoteInfo{num: num, label: label}
-	if r.doc != nil {
-		fi.node = r.doc.Footnotes[label]
-	}
+	fi.node = r.footnotes[label]
 	r.footnoteOrder = append(r.footnoteOrder, fi)
 	return num
 }

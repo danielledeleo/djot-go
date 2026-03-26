@@ -66,6 +66,21 @@ html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.CodeBlock, func(n *djot.
 Inside a hook, `r.Default()` emits the built-in rendering and `r.Children()`
 renders child nodes without the wrapper element.
 
+For simple cases that just return an HTML string, use `WithRenderFunc`:
+
+```go
+html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.Symbol, func(n *djot.Node) string {
+    if n.Name == "youtube" {
+        return `<iframe src="https://www.youtube.com/embed/` + n.Attr("id") + `"></iframe>`
+    }
+    return "" // empty string falls through to default rendering
+}))
+```
+
+Symbols (`:name:{attrs}`) are parsed into typed AST nodes and render as
+`:name:` by default — making them natural extension points for icons, embeds,
+and shortcodes with arbitrary attributes.
+
 ### Inspect the AST
 
 ```go
