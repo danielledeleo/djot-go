@@ -3,6 +3,10 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/danielledeleo/djot-go.svg)](https://pkg.go.dev/github.com/danielledeleo/djot-go)
 [![Go Report Card](https://goreportcard.com/badge/github.com/danielledeleo/djot-go)](https://goreportcard.com/report/github.com/danielledeleo/djot-go)
 [![CI](https://github.com/danielledeleo/djot-go/actions/workflows/ci.yml/badge.svg)](https://github.com/danielledeleo/djot-go/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/danielledeleo/djot-go/branch/main/graph/badge.svg)](https://codecov.io/gh/danielledeleo/djot-go)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/danielledeleo/djot-go)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
 
 A Go parser and HTML renderer for [djot](https://djot.net), a light markup
 language designed by John MacFarlane as a successor to Markdown.
