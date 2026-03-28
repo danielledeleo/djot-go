@@ -2303,24 +2303,6 @@ func splitTableCells(s string) []string {
 	return cells
 }
 
-func mergeAttrs(dst, src map[string]string) map[string]string {
-	if dst == nil {
-		return src
-	}
-	for k, v := range src {
-		if k == "class" {
-			if existing, ok := dst["class"]; ok {
-				dst["class"] = existing + " " + v
-			} else {
-				dst["class"] = v
-			}
-		} else {
-			dst[k] = v
-		}
-	}
-	return dst
-}
-
 func mergeAttrsOrdered(dst map[string]string, dstOrder []string, src map[string]string, srcOrder []string) (map[string]string, []string) {
 	if dst == nil {
 		return src, srcOrder
