@@ -104,8 +104,12 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
-	hooks      map[NodeKind]NodeRenderFunc
-	bypassHook bool // when true, renderNode skips hook lookup (used by Default)
+	hooks map[NodeKind]NodeRenderFunc
+
+	// tight tracks whether we are rendering inside a tight list/definition list.
+	// Set by the list container before iterating children and restored after,
+	// so list-item and definition default cases can render correctly.
+	tight bool
 
 	// Footnote definitions derived from the AST at render time.
 	// This ensures correctness even after AST mutations (e.g., include/splice).
@@ -214,9 +218,7 @@ func (nr *nodeRendererImpl) Children() {
 }
 
 func (nr *nodeRendererImpl) Default() {
-	nr.r.bypassHook = true
-	nr.r.renderNode(nr.n)
-	nr.r.bypassHook = false
+	nr.r.renderDefault(nr.n)
 }
 
 func (nr *nodeRendererImpl) Write(s string) {
@@ -224,12 +226,14 @@ func (nr *nodeRendererImpl) Write(s string) {
 }
 
 func (r *htmlRenderer) renderNode(n *Node) {
-	if !r.bypassHook {
-		if fn, ok := r.hooks[n.Kind]; ok {
-			fn(n, &nodeRendererImpl{r: r, n: n})
-			return
-		}
+	if fn, ok := r.hooks[n.Kind]; ok {
+		fn(n, &nodeRendererImpl{r: r, n: n})
+		return
 	}
+	r.renderDefault(n)
+}
+
+func (r *htmlRenderer) renderDefault(n *Node) {
 	switch n.Kind {
 	case Document:
 		r.renderChildren(n)
@@ -302,10 +306,11 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<ul")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.tight
-		for _, child := range n.Children {
-			r.renderListItem(child, tight)
-		}
+		r.withTight(n.tight, func() {
+			for _, child := range n.Children {
+				r.renderNode(child)
+			}
+		})
 		r.write("</ul>\n")
 
 	case OrderedList:
@@ -325,10 +330,11 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		}
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.tight
-		for _, child := range n.Children {
-			r.renderListItem(child, tight)
-		}
+		r.withTight(n.tight, func() {
+			for _, child := range n.Children {
+				r.renderNode(child)
+			}
+		})
 		r.write("</ol>\n")
 
 	case Table:
@@ -378,46 +384,50 @@ func (r *htmlRenderer) renderNode(n *Node) {
 		r.write("<dl")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.tight
-		for _, child := range n.Children {
-			switch child.Kind {
-			case Term:
-				r.write("<dt>")
-				r.renderInlineChildren(child)
-				r.write("</dt>\n")
-			case Definition:
-				r.write("<dd>\n")
-				if tight {
-					for _, c := range child.Children {
-						if c.Kind == Paragraph {
-							r.renderInlineChildren(c)
-							r.write("\n")
-						} else {
-							r.renderNode(c)
-						}
-					}
-				} else {
-					r.renderChildren(child)
-				}
-				r.write("</dd>\n")
+		r.withTight(n.tight, func() {
+			for _, child := range n.Children {
+				r.renderNode(child)
 			}
-		}
+		})
 		r.write("</dl>\n")
+
+	case Term:
+		r.write("<dt>")
+		r.renderInlineChildren(n)
+		r.write("</dt>\n")
+
+	case Definition:
+		r.write("<dd>\n")
+		r.renderListItemChildren(n)
+		r.write("</dd>\n")
 
 	case TaskList:
 		r.write("<ul class=\"task-list\"")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		tight := n.tight
-		for _, child := range n.Children {
-			r.renderTaskListItem(child, tight)
-		}
+		r.withTight(n.tight, func() {
+			for _, child := range n.Children {
+				r.renderNode(child)
+			}
+		})
 		r.write("</ul>\n")
 
+	case ListItem:
+		r.write("<li")
+		r.renderAttrs(n)
+		r.write(">\n")
+		r.renderListItemChildren(n)
+		r.write("</li>\n")
+
 	case TaskListItem:
-		// Handled by TaskList rendering
 		r.write("<li>\n")
-		r.renderChildren(n)
+		if n.Checked {
+			r.write(`<input disabled="" type="checkbox" checked=""/>`)
+		} else {
+			r.write(`<input disabled="" type="checkbox"/>`)
+		}
+		r.write("\n")
+		r.renderListItemChildren(n)
 		r.write("</li>\n")
 
 	// Inline nodes.
@@ -574,35 +584,20 @@ func (r *htmlRenderer) renderInlineChildren(n *Node) {
 	}
 }
 
-func (r *htmlRenderer) renderTaskListItem(n *Node, tight bool) {
-	r.write("<li>\n")
-	if n.Checked {
-		r.write(`<input disabled="" type="checkbox" checked=""/>`)
-	} else {
-		r.write(`<input disabled="" type="checkbox"/>`)
-	}
-	r.write("\n")
-	if tight {
-		for _, child := range n.Children {
-			if child.Kind == Paragraph {
-				r.renderInlineChildren(child)
-				r.write("\n")
-			} else {
-				r.renderNode(child)
-			}
-		}
-	} else {
-		r.renderChildren(n)
-	}
-	r.write("</li>\n")
+// withTight runs fn with r.tight set to t, restoring the prior value afterward.
+// List containers use this so list-item default rendering can read the parent's
+// tight flag without it being passed through every helper.
+func (r *htmlRenderer) withTight(t bool, fn func()) {
+	prev := r.tight
+	r.tight = t
+	fn()
+	r.tight = prev
 }
 
-func (r *htmlRenderer) renderListItem(n *Node, tight bool) {
-	r.write("<li")
-	r.renderAttrs(n)
-	r.write(">\n")
-	if tight {
-		// In tight lists, render paragraph content directly without <p> tags.
+// renderListItemChildren renders the children of a list item or definition,
+// unwrapping paragraph content when r.tight is set.
+func (r *htmlRenderer) renderListItemChildren(n *Node) {
+	if r.tight {
 		for _, child := range n.Children {
 			if child.Kind == Paragraph {
 				r.renderInlineChildren(child)
@@ -611,10 +606,9 @@ func (r *htmlRenderer) renderListItem(n *Node, tight bool) {
 				r.renderNode(child)
 			}
 		}
-	} else {
-		r.renderChildren(n)
+		return
 	}
-	r.write("</li>\n")
+	r.renderChildren(n)
 }
 
 func (r *htmlRenderer) renderFootnotesSection() {

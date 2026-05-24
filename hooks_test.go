@@ -134,4 +134,89 @@ func TestRenderHooks(t *testing.T) {
 			t.Errorf("hook called %d times, expected 1 (Default should not re-trigger)", callCount)
 		}
 	})
+
+	t.Run("Default does not suppress descendant hooks", func(t *testing.T) {
+		doc := djot.Parse("# Hello :star:")
+		html := djot.RenderHTML(doc,
+			djot.WithNodeRenderer(djot.Heading, func(n *djot.Node, r djot.NodeRenderer) {
+				r.Default()
+			}),
+			djot.WithRenderFunc(djot.Symbol, func(n *djot.Node) string {
+				return "STAR"
+			}),
+		)
+		if !strings.Contains(html, "STAR") {
+			t.Errorf("Symbol hook should fire inside heading wrapped in Default(), got:\n%s", html)
+		}
+		if strings.Contains(html, ":star:") {
+			t.Errorf("Symbol shortcode should have been replaced, got:\n%s", html)
+		}
+	})
+
+	t.Run("ListItem hook fires for bullet list", func(t *testing.T) {
+		doc := djot.Parse("- one\n- two\n")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.ListItem, func(n *djot.Node, r djot.NodeRenderer) {
+			r.Write(`<li class="custom">`)
+			r.Children()
+			r.Write("</li>\n")
+		}))
+		if !strings.Contains(html, `<li class="custom">`) {
+			t.Errorf("expected ListItem hook to fire, got:\n%s", html)
+		}
+	})
+
+	t.Run("ListItem hook fires for ordered list", func(t *testing.T) {
+		doc := djot.Parse("1. one\n2. two\n")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.ListItem, func(n *djot.Node, r djot.NodeRenderer) {
+			r.Write(`<li class="custom">`)
+			r.Children()
+			r.Write("</li>\n")
+		}))
+		if !strings.Contains(html, `<li class="custom">`) {
+			t.Errorf("expected ListItem hook to fire for ordered list, got:\n%s", html)
+		}
+	})
+
+	t.Run("TaskListItem hook fires", func(t *testing.T) {
+		doc := djot.Parse("- [ ] todo\n- [x] done\n")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.TaskListItem, func(n *djot.Node, r djot.NodeRenderer) {
+			if n.Checked {
+				r.Write("<li>DONE ")
+			} else {
+				r.Write("<li>TODO ")
+			}
+			r.Children()
+			r.Write("</li>\n")
+		}))
+		if !strings.Contains(html, "TODO ") {
+			t.Errorf("expected TaskListItem hook to fire for unchecked, got:\n%s", html)
+		}
+		if !strings.Contains(html, "DONE ") {
+			t.Errorf("expected TaskListItem hook to fire for checked, got:\n%s", html)
+		}
+	})
+
+	t.Run("Term hook fires", func(t *testing.T) {
+		doc := djot.Parse(": apple\n\n  red fruit\n")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.Term, func(n *djot.Node, r djot.NodeRenderer) {
+			r.Write(`<dt class="custom">`)
+			r.Children()
+			r.Write("</dt>\n")
+		}))
+		if !strings.Contains(html, `<dt class="custom">`) {
+			t.Errorf("expected Term hook to fire, got:\n%s", html)
+		}
+	})
+
+	t.Run("Definition hook fires", func(t *testing.T) {
+		doc := djot.Parse(": apple\n\n  red fruit\n")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.Definition, func(n *djot.Node, r djot.NodeRenderer) {
+			r.Write(`<dd class="custom">`)
+			r.Children()
+			r.Write("</dd>\n")
+		}))
+		if !strings.Contains(html, `<dd class="custom">`) {
+			t.Errorf("expected Definition hook to fire, got:\n%s", html)
+		}
+	})
 }
