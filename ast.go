@@ -191,9 +191,16 @@ func (n *Node) Attr(key string) string {
 	return n.Attrs[key]
 }
 
-// SetAttr sets an attribute on the node, allocating the map if needed.
-// Tracks insertion order for deterministic rendering.
-func (n *Node) SetAttr(key, value string) {
+// SetAttr sets an attribute on the node, allocating the map if needed, and
+// tracks insertion order for deterministic rendering. It returns false and
+// leaves the node unmodified if key is empty or contains characters that
+// would produce malformed HTML (whitespace, quotes, '>', '/', '=', controls).
+// Valid keys match the djot attribute-name character set: a letter, '_', or
+// ':' followed by letters, digits, '_', '-', or ':'.
+func (n *Node) SetAttr(key, value string) bool {
+	if !isValidAttrKey(key) {
+		return false
+	}
 	if n.Attrs == nil {
 		n.Attrs = make(map[string]string)
 	}
@@ -201,6 +208,7 @@ func (n *Node) SetAttr(key, value string) {
 		n.attrOrder = append(n.attrOrder, key)
 	}
 	n.Attrs[key] = value
+	return true
 }
 
 // AddClass appends a class to the node's class attribute.

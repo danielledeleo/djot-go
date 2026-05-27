@@ -659,7 +659,8 @@ func (r *htmlRenderer) renderAttrs(n *Node) {
 	if len(n.Attrs) == 0 {
 		return
 	}
-	// Use insertion order (attrOrder) for deterministic output.
+	// Use insertion order (attrOrder) for deterministic output. All keys in
+	// attrOrder are guaranteed valid (parser-derived or SetAttr-validated).
 	for _, k := range n.attrOrder {
 		if v, ok := n.Attrs[k]; ok {
 			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
