@@ -9,13 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/danielledeleo/djot-go"
 )
-
-// Version is the djot CLI version, reported by --version.
-const Version = "0.1.0"
 
 // Exit codes returned by Run.
 const (
@@ -58,7 +56,7 @@ func Run(args []string, in io.Reader, out, errw io.Writer) int {
 	}
 
 	if showVer {
-		fmt.Fprintf(out, "djot version %s\n", Version)
+		fmt.Fprintf(out, "djot version %s\n", version())
 		return exitOK
 	}
 
@@ -139,6 +137,37 @@ func openOutput(path string, fallback io.Writer) (io.Writer, func() error, error
 		return nil, nil, err
 	}
 	return f, f.Close, nil
+}
+
+// version reports the CLI version. When built with `go install …/cmd/djot@VER`
+// it returns the module version (the release tag); for local builds it falls
+// back to the VCS revision that Go stamps into the binary.
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	var rev, dirty string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			if s.Value == "true" {
+				dirty = "-dirty"
+			}
+		}
+	}
+	if rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		return "devel-" + rev + dirty
+	}
+	return "(devel)"
 }
 
 func usage(fs *flag.FlagSet) {

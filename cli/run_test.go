@@ -77,8 +77,12 @@ func TestRunVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if !strings.Contains(out, Version) {
-		t.Errorf("version output %q does not contain %q", out, Version)
+	const prefix = "djot version "
+	if !strings.HasPrefix(out, prefix) {
+		t.Errorf("version output %q should start with %q", out, prefix)
+	}
+	if strings.TrimSpace(strings.TrimPrefix(out, prefix)) == "" {
+		t.Errorf("version output %q has an empty version", out)
 	}
 }
 
