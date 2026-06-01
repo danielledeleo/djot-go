@@ -97,8 +97,7 @@ var renderers = map[string]func(w io.Writer, doc *djot.Doc, sourcepos bool) erro
 		return djot.RenderHTMLTo(w, doc)
 	},
 	"ast": func(w io.Writer, doc *djot.Doc, sourcepos bool) error {
-		_, err := io.WriteString(w, djot.RenderAST(doc, sourcepos))
-		return err
+		return djot.RenderASTTo(w, doc, sourcepos)
 	},
 	"json": func(w io.Writer, doc *djot.Doc, sourcepos bool) error {
 		return djot.RenderASTJSONTo(w, doc, sourcepos)

@@ -11,19 +11,31 @@ import (
 // source positions are included in the output.
 func RenderAST(doc *Doc, positions bool) string {
 	var b strings.Builder
-	r := &astRenderer{w: &b, doc: doc, positions: positions}
-	r.renderNode(doc.Root, 0)
+	// The only error source is the io.Writer; strings.Builder never fails.
+	_ = RenderASTTo(&b, doc, positions)
 	return b.String()
+}
+
+// RenderASTTo renders the AST text format (see [RenderAST]) to w. It returns
+// the first write error encountered, if any.
+func RenderASTTo(w io.Writer, doc *Doc, positions bool) error {
+	r := &astRenderer{w: w, doc: doc, positions: positions}
+	r.renderNode(doc.Root, 0)
+	return r.err
 }
 
 type astRenderer struct {
 	w         io.Writer
 	doc       *Doc
 	positions bool
+	err       error
 }
 
 func (r *astRenderer) write(s string) {
-	io.WriteString(r.w, s)
+	if r.err != nil {
+		return
+	}
+	_, r.err = io.WriteString(r.w, s)
 }
 
 func (r *astRenderer) renderNode(n *Node, indent int) {
