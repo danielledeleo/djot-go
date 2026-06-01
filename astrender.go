@@ -58,6 +58,13 @@ func (r *astRenderer) renderPos(n *Node) {
 // endPosition resolves an end offset to line:col using the djot.js convention:
 // newline characters and end-of-input map to the next line at column 0.
 func (r *astRenderer) endPosition(fi *FileInfo, offset int) (line, col int) {
+	return astEndPosition(fi, offset)
+}
+
+// astEndPosition resolves an end offset to line:col using the djot.js
+// convention: newline characters and end-of-input map to the next line at
+// column 0.
+func astEndPosition(fi *FileInfo, offset int) (line, col int) {
 	src := fi.Source
 	if offset >= len(src) || (offset < len(src) && src[offset] == '\n') {
 		// Position is at a newline or past the end — report as next line, col 0.
@@ -68,105 +75,124 @@ func (r *astRenderer) endPosition(fi *FileInfo, offset int) (line, col int) {
 }
 
 func (r *astRenderer) renderFields(n *Node) {
+	for _, f := range astFields(n) {
+		switch v := f.val.(type) {
+		case string:
+			r.write(fmt.Sprintf(" %s=%s", f.key, astStringify(v)))
+		case int:
+			r.write(fmt.Sprintf(" %s=%d", f.key, v))
+		case bool:
+			r.write(fmt.Sprintf(" %s=%v", f.key, v))
+		}
+	}
+}
+
+// astField is one kind-specific field of an AST node, paired with its value
+// (always a string, int, or bool). astFields returns these in the canonical
+// order shared by RenderAST (text format) and RenderASTJSON (JSON format), so
+// the two renderers never drift.
+type astField struct {
+	key string
+	val any
+}
+
+func astFields(n *Node) []astField {
 	switch n.Kind {
 	case Heading:
-		r.write(fmt.Sprintf(" level=%d", n.Level))
+		return []astField{{"level", n.Level}}
 
 	case CodeBlock:
+		var fs []astField
 		if n.Lang != "" {
-			r.write(fmt.Sprintf(" lang=%s", astStringify(n.Lang)))
+			fs = append(fs, astField{"lang", n.Lang})
 		}
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return append(fs, astField{"text", n.Text})
 
 	case RawBlock:
-		r.write(fmt.Sprintf(" format=%s", astStringify(n.Format)))
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return []astField{{"format", n.Format}, {"text", n.Text}}
 
 	case BulletList:
+		var fs []astField
 		if n.tight {
-			r.write(" tight=true")
+			fs = append(fs, astField{"tight", true})
 		}
 		if n.Marker != 0 {
-			r.write(fmt.Sprintf(" style=%s", astStringify(string(n.Marker))))
+			fs = append(fs, astField{"style", string(n.Marker)})
 		}
+		return fs
 
 	case OrderedList:
+		var fs []astField
 		if n.tight {
-			r.write(" tight=true")
+			fs = append(fs, astField{"tight", true})
 		}
-		r.write(fmt.Sprintf(" style=%s", astStringify(astListStyle(n.ListStyle))))
+		fs = append(fs, astField{"style", astListStyle(n.ListStyle)})
 		if n.ListStart != 1 {
-			r.write(fmt.Sprintf(" start=%d", n.ListStart))
+			fs = append(fs, astField{"start", n.ListStart})
 		}
+		return fs
 
 	case TaskList:
 		if n.tight {
-			r.write(" tight=true")
+			return []astField{{"tight", true}}
 		}
+		return nil
 
 	case TaskListItem:
 		if n.Checked {
-			r.write(` checkbox="checked"`)
-		} else {
-			r.write(` checkbox="unchecked"`)
+			return []astField{{"checkbox", "checked"}}
 		}
+		return []astField{{"checkbox", "unchecked"}}
 
 	case TableRow:
-		if n.IsHeader {
-			r.write(" head=true")
-		} else {
-			r.write(" head=false")
-		}
+		return []astField{{"head", n.IsHeader}}
 
 	case TableCell:
-		if n.IsHeader {
-			r.write(" head=true")
-		} else {
-			r.write(" head=false")
-		}
-		r.write(fmt.Sprintf(" align=%s", astStringify(astCellAlign(n.CellAlign))))
+		return []astField{{"head", n.IsHeader}, {"align", astCellAlign(n.CellAlign)}}
 
 	case Footnote:
-		r.write(fmt.Sprintf(" label=%s", astStringify(n.Label)))
+		return []astField{{"label", n.Label}}
 
 	case Text:
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return []astField{{"text", n.Text}}
 
 	case Symbol:
-		r.write(fmt.Sprintf(" alias=%s", astStringify(n.Name)))
+		return []astField{{"alias", n.Name}}
 
 	case Verbatim:
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return []astField{{"text", n.Text}}
 
 	case InlineMath, DisplayMath:
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return []astField{{"text", n.Text}}
 
 	case RawInline:
-		r.write(fmt.Sprintf(" format=%s", astStringify(n.Format)))
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Text)))
+		return []astField{{"format", n.Format}, {"text", n.Text}}
 
 	case Link:
 		if n.Target != "" || n.HasTarget {
-			r.write(fmt.Sprintf(" destination=%s", astStringify(n.Target)))
+			return []astField{{"destination", n.Target}}
 		}
+		return nil
 
 	case Image:
 		if n.Target != "" || n.HasTarget {
-			r.write(fmt.Sprintf(" destination=%s", astStringify(n.Target)))
+			return []astField{{"destination", n.Target}}
 		}
+		return nil
 
 	case FootnoteReference:
-		r.write(fmt.Sprintf(" text=%s", astStringify(n.Label)))
+		return []astField{{"text", n.Label}}
 
 	case Ellipsis:
-		r.write(` type="ellipsis" text="..."`)
+		return []astField{{"type", "ellipsis"}, {"text", "..."}}
 
 	case EmDash:
-		r.write(` type="em_dash" text="---"`)
+		return []astField{{"type", "em_dash"}, {"text", "---"}}
 
 	case EnDash:
-		r.write(` type="en_dash" text="--"`)
+		return []astField{{"type", "en_dash"}, {"text", "--"}}
 	}
+	return nil
 }
 
 func (r *astRenderer) renderAttrs(n *Node) {

@@ -15,12 +15,21 @@ language designed by John MacFarlane as a successor to Markdown.
 - Zero dependencies
 - Typed AST with source positions
 - Custom rendering via hooks
+- `djot` command-line tool (HTML, AST, and JSON output)
 - ~24 MB/s parse throughput on realistic documents
 
 ## Install
 
+As a library:
+
 ```
 go get github.com/danielledeleo/djot-go
+```
+
+As a command-line tool:
+
+```
+go install github.com/danielledeleo/djot-go/cmd/djot@latest
 ```
 
 Requires Go 1.22+.
@@ -90,6 +99,31 @@ and shortcodes with arbitrary attributes.
 ```go
 fmt.Println(djot.RenderAST(doc, false)) // set true for source positions
 ```
+
+## Command-line tool
+
+The `djot` command converts djot to HTML (default), the text AST, or JSON. It
+reads from the given files, or from stdin when none are given:
+
+```
+$ echo 'Hello *world*' | djot
+<p>Hello <strong>world</strong></p>
+
+$ djot -t json doc.dj
+$ djot --to ast --sourcepos doc.dj
+$ djot -o out.html doc.dj
+```
+
+| Option | Description |
+| --- | --- |
+| `-t`, `--to FORMAT` | Output format: `html`, `ast`, or `json` (default `html`). |
+| `-o`, `--output FILE` | Write to `FILE` instead of stdout. |
+| `-p`, `--sourcepos` | Include source positions (`ast` and `json` formats). |
+| `--version` | Print version and exit. |
+| `-h`, `--help` | Show help and exit. |
+
+The `json` format mirrors djot-go's own AST (the same tag and field names as the
+text AST), making it convenient for tooling and diffing.
 
 ## Supported features
 
