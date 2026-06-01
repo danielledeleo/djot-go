@@ -89,4 +89,3 @@ func collectFootnotesAndRefs(doc *Doc) {
 		return Continue
 	})
 }
-

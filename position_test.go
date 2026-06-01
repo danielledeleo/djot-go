@@ -304,4 +304,3 @@ func TestPositionSubParsers(t *testing.T) {
 		})
 	}
 }
-

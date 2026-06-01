@@ -6,63 +6,63 @@ type NodeKind int
 const (
 	// Block-level node kinds.
 
-	Document       NodeKind = iota // Document is the root node of a parsed djot AST.
-	Section                        // Section wraps a heading and all content under it until the next heading of equal or higher level.
-	Paragraph                      // Paragraph is a block of inline content separated by blank lines.
-	Heading                        // Heading is a section heading (level 1-6).
-	ThematicBreak                  // ThematicBreak is a horizontal rule (* * * or similar).
-	CodeBlock                      // CodeBlock is a fenced or indented code block.
-	RawBlock                       // RawBlock is a raw block passed through in a specific output format.
-	BlockQuote                     // BlockQuote is a quoted block (> prefix).
-	Div                            // Div is a generic block container (fenced with :::).
+	Document      NodeKind = iota // Document is the root node of a parsed djot AST.
+	Section                       // Section wraps a heading and all content under it until the next heading of equal or higher level.
+	Paragraph                     // Paragraph is a block of inline content separated by blank lines.
+	Heading                       // Heading is a section heading (level 1-6).
+	ThematicBreak                 // ThematicBreak is a horizontal rule (* * * or similar).
+	CodeBlock                     // CodeBlock is a fenced or indented code block.
+	RawBlock                      // RawBlock is a raw block passed through in a specific output format.
+	BlockQuote                    // BlockQuote is a quoted block (> prefix).
+	Div                           // Div is a generic block container (fenced with :::).
 
-	BulletList                     // BulletList is an unordered list.
-	OrderedList                    // OrderedList is a numbered list.
-	TaskList                       // TaskList is a list of checkbox items.
-	ListItem                       // ListItem is an item in a BulletList or OrderedList.
-	TaskListItem                   // TaskListItem is an item in a TaskList with a checkbox.
+	BulletList   // BulletList is an unordered list.
+	OrderedList  // OrderedList is a numbered list.
+	TaskList     // TaskList is a list of checkbox items.
+	ListItem     // ListItem is an item in a BulletList or OrderedList.
+	TaskListItem // TaskListItem is an item in a TaskList with a checkbox.
 
-	DefinitionList                 // DefinitionList is a list of term/definition pairs.
-	Term                           // Term is the term in a DefinitionList entry.
-	Definition                     // Definition is the definition body in a DefinitionList entry.
+	DefinitionList // DefinitionList is a list of term/definition pairs.
+	Term           // Term is the term in a DefinitionList entry.
+	Definition     // Definition is the definition body in a DefinitionList entry.
 
-	Table                          // Table is a pipe table.
-	TableRow                       // TableRow is a row in a Table.
-	TableCell                      // TableCell is a cell in a TableRow.
-	Caption                        // Caption is a table caption.
+	Table     // Table is a pipe table.
+	TableRow  // TableRow is a row in a Table.
+	TableCell // TableCell is a cell in a TableRow.
+	Caption   // Caption is a table caption.
 
-	Footnote                       // Footnote is a footnote definition block.
+	Footnote // Footnote is a footnote definition block.
 
 	// Inline-level node kinds.
 
-	Text                           // Text is a run of literal text.
-	SoftBreak                      // SoftBreak is a newline within a paragraph (typically rendered as a space).
-	HardBreak                      // HardBreak is an explicit line break (backslash at end of line).
-	NonBreakingSpace               // NonBreakingSpace is a non-breaking space (\ followed by a space).
-	Emphasis                       // Emphasis is emphasized (italic) text (_..._).
-	Strong                         // Strong is strongly emphasized (bold) text (*...*).
-	Superscript                    // Superscript is superscripted text (^...^).
-	Subscript                      // Subscript is subscripted text (~...~).
-	Insert                         // Insert marks inserted text ({+...+}).
-	Delete                         // Delete marks deleted text ({-...-}).
-	Mark                           // Mark is highlighted text ({=...=}).
-	Link                           // Link is a hyperlink.
-	Image                          // Image is an inline image.
-	Span                           // Span is a generic inline container ([content]{attrs}).
-	Verbatim                       // Verbatim is inline code (`...`).
-	InlineMath                     // InlineMath is inline LaTeX math ($...$).
-	DisplayMath                    // DisplayMath is display-mode LaTeX math ($$...$$).
-	RawInline                      // RawInline is raw inline content in a specific output format.
-	Symbol                         // Symbol is a symbolic name (:name:).
-	FootnoteReference              // FootnoteReference is an inline reference to a footnote (^[label]).
-	DoubleQuoted                   // DoubleQuoted is smart double-quoted text ("...").
-	SingleQuoted                   // SingleQuoted is smart single-quoted text ('...').
+	Text              // Text is a run of literal text.
+	SoftBreak         // SoftBreak is a newline within a paragraph (typically rendered as a space).
+	HardBreak         // HardBreak is an explicit line break (backslash at end of line).
+	NonBreakingSpace  // NonBreakingSpace is a non-breaking space (\ followed by a space).
+	Emphasis          // Emphasis is emphasized (italic) text (_..._).
+	Strong            // Strong is strongly emphasized (bold) text (*...*).
+	Superscript       // Superscript is superscripted text (^...^).
+	Subscript         // Subscript is subscripted text (~...~).
+	Insert            // Insert marks inserted text ({+...+}).
+	Delete            // Delete marks deleted text ({-...-}).
+	Mark              // Mark is highlighted text ({=...=}).
+	Link              // Link is a hyperlink.
+	Image             // Image is an inline image.
+	Span              // Span is a generic inline container ([content]{attrs}).
+	Verbatim          // Verbatim is inline code (`...`).
+	InlineMath        // InlineMath is inline LaTeX math ($...$).
+	DisplayMath       // DisplayMath is display-mode LaTeX math ($$...$$).
+	RawInline         // RawInline is raw inline content in a specific output format.
+	Symbol            // Symbol is a symbolic name (:name:).
+	FootnoteReference // FootnoteReference is an inline reference to a footnote (^[label]).
+	DoubleQuoted      // DoubleQuoted is smart double-quoted text ("...").
+	SingleQuoted      // SingleQuoted is smart single-quoted text ('...').
 
 	// Smart punctuation node kinds.
 
-	Ellipsis                       // Ellipsis represents a smart ellipsis (...).
-	EmDash                         // EmDash represents a smart em-dash (---).
-	EnDash                         // EnDash represents a smart en-dash (--).
+	Ellipsis // Ellipsis represents a smart ellipsis (...).
+	EmDash   // EmDash represents a smart em-dash (---).
+	EnDash   // EnDash represents a smart en-dash (--).
 )
 
 // Pos identifies a byte position in a source file. Use [Doc.Position] to

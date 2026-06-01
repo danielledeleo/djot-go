@@ -11,12 +11,12 @@ import (
 
 // TestCase represents a single test from a .test file.
 type TestCase struct {
-	Name     string // description text before the test block
-	Input    string
-	Expected string
-	File     string
-	Line     int
-	IsAST       bool // true if expected output is AST format (``` a blocks)
+	Name         string // description text before the test block
+	Input        string
+	Expected     string
+	File         string
+	Line         int
+	IsAST        bool // true if expected output is AST format (``` a blocks)
 	ASTPositions bool // true if AST output includes source positions (``` ap blocks)
 }
 

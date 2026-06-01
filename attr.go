@@ -18,15 +18,15 @@ func parseAttrsOrdered(input string) (map[string]string, []string) {
 type attrState int
 
 const (
-	attrScanning      attrState = iota
-	attrScanningClass           // saw "."
-	attrScanningID              // saw "#"
-	attrScanningKey             // saw start of key
-	attrScanningValue           // saw "="
-	attrScanningBare            // unquoted value
-	attrScanningQuoted          // inside "..." or '...'
-	attrScanningEscape          // backslash inside quoted value
-	attrScanningComment         // inside %...%
+	attrScanning        attrState = iota
+	attrScanningClass             // saw "."
+	attrScanningID                // saw "#"
+	attrScanningKey               // saw start of key
+	attrScanningValue             // saw "="
+	attrScanningBare              // unquoted value
+	attrScanningQuoted            // inside "..." or '...'
+	attrScanningEscape            // backslash inside quoted value
+	attrScanningComment           // inside %...%
 )
 
 type attrParser struct {
@@ -236,7 +236,7 @@ func isClassChar(c byte) bool {
 }
 
 // isIDExcluded returns true for characters that cannot appear in #id values.
-// JS reference: /^[^\]\[~!@#$%^&*(){}``,.<>\\|=+/?\s]/
+// JS reference: /^[^\]\[~!@#$%^&*(){}`,.<>\\|=+/?\s]/
 // We check the byte-level exclusion set; non-ASCII bytes are allowed.
 func isIDExcluded(c byte) bool {
 	switch c {

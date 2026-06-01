@@ -1061,7 +1061,6 @@ func (p *inlineParser) canCloseQuote(start int) bool {
 	return !isUnicodeWhitespace(p.input[start-1])
 }
 
-
 func (p *inlineParser) parseDashes() {
 	start := p.pos
 	for p.pos < len(p.input) && p.input[p.pos] == '-' {
