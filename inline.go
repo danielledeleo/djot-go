@@ -7,6 +7,13 @@ import (
 // parseAllInlines walks the AST and parses inline content for all blocks
 // that contain raw text (paragraphs, headings).
 func parseAllInlines(root *Node, doc *Doc) {
+	// One reusable inline parser for the whole document. Its scratch maps
+	// (openers, openerIdx) are cleared between blocks rather than reallocated,
+	// which previously dominated parse-time allocation.
+	p := &inlineParser{
+		openers:   make(map[byte][]*opener, 4),
+		openerIdx: make(map[int]bool, 8),
+	}
 	Walk(root, func(n *Node) any {
 		switch n.Kind {
 		case Paragraph, Heading, Term, TableCell, Caption:
@@ -38,8 +45,7 @@ func parseAllInlines(root *Node, doc *Doc) {
 					}
 					baseOffset = off
 				}
-				children := parseInline(n.Text, doc, baseOffset)
-				n.Children = children
+				n.Children = p.parseInline(n.Text, doc, baseOffset)
 				n.Text = ""
 			}
 		}
@@ -48,19 +54,21 @@ func parseAllInlines(root *Node, doc *Doc) {
 }
 
 // parseInline parses a djot inline string into a list of inline nodes.
-// baseOffset is the source byte offset corresponding to input[0].
-func parseInline(input string, doc *Doc, baseOffset int) []*Node {
-	// Rough heuristic: ~1 node per 8 bytes of input.
+// baseOffset is the source byte offset corresponding to input[0]. It resets the
+// parser's scratch state, so a single inlineParser can be reused across every
+// block in a document.
+func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset int) []*Node {
+	// Rough heuristic: ~1 node per 8 bytes of input. The nodes slice is returned
+	// as the block's AST children, so it must be freshly allocated each call; the
+	// scratch maps are cleared and reused.
 	estNodes := len(input)/8 + 4
-	p := &inlineParser{
-		input:      input,
-		pos:        0,
-		nodes:      make([]*Node, 0, estNodes),
-		openers:    make(map[byte][]*opener, 4),
-		openerIdx:  make(map[int]bool, 8),
-		doc:        doc,
-		baseOffset: baseOffset,
-	}
+	p.input = input
+	p.pos = 0
+	p.nodes = make([]*Node, 0, estNodes)
+	clear(p.openers)
+	clear(p.openerIdx)
+	p.doc = doc
+	p.baseOffset = baseOffset
 	return p.parse()
 }
 
@@ -1222,8 +1230,6 @@ func (p *inlineParser) resolveUnclosedOpeners() {
 			}
 		}
 	}
-	p.openers = nil
-	p.openerIdx = nil
 }
 
 // findClosingBrace finds the matching } for a { at pos, respecting quoted strings.
