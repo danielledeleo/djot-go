@@ -20,10 +20,10 @@ func Parse(input string) *Doc {
 	}
 
 	// Phase 2: parse inline content in all blocks that contain it.
-	parseAllInlines(root, doc)
+	parseAllInlines(root, doc, bp.arena)
 
 	// Phase 3: wrap headings in sections and assign IDs.
-	wrapSections(root)
+	wrapSections(root, bp.arena)
 
 	// Phase 4: create implicit heading references.
 	registerHeadingRefs(doc)

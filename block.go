@@ -11,6 +11,7 @@ type blockParser struct {
 	pendingAttrs     map[string]string
 	pendingAttrOrder []string
 	references       map[string]*Node // label → ref node (for link reference definitions)
+	arena            *nodeArena       // shared node allocator for the whole document
 }
 
 type blockLine struct {
@@ -22,7 +23,7 @@ type blockLine struct {
 }
 
 func newBlockParser(input string) *blockParser {
-	bp := &blockParser{input: input, references: make(map[string]*Node)}
+	bp := &blockParser{input: input, references: make(map[string]*Node), arena: &nodeArena{}}
 	bp.splitLines()
 	return bp
 }
@@ -55,7 +56,7 @@ func (cl *contentLines) addBlank(srcStart, srcEnd int) {
 // subParser creates a block parser from the collected content lines,
 // with source positions mapped back to the original input. The refs map
 // is shared with the parent parser so reference definitions are globally visible.
-func (cl *contentLines) subParser(refs map[string]*Node) *blockParser {
+func (cl *contentLines) subParser(refs map[string]*Node, arena *nodeArena) *blockParser {
 	input := strings.Join(cl.lines, "\n")
 	// Build blockLines directly from the already-split content lines,
 	// avoiding the cost of re-splitting the joined string.
@@ -77,7 +78,7 @@ func (cl *contentLines) subParser(refs map[string]*Node) *blockParser {
 		}
 		offset += len(text) + 1 // +1 for the \n separator
 	}
-	return &blockParser{input: input, lines: lines, references: refs}
+	return &blockParser{input: input, lines: lines, references: refs, arena: arena}
 }
 
 func (bp *blockParser) splitLines() {
@@ -110,7 +111,7 @@ func (bp *blockParser) splitLines() {
 }
 
 func (bp *blockParser) parse() *Node {
-	root := &Node{Kind: Document}
+	root := bp.arena.new(Node{Kind: Document})
 	root.Start = Pos{Offset: 0}
 	bp.parseBlocks(root, 0, "")
 	if len(bp.lines) > 0 {
@@ -176,7 +177,7 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	// Thematic break: must be preceded by blank line or at start (or block attrs), and
 	// consists of 3+ of the same char (*, -, or _) with optional spaces.
 	if isThematicBreak(stripped) && (bp.isPrecededByBlank(parent) || bp.pendingAttrs != nil) {
-		node := &Node{Kind: ThematicBreak}
+		node := bp.arena.new(Node{Kind: ThematicBreak})
 		node.Start = Pos{Offset: line.start}
 		node.End = Pos{Offset: line.end}
 		bp.attachPendingAttrs(node)
@@ -264,7 +265,7 @@ func (bp *blockParser) parseHeading(parent *Node, level int, stripped, prefix st
 	content := strings.TrimSpace(stripped[level:])
 
 	startLine := bp.currentLine()
-	node := &Node{Kind: Heading, Level: level}
+	node := bp.arena.new(Node{Kind: Heading, Level: level})
 	node.Start = Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
 
@@ -339,7 +340,7 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 	// Check for raw block: ``` =html
 	if len(lang) > 1 && lang[0] == '=' {
 		format := lang[1:]
-		node := &Node{Kind: RawBlock, Format: format}
+		node := bp.arena.new(Node{Kind: RawBlock, Format: format})
 		node.Start = Pos{Offset: openLine.start}
 		// Don't attach pending attrs to raw blocks.
 		bp.pendingAttrs = nil
@@ -374,7 +375,7 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 		return
 	}
 
-	node := &Node{Kind: CodeBlock, Lang: lang}
+	node := bp.arena.new(Node{Kind: CodeBlock, Lang: lang})
 	node.Start = Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 
@@ -415,7 +416,7 @@ func (bp *blockParser) parseCodeBlock(parent *Node, stripped string, baseIndent 
 }
 
 func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix string) {
-	node := &Node{Kind: BlockQuote}
+	node := bp.arena.new(Node{Kind: BlockQuote})
 	startLine := bp.currentLine()
 	node.Start = Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
@@ -460,7 +461,7 @@ func (bp *blockParser) parseBlockQuote(parent *Node, indent int, outerPrefix str
 	}
 
 	// Parse the collected content as blocks.
-	subBP := content.subParser(bp.references)
+	subBP := content.subParser(bp.references, bp.arena)
 	subBP.parseBlocks(node, 0, "")
 
 	node.End = Pos{Offset: lastEnd}
@@ -476,7 +477,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 	className := strings.TrimSpace(stripped[fenceLen:])
 
 	openLine := bp.currentLine()
-	node := &Node{Kind: Div}
+	node := bp.arena.new(Node{Kind: Div})
 	node.Start = Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 	if className != "" {
@@ -532,7 +533,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 		bp.pos++
 	}
 
-	subBP := content.subParser(bp.references)
+	subBP := content.subParser(bp.references, bp.arena)
 	subBP.parseBlocks(node, 0, "")
 
 	node.End = Pos{Offset: lastEnd}
@@ -540,7 +541,7 @@ func (bp *blockParser) parseFencedDiv(parent *Node, stripped string, baseIndent 
 }
 
 func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker string, indent int, prefix string) {
-	node := &Node{Kind: BulletList}
+	node := bp.arena.new(Node{Kind: BulletList})
 	line := bp.currentLine()
 	// Position at the list marker, not the leading whitespace.
 	node.Start = Pos{Offset: line.start + indent}
@@ -597,7 +598,7 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			hasBlankBetweenItems = true
 		}
 
-		item := &Node{Kind: ListItem}
+		item := bp.arena.new(Node{Kind: ListItem})
 		// Position at the list marker, not the leading whitespace.
 		item.Start = Pos{Offset: line.start + itemIndent}
 		bp.pos++
@@ -679,7 +680,7 @@ func (bp *blockParser) parseBulletList(parent *Node, marker byte, afterMarker st
 			}
 		}
 
-		subBP := content.subParser(bp.references)
+		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
 
 		// Set item end past the newline that terminates the last consumed
@@ -745,7 +746,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 	firstStripped := strings.TrimLeft(firstLine, " \t")
 	firstEnum, firstDelim, _ := extractOrderedMarkerParts(firstStripped)
 
-	node := &Node{Kind: OrderedList, ListStart: start, ListStyle: style}
+	node := bp.arena.new(Node{Kind: OrderedList, ListStart: start, ListStyle: style})
 	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
@@ -821,7 +822,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			hasBlankBetweenItems = true
 		}
 
-		item := &Node{Kind: ListItem}
+		item := bp.arena.new(Node{Kind: ListItem})
 		item.Start = Pos{Offset: line.start}
 		bp.pos++
 
@@ -905,7 +906,7 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			}
 		}
 
-		subBP := content.subParser(bp.references)
+		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
@@ -998,7 +999,7 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 	}
 
 	if textBuf.Len() > 0 {
-		node := &Node{Kind: Paragraph, Text: strings.TrimRight(textBuf.String(), " \t")}
+		node := bp.arena.new(Node{Kind: Paragraph, Text: strings.TrimRight(textBuf.String(), " \t")})
 		node.Start = Pos{Offset: startOffset}
 		node.End = Pos{Offset: lastEnd}
 		bp.attachPendingAttrs(node)
@@ -1576,7 +1577,7 @@ func (bp *blockParser) parseReferenceDefinition(parent *Node, stripped string, i
 	}
 
 	url := strings.Join(urlParts, "")
-	ref := &Node{Kind: Link, Target: url, Label: label}
+	ref := bp.arena.new(Node{Kind: Link, Target: url, Label: label})
 	bp.attachPendingAttrs(ref)
 	bp.references[label] = ref
 }
@@ -1604,7 +1605,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 		after = strings.TrimSpace(stripped[closeBracket+2:])
 	}
 
-	node := &Node{Kind: Footnote, Label: label}
+	node := bp.arena.new(Node{Kind: Footnote, Label: label})
 	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.pos++
 
@@ -1662,7 +1663,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 	}
 
 	if len(content.lines) > 0 {
-		subBP := content.subParser(bp.references)
+		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(node, 0, "")
 	}
 
@@ -1678,7 +1679,7 @@ func isTaskListItem(after string) bool {
 }
 
 func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, prefix string) {
-	node := &Node{Kind: TaskList}
+	node := bp.arena.new(Node{Kind: TaskList})
 	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
@@ -1733,7 +1734,7 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 		checked := after[1] == 'x' || after[1] == 'X'
 		afterCheckbox := after[4:] // skip "[ ] " or "[x] "
 
-		item := &Node{Kind: TaskListItem, Checked: checked}
+		item := bp.arena.new(Node{Kind: TaskListItem, Checked: checked})
 		item.Start = Pos{Offset: line.start}
 		bp.pos++
 
@@ -1791,7 +1792,7 @@ func (bp *blockParser) parseTaskList(parent *Node, marker byte, indent int, pref
 			}
 		}
 
-		subBP := content.subParser(bp.references)
+		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
@@ -1852,7 +1853,7 @@ func isTableRow(s string) bool {
 }
 
 func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix string) {
-	node := &Node{Kind: DefinitionList}
+	node := bp.arena.new(Node{Kind: DefinitionList})
 	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
@@ -1980,8 +1981,8 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		}
 
 		// Parse collected content as blocks.
-		subBP := content.subParser(bp.references)
-		itemNode := &Node{Kind: Document} // temporary container
+		subBP := content.subParser(bp.references, bp.arena)
+		itemNode := bp.arena.new(Node{Kind: Document}) // temporary container
 		subBP.parseBlocks(itemNode, 0, "")
 
 		// Split: first paragraph is the term, rest is the definition.
@@ -1989,9 +1990,9 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 		if bp.pos > 0 {
 			itemEndOffset = bp.lines[bp.pos-1].end
 		}
-		term := &Node{Kind: Term}
+		term := bp.arena.new(Node{Kind: Term})
 		term.Start = Pos{Offset: itemStartOffset}
-		def := &Node{Kind: Definition}
+		def := bp.arena.new(Node{Kind: Definition})
 
 		if len(itemNode.Children) > 0 && itemNode.Children[0].Kind == Paragraph {
 			// The first paragraph's text becomes the term.
@@ -2025,7 +2026,7 @@ func (bp *blockParser) parseDefinitionList(parent *Node, indent int, prefix stri
 }
 
 func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, prefix string) {
-	node := &Node{Kind: Table}
+	node := bp.arena.new(Node{Kind: Table})
 	node.Start = Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
@@ -2068,7 +2069,7 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 			continue
 		}
 
-		row := parseTableRow(stripped)
+		row := parseTableRow(stripped, bp.arena)
 		row.Start = Pos{Offset: line.start}
 		row.End = Pos{Offset: line.end}
 		// Apply current alignment to data row cells.
@@ -2152,7 +2153,7 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 			bp.pos++
 		}
 		captionText := strings.Join(captionLines, "\n")
-		captionNode = &Node{Kind: Caption, Text: captionText}
+		captionNode = bp.arena.new(Node{Kind: Caption, Text: captionText})
 		captionNode.Start = Pos{Offset: captionStart}
 		captionNode.End = Pos{Offset: captionLastEnd}
 		// Skip blank lines before checking for another caption.
@@ -2251,8 +2252,8 @@ func parseTableAlignments(s string) []CellAlign {
 	return aligns
 }
 
-func parseTableRow(s string) *Node {
-	row := &Node{Kind: TableRow}
+func parseTableRow(s string, arena *nodeArena) *Node {
+	row := arena.new(Node{Kind: TableRow})
 	s = strings.TrimSpace(s)
 	if len(s) > 0 && s[0] == '|' {
 		s = s[1:]
@@ -2263,7 +2264,7 @@ func parseTableRow(s string) *Node {
 
 	cells := splitTableCells(s)
 	for _, cellText := range cells {
-		cell := &Node{Kind: TableCell, Text: strings.TrimSpace(cellText)}
+		cell := arena.new(Node{Kind: TableCell, Text: strings.TrimSpace(cellText)})
 		row.Children = append(row.Children, cell)
 	}
 	return row

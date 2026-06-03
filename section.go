@@ -10,7 +10,7 @@ import (
 // heading of the same or higher level. Sections are only created at the
 // document root level. Headings inside block containers (blockquotes, divs,
 // list items) get their auto-ID placed directly on the heading element.
-func wrapSections(root *Node) {
+func wrapSections(root *Node, arena *nodeArena) {
 	// Pre-populate ID set with any explicitly-set IDs on non-heading nodes.
 	usedIDs := make(map[string]int)
 	Walk(root, func(n *Node) any {
@@ -24,7 +24,7 @@ func wrapSections(root *Node) {
 	// Assign IDs to headings inside block containers (no section wrapping).
 	assignContainerHeadingIDs(root, usedIDs)
 	// Wrap top-level headings in sections.
-	root.Children = buildSections(root.Children, usedIDs)
+	root.Children = buildSections(root.Children, usedIDs, arena)
 }
 
 // isBlockContainer returns true for node kinds that are block containers
@@ -71,7 +71,7 @@ func assignHeadingIDsInContainer(node *Node, idCounts map[string]int) {
 	}
 }
 
-func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
+func buildSections(nodes []*Node, idCounts map[string]int, arena *nodeArena) []*Node {
 	var result []*Node
 	i := 0
 
@@ -84,7 +84,7 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 		}
 
 		// Create a section wrapping this heading and subsequent content.
-		section := &Node{Kind: Section}
+		section := arena.new(Node{Kind: Section})
 
 		// Generate or use provided ID.
 		id := node.Attr("id")
@@ -132,7 +132,7 @@ func buildSections(nodes []*Node, idCounts map[string]int) []*Node {
 		// Recursively build sub-sections within this section.
 		if len(section.Children) > 1 {
 			rest := section.Children[1:]
-			section.Children = append(section.Children[:1], buildSections(rest, idCounts)...)
+			section.Children = append(section.Children[:1], buildSections(rest, idCounts, arena)...)
 		}
 
 		// Set section position: start from heading, end from last child.
