@@ -11,12 +11,12 @@
 A Go parser and HTML renderer for [djot](https://djot.net), a light markup
 language designed by John MacFarlane as a successor to Markdown.
 
-- Passes all 288 official spec tests
+- Passes the official djot spec test suite (the Lua-only `filters` tests excepted)
 - Zero dependencies
 - Typed AST with source positions
 - Custom rendering via hooks
 - `djot` command-line tool (HTML, AST, and JSON output)
-- ~24 MB/s parse throughput on realistic documents
+- ~33 MB/s parse throughput on realistic documents
 
 ## Install
 
@@ -93,6 +93,33 @@ html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.Symbol, func(n *djot.Node)
 Symbols (`:name:{attrs}`) are parsed into typed AST nodes and render as
 `:name:` by default — making them natural extension points for icons, embeds,
 and shortcodes with arbitrary attributes.
+
+### Footnote backlinks
+
+A footnote referenced more than once carries its `id` on the first reference
+only (matching djot.js), with a single `↩︎` linking back to it.
+`WithMultiBacklinks` switches to MediaWiki-style backlinks — every reference
+gets a unique `id` and the footnote links back to each with lettered labels
+(`a`, `b`, `c`, …):
+
+```go
+html := djot.RenderHTML(doc, djot.WithMultiBacklinks())
+```
+
+The footnote id and label scheme is overridable — for example to namespace ids
+when embedding output in a larger page, or to use numeric backlinks:
+
+```go
+html := djot.RenderHTML(doc,
+    djot.WithFootnotePrefix("post42-"), // post42-fn1, post42-fnref1, …
+    djot.WithFootnoteBacklinkLabel(func(num, k, total int) string {
+        return strconv.Itoa(k)
+    }),
+)
+```
+
+`WithFootnoteID`, `WithFootnoteRefID`, and `WithFootnoteBacklinkLabel` set the
+pieces individually; `WithFootnotePrefix` is shorthand for namespacing the ids.
 
 ### Inspect the AST
 
