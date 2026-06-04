@@ -33,7 +33,23 @@ type NodeRenderer interface {
 }
 
 type renderConfig struct {
-	hooks map[NodeKind]NodeRenderFunc
+	hooks          map[NodeKind]NodeRenderFunc
+	multiBacklinks bool
+}
+
+// WithMultiBacklinks renders MediaWiki-style backlinks for footnotes that are
+// referenced more than once: every reference gets a unique id (fnref1, fnref1-2,
+// fnref1-3, …) and the footnote's entry links back to each reference with
+// lettered backlinks (a, b, c, …) instead of a single ↩︎ to the first reference.
+// Footnotes referenced only once are unchanged (a single ↩︎ backlink).
+//
+// Without this option the renderer matches djot.js: only the first reference
+// carries the id (so the HTML has no duplicate ids) and the footnote has one
+// backlink, pointing to that first reference.
+func WithMultiBacklinks() RenderOption {
+	return func(cfg *renderConfig) {
+		cfg.multiBacklinks = true
+	}
 }
 
 // WithNodeRenderer registers a render hook for the given node kind.
@@ -120,6 +136,12 @@ type htmlRenderer struct {
 	footnoteOrder []*footnoteInfo
 	// Counter for assigning numbers
 	nextFootnoteNum int
+	// Total references per label, counted up front (for multi-backlink labels)
+	fnrefTotal map[string]int
+	// References to each label seen so far at render time (for per-ref ids)
+	fnrefSeen map[string]int
+	// When true, emit a unique id per reference and lettered backlinks
+	multiBacklinks bool
 }
 
 func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer {
@@ -134,6 +156,9 @@ func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer 
 		footnotes:       make(map[string]*Node),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
+		fnrefTotal:      make(map[string]int),
+		fnrefSeen:       make(map[string]int),
+		multiBacklinks:  cfg.multiBacklinks,
 	}
 	// Walk the entire AST (including footnote definitions) to assign numbers
 	// in document order. We need to process the main document first, then
@@ -164,6 +189,7 @@ func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 		}
 		if n.Kind == FootnoteReference {
 			r.getFootnoteNum(n.Label)
+			r.fnrefTotal[n.Label]++
 		}
 		for _, child := range n.Children {
 			walkForRefs(child)
@@ -551,7 +577,18 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 	case FootnoteReference:
 		num := r.footnoteNums[n.Label]
 		ns := strconv.Itoa(num)
-		r.write(`<a id="fnref` + ns + `" href="#fn` + ns + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
+		r.fnrefSeen[n.Label]++
+		k := r.fnrefSeen[n.Label]
+		var idAttr string
+		switch {
+		case r.multiBacklinks:
+			// Every reference carries a unique id so each can be linked back to.
+			idAttr = ` id="` + fnrefID(num, k) + `"`
+		case k == 1:
+			// Default: only the first reference carries the id (no duplicate ids).
+			idAttr = ` id="fnref` + ns + `"`
+		}
+		r.write(`<a` + idAttr + ` href="#fn` + ns + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
 
 	case DoubleQuoted:
 		r.write("\u201c")
@@ -628,7 +665,7 @@ func (r *htmlRenderer) renderFootnotesSection() {
 					lastParagraphIdx = i
 				}
 			}
-			backref := `<a href="#fnref` + ns + `" role="doc-backlink">↩︎</a>`
+			backref := r.footnoteBackref(fi)
 			for i, child := range children {
 				if i == lastParagraphIdx {
 					// Render paragraph with backref appended inside <p>.
@@ -647,12 +684,54 @@ func (r *htmlRenderer) renderFootnotesSection() {
 				r.write("<p>" + backref + "</p>\n")
 			}
 		} else {
-			// Empty or undefined footnote: just the back-reference.
-			r.write("<p><a href=\"#fnref" + ns + "\" role=\"doc-backlink\">↩︎</a></p>\n")
+			// Empty or undefined footnote: just the back-reference(s).
+			r.write("<p>" + r.footnoteBackref(fi) + "</p>\n")
 		}
 		r.write("</li>\n")
 	}
 	r.write("</ol>\n</section>\n")
+}
+
+// fnrefID returns the id of the k-th reference (1-based) to footnote number num:
+// "fnrefN" for the first reference and "fnrefN-k" for later ones.
+func fnrefID(num, k int) string {
+	id := "fnref" + strconv.Itoa(num)
+	if k > 1 {
+		id += "-" + strconv.Itoa(k)
+	}
+	return id
+}
+
+// footnoteBackref builds the back-reference link(s) appended to a footnote's
+// entry. In multi-backlink mode a footnote with several references gets one
+// lettered backlink (a, b, c, …) per reference; otherwise it gets a single ↩︎
+// pointing at the (first) reference.
+func (r *htmlRenderer) footnoteBackref(fi *footnoteInfo) string {
+	ns := strconv.Itoa(fi.num)
+	total := r.fnrefTotal[fi.label]
+	if !r.multiBacklinks || total <= 1 {
+		return `<a href="#fnref` + ns + `" role="doc-backlink">↩︎</a>`
+	}
+	var b strings.Builder
+	for k := 1; k <= total; k++ {
+		if k > 1 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(`<a href="#` + fnrefID(fi.num, k) + `" role="doc-backlink">` + backrefLabel(k) + `</a>`)
+	}
+	return b.String()
+}
+
+// backrefLabel maps a 1-based index to a spreadsheet-style letter label:
+// 1→a, 2→b, …, 26→z, 27→aa, 28→ab, ….
+func backrefLabel(i int) string {
+	var b []byte
+	for i > 0 {
+		i--
+		b = append([]byte{byte('a' + i%26)}, b...)
+		i /= 26
+	}
+	return string(b)
 }
 
 func (r *htmlRenderer) renderAttrs(n *Node) {
