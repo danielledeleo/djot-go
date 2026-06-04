@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -51,9 +52,44 @@ func TestFootnoteBacklinksMulti(t *testing.T) {
 }
 
 var (
-	noterefIDRe = regexp.MustCompile(`<a id="(fnref[\w-]+)" href="#fn\d+" role="doc-noteref">`)
-	backlinkRe  = regexp.MustCompile(`<a href="#(fnref[\w-]+)" role="doc-backlink">`)
+	noterefIDRe = regexp.MustCompile(`<a id="([^"]+)" href="#[^"]+" role="doc-noteref">`)
+	backlinkRe  = regexp.MustCompile(`<a href="#([^"]+)" role="doc-backlink">`)
 )
+
+// assertAnchorIntegrity checks the cross-reference contract on rendered HTML,
+// independent of the id scheme: no reference id is emitted twice, and every
+// backlink targets an id that actually exists. When bijection is true (multi
+// mode) it also requires a one-to-one match between reference ids and backlinks.
+func assertAnchorIntegrity(t *testing.T, html string, bijection bool) {
+	t.Helper()
+	ids := matches(noterefIDRe, html)
+	backs := matches(backlinkRe, html)
+
+	// Guard against a vacuous pass if the anchor format ever drifts out from
+	// under the regexes: every footnote here is referenced, so there is always
+	// at least one backlink (and, in multi mode, at least one reference id).
+	if len(backs) == 0 {
+		t.Fatalf("no backlinks matched — anchor format may have changed:\n%s", html)
+	}
+	if bijection && len(ids) == 0 {
+		t.Fatalf("no reference ids matched in multi mode — anchor format may have changed:\n%s", html)
+	}
+
+	if dup := firstDuplicate(ids); dup != "" {
+		t.Errorf("duplicate reference id %q:\n%s", dup, html)
+	}
+	idSet := toSet(ids)
+	for _, b := range backs {
+		if !idSet[b] {
+			t.Errorf("backlink targets #%s which is not an emitted reference id:\n%s", b, html)
+		}
+	}
+	if bijection {
+		if got, want := sortedUnique(backs), sortedUnique(ids); !equal(got, want) {
+			t.Errorf("multi mode is not a bijection between refs and backlinks\n refs:      %v\n backlinks: %v\n%s", want, got, html)
+		}
+	}
+}
 
 // TestFootnoteAnchorIntegrity asserts the cross-reference contract that makes
 // the feature correct, on the structurally tricky inputs (multiple footnotes,
@@ -83,34 +119,7 @@ func TestFootnoteAnchorIntegrity(t *testing.T) {
 					html = djot.RenderHTML(djot.Parse(in))
 				}
 
-				ids := matches(noterefIDRe, html)
-				backs := matches(backlinkRe, html)
-
-				// Guard against a vacuous pass: every input here references at
-				// least one footnote more than once, so a working renderer always
-				// emits backlinks (and, in multi mode, multiple reference ids). If
-				// these are empty the anchor format drifted out from under the regexes.
-				if len(backs) == 0 {
-					t.Fatalf("no backlinks matched — anchor format may have changed:\n%s", html)
-				}
-				if multi && len(ids) < 2 {
-					t.Fatalf("expected multiple reference ids in multi mode — regex may be stale:\n%s", html)
-				}
-
-				if dup := firstDuplicate(ids); dup != "" {
-					t.Errorf("duplicate reference id %q:\n%s", dup, html)
-				}
-				idSet := toSet(ids)
-				for _, b := range backs {
-					if !idSet[b] {
-						t.Errorf("backlink targets #%s which is not an emitted reference id:\n%s", b, html)
-					}
-				}
-				if multi {
-					if got, want := sortedUnique(backs), sortedUnique(ids); !equal(got, want) {
-						t.Errorf("multi mode is not a bijection between refs and backlinks\n refs:      %v\n backlinks: %v\n%s", want, got, html)
-					}
-				}
+				assertAnchorIntegrity(t, html, multi)
 			})
 		}
 	}
@@ -180,6 +189,84 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// WithFootnotePrefix namespaces every footnote id (both the note id and the
+// per-reference ids) while leaving the cross-reference links internally
+// consistent.
+func TestFootnotePrefix(t *testing.T) {
+	got := djot.RenderHTML(djot.Parse(multiRefInput),
+		djot.WithMultiBacklinks(), djot.WithFootnotePrefix("p42-"))
+
+	for _, want := range []string{
+		`<li id="p42-fn1">`,
+		`<a id="p42-fnref1" href="#p42-fn1" role="doc-noteref">`,
+		`<a id="p42-fnref1-2" href="#p42-fn1" role="doc-noteref">`,
+		`<a href="#p42-fnref1" role="doc-backlink">a</a>`,
+		`<a href="#p42-fnref1-3" role="doc-backlink">c</a>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prefixed output missing %q:\n%s", want, got)
+		}
+	}
+	// No bare (unprefixed) footnote ids should leak through.
+	if strings.Contains(got, `id="fn1"`) || strings.Contains(got, `id="fnref1"`) {
+		t.Errorf("found unprefixed footnote id:\n%s", got)
+	}
+	assertAnchorIntegrity(t, got, true)
+}
+
+// WithFootnoteBacklinkLabel replaces the default a/b/c labels (here with the
+// reference number) without disturbing the underlying ids.
+func TestFootnoteCustomBacklinkLabel(t *testing.T) {
+	got := djot.RenderHTML(djot.Parse(multiRefInput),
+		djot.WithMultiBacklinks(),
+		djot.WithFootnoteBacklinkLabel(func(num, k, total int) string {
+			return strconv.Itoa(num) + "." + strconv.Itoa(k)
+		}))
+
+	want := `<p>The note.` +
+		`<a href="#fnref1" role="doc-backlink">1.1</a> ` +
+		`<a href="#fnref1-2" role="doc-backlink">1.2</a> ` +
+		`<a href="#fnref1-3" role="doc-backlink">1.3</a></p>`
+	if !strings.Contains(got, want) {
+		t.Errorf("custom labels wrong.\n got: %s\nwant substring: %s", got, want)
+	}
+	assertAnchorIntegrity(t, got, true)
+}
+
+// Fully custom id producers (WithFootnoteID + WithFootnoteRefID) still link up
+// correctly: the integrity invariant holds regardless of the chosen scheme.
+func TestFootnoteCustomIDs(t *testing.T) {
+	got := djot.RenderHTML(djot.Parse(multiRefInput),
+		djot.WithMultiBacklinks(),
+		djot.WithFootnoteID(func(num int) string {
+			return "note-" + strconv.Itoa(num)
+		}),
+		djot.WithFootnoteRefID(func(num, k int) string {
+			return "cite-" + strconv.Itoa(num) + "-" + strconv.Itoa(k)
+		}))
+
+	if !strings.Contains(got, `<li id="note-1">`) {
+		t.Errorf("custom note id missing:\n%s", got)
+	}
+	if !strings.Contains(got, `<a id="cite-1-1" href="#note-1" role="doc-noteref">`) ||
+		!strings.Contains(got, `<a id="cite-1-2" href="#note-1" role="doc-noteref">`) {
+		t.Errorf("custom reference ids missing:\n%s", got)
+	}
+	if !strings.Contains(got, `<a href="#cite-1-1" role="doc-backlink">a</a>`) {
+		t.Errorf("backlink not linked to custom reference id:\n%s", got)
+	}
+	assertAnchorIntegrity(t, got, true)
+}
+
+// Default output is unchanged when no footnote options are supplied.
+func TestFootnoteDefaultsUnchanged(t *testing.T) {
+	plain := djot.RenderHTML(djot.Parse(multiRefInput))
+	if !strings.Contains(plain, `<li id="fn1">`) ||
+		!strings.Contains(plain, `<a id="fnref1" href="#fn1" role="doc-noteref">`) {
+		t.Errorf("default footnote ids changed:\n%s", plain)
+	}
 }
 
 // A footnote referenced only once keeps the single ↩︎ backlink even in
