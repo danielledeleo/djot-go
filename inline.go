@@ -534,32 +534,35 @@ func (p *inlineParser) canCloseDelimiter(start int) bool {
 }
 
 // invalidateOpenersFrom removes any openers (for any char) whose nodeIdx >= fromIdx.
+//
+// Openers are appended in ascending nodeIdx order, and every caller truncates
+// p.nodes to fromIdx immediately after calling, so surviving openers are always
+// a prefix of each slice. Binary searching for the cut keeps this off the hot
+// path: rescanning every open opener on each call made inputs that pile up
+// openers without closing them — a long run of "[^", say — quadratic.
 func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 	for ch, openers := range p.openers {
-		filtered := openers[:0]
-		for _, op := range openers {
-			if op.nodeIdx < fromIdx {
-				filtered = append(filtered, op)
+		// Find the first opener with nodeIdx >= fromIdx.
+		lo, hi := 0, len(openers)
+		for lo < hi {
+			mid := int(uint(lo+hi) >> 1)
+			if openers[mid].nodeIdx < fromIdx {
+				lo = mid + 1
 			} else {
-				delete(p.openerIdx, op.nodeIdx)
+				hi = mid
 			}
 		}
-		p.openers[ch] = filtered
+		if lo == len(openers) {
+			continue
+		}
+		for _, op := range openers[lo:] {
+			delete(p.openerIdx, op.nodeIdx)
+		}
+		p.openers[ch] = openers[:lo]
 	}
 }
 
 func (p *inlineParser) parseBracketOpen() {
-	// Check for footnote reference: [^label]
-	if p.pos+1 < len(p.input) && p.input[p.pos+1] == '^' {
-		end := strings.IndexByte(p.input[p.pos:], ']')
-		if end > 2 {
-			label := p.input[p.pos+2 : p.pos+end]
-			p.add(Node{Kind: FootnoteReference, Label: label})
-			p.pos = p.pos + end + 1
-			return
-		}
-	}
-
 	idx := len(p.nodes)
 	p.add(Node{Kind: Text, Text: "["})
 	p.openers['['] = append(p.openers['['], &opener{
@@ -586,6 +589,18 @@ func (p *inlineParser) parseBracketClose() {
 	if op.nodeIdx >= len(p.nodes) {
 		p.add(Node{Kind: Text, Text: "]"})
 		return
+	}
+
+	// Footnote reference: [^label]. Matched here rather than at the opening
+	// bracket so that finding the closing bracket costs nothing extra; scanning
+	// ahead for it from every "[^" made parsing quadratic in the input length.
+	if op.char == '[' && op.pos+1 < len(p.input) && p.input[op.pos+1] == '^' {
+		if label := p.input[op.pos+2 : p.pos-1]; label != "" {
+			p.invalidateOpenersFrom(op.nodeIdx)
+			p.nodes = p.nodes[:op.nodeIdx]
+			p.add(Node{Kind: FootnoteReference, Label: label})
+			return
+		}
 	}
 
 	isImage := op.char == '!'
