@@ -632,6 +632,17 @@ func (p *inlineParser) parseBracketClose() {
 		}
 	}
 
+	// Nothing that could consume the brackets follows, so this is literal text.
+	// The opener placeholder is already the "[" (or "![") node and the content
+	// is already sitting behind it, so closing costs one appended "]" — no
+	// copying the children out and back. Deeply nested brackets close O(n)
+	// times, and copying on each was quadratic.
+	if p.pos >= len(p.input) || (p.input[p.pos] != '(' && p.input[p.pos] != '[' && p.input[p.pos] != '{') {
+		p.invalidateOpenersFrom(op.nodeIdx)
+		p.add(Node{Kind: Text, Text: "]"})
+		return
+	}
+
 	isImage := op.char == '!'
 
 	// Gather children between [ (or ![) and ].

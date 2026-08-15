@@ -26,6 +26,11 @@ func TestPathological(t *testing.T) {
 		{"footnote reference starts", strings.Repeat("[^", 800*1024), 3 * time.Second},
 		{"link starts", strings.Repeat("[a", 800*1024), 3 * time.Second},
 		{"emphasis starts", strings.Repeat("*a ", 400*1024), 3 * time.Second},
+		// Deeply nested brackets once copied the children accumulated so far on
+		// every close, summing to O(n^2): this took ~2.9s before the literal
+		// close path stopped copying, and ~5ms after. Sized and budgeted to
+		// match djot.js, which runs this shape at 25k brackets a side.
+		{"balanced brackets", strings.Repeat("[", 25*1024) + "a" + strings.Repeat("]", 25*1024), time.Second},
 	}
 
 	for _, tt := range tests {
