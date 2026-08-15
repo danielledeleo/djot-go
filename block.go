@@ -162,8 +162,15 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	indent := len(text) - len(stripped)
 
 	// Block-level attributes.
+	//
+	// literalLines carries a failed attempt down to parseParagraph: djot.js
+	// re-emits the text it consumed as literal inline content, so a "{" line
+	// that isn't a valid attribute block never gets a second reading as an
+	// inline attribute or comment.
+	literalLines := 0
 	if len(stripped) > 0 && stripped[0] == '{' {
-		if attrContent, lines := bp.tryBlockAttr(stripped, prefix); attrContent != "" {
+		attrContent, lines := bp.tryBlockAttr(stripped, prefix)
+		if attrContent != "" {
 			inner := attrContent[1 : len(attrContent)-1] // strip { and }
 			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
@@ -171,6 +178,8 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 				bp.pos += lines
 				return true
 			}
+		} else {
+			literalLines = lines
 		}
 	}
 
@@ -252,7 +261,7 @@ func (bp *blockParser) parseBlock(parent *Node, baseIndent int, prefix string) b
 	}
 
 	// Paragraph (default).
-	bp.parseParagraph(parent, prefix)
+	bp.parseParagraph(parent, prefix, literalLines)
 	return true
 }
 
@@ -312,6 +321,13 @@ func (bp *blockParser) parseHeading(parent *Node, level int, stripped, prefix st
 			line_content = strings.TrimSpace(s[level:])
 		} else {
 			line_content = strings.TrimRight(s, " \t")
+		}
+		// A bare marker line contributes no content, and no newline either:
+		// the lines around it join as if it weren't there.
+		if line_content == "" {
+			lastEnd = line.end
+			bp.pos++
+			continue
 		}
 		if textBuf.Len() > 0 {
 			textBuf.WriteByte('\n')
@@ -948,11 +964,12 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 	parent.Children = append(parent.Children, node)
 }
 
-func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
+func (bp *blockParser) parseParagraph(parent *Node, prefix string, literalLines int) {
 	var textBuf strings.Builder
 	var braces braceState
 	startOffset := bp.currentLine().start
 	lastEnd := bp.currentLine().end
+	taken, literalBytes := 0, 0
 
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -996,12 +1013,22 @@ func (bp *blockParser) parseParagraph(parent *Node, prefix string) {
 		braces = countOpenBraces(strings.TrimLeft(text, " \t"), braces)
 		lastEnd = line.end
 		bp.pos++
+		taken++
+		if taken == literalLines {
+			literalBytes = textBuf.Len()
+		}
 	}
 
 	if textBuf.Len() > 0 {
-		node := bp.arena.new(Node{Kind: Paragraph, Text: strings.TrimRight(textBuf.String(), " \t")})
+		text := strings.TrimRight(textBuf.String(), " \t")
+		// If the paragraph broke off early, everything it took is literal.
+		if literalLines > 0 && taken < literalLines {
+			literalBytes = len(text)
+		}
+		node := bp.arena.new(Node{Kind: Paragraph, Text: text})
 		node.Start = Pos{Offset: startOffset}
 		node.End = Pos{Offset: lastEnd}
+		node.plainBracesUntil = min(literalBytes, len(text))
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
 	}
@@ -1076,6 +1103,17 @@ func (bp *blockParser) isPrecededByBlank(parent *Node) bool {
 // tryBlockAttr checks if the current line starts a block-level attribute.
 // Returns the full attribute content (including braces) and the number of lines consumed.
 // If not a valid attribute block, returns ("", 0).
+// tryBlockAttr attempts to read a block attribute starting at the current line.
+// On success it returns the brace-delimited content and the number of lines it
+// spans.
+//
+// On failure it returns "" and, when the attempt died because a continuation
+// line wasn't indented, the number of lines it had already taken. Those lines
+// are literal text: djot.js re-emits them as plain inline content rather than
+// letting "{" be read again as an inline attribute or comment. Failing for want
+// of a closing brace instead reports 0, leaving the whole paragraph to normal
+// inline parsing, which already falls back to literal text for a "{" that opens
+// nothing valid.
 func (bp *blockParser) tryBlockAttr(stripped, prefix string) (string, int) {
 	trimmed := strings.TrimRight(stripped, " \t")
 	// Single-line case: {attrs}
@@ -1101,7 +1139,7 @@ func (bp *blockParser) tryBlockAttr(stripped, prefix string) (string, int) {
 		contIndent := len(text) - len(contStripped)
 		// Continuation lines must be indented (at least 1 space).
 		if contIndent == 0 || isBlankLine(text) {
-			return "", 0
+			return "", lines
 		}
 		buf.WriteByte(' ')
 		buf.WriteString(strings.TrimSpace(text))
@@ -1516,22 +1554,39 @@ func stripIndent(text string, n int) string {
 	return text
 }
 
+// isReferenceDefinition reports whether s opens a reference definition,
+// "[label]: url".
+//
+// Whatever follows the colon must be a single run of non-whitespace reaching
+// the end of the line, matching pattReferenceDefinition in djot.js. A title, a
+// stray trailing word, even a trailing space means the line is not a definition
+// at all: it stays a paragraph, and uses of the label go unresolved. The URL
+// may also be empty here and supplied by continuation lines.
 func isReferenceDefinition(s string) bool {
-	if len(s) < 4 || s[0] != '[' {
+	if len(s) < 3 || s[0] != '[' {
 		return false
 	}
-	// Must not be a footnote definition [^...]
-	if len(s) > 1 && s[1] == '^' {
+	// A footnote definition takes precedence, but only a real one: "[^]:" has
+	// no footnote label, so it is a reference definition labelled "^".
+	if isFootnoteDefinition(s) {
 		return false
 	}
 	closeBracket := strings.IndexByte(s, ']')
-	if closeBracket < 2 {
+	if closeBracket < 1 {
 		return false
 	}
 	if closeBracket+1 >= len(s) || s[closeBracket+1] != ':' {
 		return false
 	}
-	return true
+	rest := s[closeBracket+2:]
+	if rest == "" {
+		return true
+	}
+	url := strings.TrimLeft(rest, " \t")
+	if len(url) == len(rest) {
+		return false // the URL must be separated from the colon by whitespace
+	}
+	return !strings.ContainsAny(url, " \t")
 }
 
 func (bp *blockParser) parseReferenceDefinition(parent *Node, stripped string, indent int, prefix string) {
@@ -1567,9 +1622,15 @@ func (bp *blockParser) parseReferenceDefinition(parent *Node, stripped string, i
 		if nextText[0] != ' ' && nextText[0] != '\t' {
 			break
 		}
-		trimmed := strings.TrimSpace(nextText)
+		trimmed := strings.TrimLeft(nextText, " \t")
 		// If continuation looks like another ref def, stop
 		if isReferenceDefinition(trimmed) || isFootnoteDefinition(trimmed) {
+			break
+		}
+		// Like the first line, a continuation chunk must be one unbroken run of
+		// non-whitespace. A chunk with a space in it ends the definition and is
+		// parsed as its own block instead.
+		if strings.ContainsAny(trimmed, " \t") {
 			break
 		}
 		urlParts = append(urlParts, trimmed)
@@ -2209,19 +2270,47 @@ func (bp *blockParser) parseTable(parent *Node, stripped string, indent int, pre
 	parent.Children = append(parent.Children, node)
 }
 
+// isTableSeparator reports whether s is a table separator row such as |---|
+// or |:--:|---:|, optionally carrying alignment colons.
+//
+// Cells must begin immediately after the leading "|": with a space, as in
+// "| --- |", the line is an ordinary row and the row above it stays a body row.
+// Whitespace between later cells is fine, since it sits after a "|" that the
+// preceding cell already consumed. This mirrors pattRowSep in djot.js.
 func isTableSeparator(s string) bool {
-	// A separator row: |---|---|, possibly with : for alignment
 	s = strings.TrimSpace(s)
 	if len(s) == 0 || s[0] != '|' {
 		return false
 	}
-	for _, c := range s {
-		if c != '|' && c != '-' && c != ':' && c != ' ' && c != '\t' {
+	pos := 1
+	for {
+		if pos < len(s) && s[pos] == ':' {
+			pos++
+		}
+		dashes := pos
+		for pos < len(s) && s[pos] == '-' {
+			pos++
+		}
+		if pos == dashes {
 			return false
 		}
+		if pos < len(s) && s[pos] == ':' {
+			pos++
+		}
+		for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t') {
+			pos++
+		}
+		if pos >= len(s) || s[pos] != '|' {
+			return false
+		}
+		pos++
+		for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t') {
+			pos++
+		}
+		if pos == len(s) {
+			return true
+		}
 	}
-	// Must have at least one -
-	return strings.ContainsRune(s, '-')
 }
 
 func parseTableAlignments(s string) []CellAlign {

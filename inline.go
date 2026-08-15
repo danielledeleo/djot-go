@@ -46,8 +46,9 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 					}
 					baseOffset = off
 				}
-				n.Children = p.parseInline(n.Text, doc, baseOffset)
+				n.Children = p.parseInline(n.Text, doc, baseOffset, n.plainBracesUntil)
 				n.Text = ""
+				n.plainBracesUntil = 0
 			}
 		}
 		return Continue
@@ -55,10 +56,11 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 }
 
 // parseInline parses a djot inline string into a list of inline nodes.
-// baseOffset is the source byte offset corresponding to input[0]. It resets the
-// parser's scratch state, so a single inlineParser can be reused across every
-// block in a document.
-func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset int) []*Node {
+// baseOffset is the source byte offset corresponding to input[0].
+// plainBracesUntil is an offset before which braces are ordinary characters.
+// It resets the parser's scratch state, so a single inlineParser can be reused
+// across every block in a document.
+func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBracesUntil int) []*Node {
 	// Rough heuristic: ~1 node per 8 bytes of input. The nodes slice is returned
 	// as the block's AST children, so it must be freshly allocated each call; the
 	// scratch maps are cleared and reused.
@@ -70,6 +72,7 @@ func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset int) []*No
 	clear(p.openerIdx)
 	p.doc = doc
 	p.baseOffset = baseOffset
+	p.plainBracesUntil = plainBracesUntil
 	return p.parse()
 }
 
@@ -89,6 +92,10 @@ type inlineParser struct {
 	doc        *Doc
 	baseOffset int        // source byte offset corresponding to input[0]
 	arena      *nodeArena // shared node allocator for the whole document
+
+	// plainBracesUntil is an offset in input before which braces are ordinary
+	// characters rather than attribute syntax; see Node.plainBracesUntil.
+	plainBracesUntil int
 }
 
 // srcPos returns a Pos for a position in the inline parser's input.
@@ -121,10 +128,17 @@ func (p *inlineParser) parse() []*Node {
 			p.parseImageOpen()
 		case ']':
 			p.parseBracketClose()
-		case '{':
-			p.parseOpenBrace()
-		case '}':
-			p.parseCloseBrace()
+		case '{', '}':
+			// Block parsing already tried and failed to read these as a block
+			// attribute, so here they are just characters.
+			if p.pos < p.plainBracesUntil {
+				p.addTextChar(c)
+				p.pos++
+			} else if c == '{' {
+				p.parseOpenBrace()
+			} else {
+				p.parseCloseBrace()
+			}
 		case '<':
 			p.parseAutolink()
 		case '"':
@@ -382,6 +396,13 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 func (p *inlineParser) parseImageOpen() {
 	// Check for ![
 	if p.pos+1 < len(p.input) && p.input[p.pos+1] == '[' {
+		// "![^" is a footnote reference behind a literal "!", not an image, so
+		// leave the bracket to open a plain one.
+		if p.pos+2 < len(p.input) && p.input[p.pos+2] == '^' {
+			p.addTextChar('!')
+			p.pos++
+			return
+		}
 		idx := len(p.nodes)
 		p.add(Node{Kind: Text, Text: "!["})
 		p.openers['['] = append(p.openers['['], &opener{
@@ -595,7 +616,15 @@ func (p *inlineParser) parseBracketClose() {
 	// bracket so that finding the closing bracket costs nothing extra; scanning
 	// ahead for it from every "[^" made parsing quadratic in the input length.
 	if op.char == '[' && op.pos+1 < len(p.input) && p.input[op.pos+1] == '^' {
-		if label := p.input[op.pos+2 : p.pos-1]; label != "" {
+		// References are normalized like reference-link labels, collapsing runs
+		// of whitespace so a label broken across lines still matches its
+		// definition. An empty label is a valid reference, though never a valid
+		// definition, so it resolves to nothing.
+		label := collapseWhitespace(p.input[op.pos+2 : p.pos-1])
+		// A nested "[" would give a label no definition could ever carry, since
+		// a definition's label ends at its first "]". Leave the run literal
+		// instead of inventing a reference that can never resolve.
+		if !strings.Contains(label, "[") {
 			p.invalidateOpenersFrom(op.nodeIdx)
 			p.nodes = p.nodes[:op.nodeIdx]
 			p.add(Node{Kind: FootnoteReference, Label: label})
@@ -1000,8 +1029,15 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 				}
 			}
 		}
-		// No matching marked opener — emit quote as text.
-		p.add(Node{Kind: Text, Text: string(char)})
+		// No marked opener to pair with, but the marker still forces this quote
+		// to close, and it applies only here: a later unmatched quote is
+		// unaffected and still opens.
+		if char == '\'' {
+			p.add(Node{Kind: Text, Text: "’"}) // right single quote
+		} else {
+			p.add(Node{Kind: Text, Text: "”"}) // right double quote
+		}
+		p.pos++ // skip }
 		return
 	}
 

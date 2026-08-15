@@ -143,6 +143,13 @@ type Node struct {
 	Start     Pos
 	End       Pos
 
+	// plainBracesUntil marks a byte offset in Text before which braces are
+	// ordinary characters. Block parsing already tried to read them as a block
+	// attribute and failed, so inline parsing must not get a second go at them
+	// as an inline attribute or comment. Everything else in that span still
+	// parses normally. Cleared once inlines are parsed.
+	plainBracesUntil int
+
 	// Text content (Text, Verbatim, RawInline, RawBlock, CodeBlock)
 	Text string
 

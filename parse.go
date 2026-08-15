@@ -11,6 +11,7 @@ func Parse(input string) *Doc {
 
 	bp := newBlockParser(input)
 	root := bp.parse()
+	tightenBlockEnds(root)
 
 	doc := &Doc{
 		Root:       root,
@@ -88,4 +89,26 @@ func collectFootnotesAndRefs(doc *Doc) {
 		}
 		return Continue
 	})
+}
+
+// tightenBlockEnds trims container end positions back to where their content
+// actually ends. A block closed lazily — by a less-indented line, a blank line,
+// or the end of input — otherwise records an end reaching into whatever closed
+// it, so a list item spanning one line appears to run into the next.
+//
+// Runs post-order, so a container picks up an end its last child has already
+// had tightened.
+func tightenBlockEnds(n *Node) {
+	for _, c := range n.Children {
+		tightenBlockEnds(c)
+	}
+	switch n.Kind {
+	case BulletList, OrderedList, TaskList, DefinitionList,
+		ListItem, TaskListItem, BlockQuote, Table, Footnote:
+		if len(n.Children) > 0 {
+			if last := n.Children[len(n.Children)-1]; last.End.Offset > 0 {
+				n.End = last.End
+			}
+		}
+	}
 }

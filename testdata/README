@@ -1,4 +1,6 @@
 official/ — Test files from https://github.com/jgm/djot.js (MIT license).
+             Vendored from f0191eb (2026-08-12), the tip of main at the time;
+             the last tagged release, @djot/djot@0.3.2, predates all of it.
              Format: triple-backtick blocks, "." separates input from expected HTML.
              filters.test uses Lua filters (skipped).
              sourcepos.test uses AST output (separate test path).

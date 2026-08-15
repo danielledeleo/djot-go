@@ -249,7 +249,7 @@ func TestPositionSubParsers(t *testing.T) {
 			input: " - alpha\n - beta",
 			expected: `doc
   bullet_list (1:2:1-3:0:16) tight=true style="-"
-    list_item (1:2:1-2:1:9)
+    list_item (1:2:1-2:0:8)
       para (1:4:3-2:0:8)
         str (1:4:3-1:8:7) text="alpha"
     list_item (2:2:10-3:0:16)
