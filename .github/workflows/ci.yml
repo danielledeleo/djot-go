@@ -20,3 +20,47 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - run: go test -race -count=1 ./...
       - run: go vet ./...
+
+  # Publishes the coverage number to the "badges" branch, which is what the
+  # README badge reads. Only on main: pull requests have no business pushing.
+  coverage:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: ./scripts/coverage-badge.sh coverage.json
+      - name: Publish to badges branch
+        env:
+          REPO: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+        run: |
+          set -eu
+          tmp=$(mktemp -d)
+          # The branch holds only this file and shares no history with main, so
+          # start one if it isn't there yet.
+          if git clone --depth 1 --branch badges "$REPO" "$tmp" 2>/dev/null; then
+            cp coverage.json "$tmp/coverage.json"
+          else
+            git clone --depth 1 "$REPO" "$tmp"
+            git -C "$tmp" checkout --orphan badges
+            git -C "$tmp" rm -rq --cached .
+            find "$tmp" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp coverage.json "$tmp/coverage.json"
+          fi
+          git -C "$tmp" add coverage.json
+          # Nothing to say when the percentage hasn't moved.
+          if git -C "$tmp" diff --cached --quiet; then
+            echo "coverage unchanged, nothing to publish"
+            exit 0
+          fi
+          pct=$(sed -n 's/.*"message": "\(.*\)".*/\1/p' coverage.json)
+          git -C "$tmp" \
+            -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "coverage: $pct"
+          git -C "$tmp" push origin badges

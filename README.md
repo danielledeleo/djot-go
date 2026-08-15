@@ -1,9 +1,8 @@
 # djot-go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/danielledeleo/djot-go.svg)](https://pkg.go.dev/github.com/danielledeleo/djot-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/danielledeleo/djot-go)](https://goreportcard.com/report/github.com/danielledeleo/djot-go)
 [![CI](https://github.com/danielledeleo/djot-go/actions/workflows/ci.yml/badge.svg)](https://github.com/danielledeleo/djot-go/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/danielledeleo/djot-go/branch/main/graph/badge.svg)](https://codecov.io/gh/danielledeleo/djot-go)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdanielledeleo%2Fdjot-go%2Fbadges%2Fcoverage.json)](https://github.com/danielledeleo/djot-go/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/danielledeleo/djot-go)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
