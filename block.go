@@ -761,6 +761,9 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 	}
 	firstStripped := strings.TrimLeft(firstLine, " \t")
 	firstEnum, firstDelim, _ := extractOrderedMarkerParts(firstStripped)
+	// Every enumerator taken so far. While they are all ambiguous the list's
+	// style is still open to revision — see the reinterpretation below.
+	enums := []string{firstEnum}
 
 	node := bp.arena.new(Node{Kind: OrderedList, ListStart: start, ListStyle: style})
 	node.Start = Pos{Offset: bp.currentLine().start}
@@ -811,23 +814,28 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 			break
 		}
 		// Check delimiter type matches.
-		_, itemDelim, _ := extractOrderedMarkerParts(stripped)
+		itemEnum, itemDelim, _ := extractOrderedMarkerParts(stripped)
 		if itemDelim != firstDelim {
 			bp.pos -= blanksBefore
 			break
 		}
 		if itemStyle != style {
-			// Try to reinterpret: if this is the second item and the first
-			// item's enumerator can be parsed as the new style, switch.
-			if len(node.Children) == 1 {
-				if newNum, ok2 := parseOrderedEnumAs(firstEnum, itemStyle); ok2 {
-					style = itemStyle
-					node.ListStyle = style
-					node.ListStart = newNum
-				} else {
-					bp.pos -= blanksBefore
-					break
-				}
+			// The marker was classified on its own, where roman wins the tie for
+			// letters that are also numerals — "c", "d", "i". A list already
+			// under way wins that tie instead: if the enumerator reads as the
+			// style in play, it goes on being that style.
+			if _, ok2 := parseOrderedEnumAs(itemEnum, style); ok2 {
+				itemStyle = style
+			} else if allParseAs(enums, itemStyle) {
+				// Otherwise every enumerator so far was ambiguous, and this one
+				// settles the question: reread the list in the style that keeps
+				// it going. The spec asks for the reading that yields one
+				// continuous list rather than two, and takes the start number
+				// from the first item under that reading.
+				newNum, _ := parseOrderedEnumAs(enums[0], itemStyle)
+				style = itemStyle
+				node.ListStyle = style
+				node.ListStart = newNum
 			} else {
 				bp.pos -= blanksBefore
 				break
@@ -837,6 +845,8 @@ func (bp *blockParser) parseOrderedList(parent *Node, start int, style ListStyle
 		if blanksBefore > 0 && len(node.Children) > 0 {
 			hasBlankBetweenItems = true
 		}
+
+		enums = append(enums, itemEnum)
 
 		item := bp.arena.new(Node{Kind: ListItem})
 		item.Start = Pos{Offset: line.start}
@@ -2414,4 +2424,16 @@ func mergeAttrsOrdered(dst map[string]string, dstOrder []string, src map[string]
 		}
 	}
 	return dst, dstOrder
+}
+
+// allParseAs reports whether every enumerator can be read in the given style.
+// A list only changes style when the items already taken can all be reread that
+// way, so that the change explains the whole list rather than splitting it.
+func allParseAs(enums []string, style ListStyle) bool {
+	for _, e := range enums {
+		if _, ok := parseOrderedEnumAs(e, style); !ok {
+			return false
+		}
+	}
+	return true
 }
