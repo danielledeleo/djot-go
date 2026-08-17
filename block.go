@@ -1389,6 +1389,11 @@ func extractOrderedMarkerParts(s string) (enum string, delim orderedDelim, ok bo
 
 // parseOrderedEnumAs tries to parse an enum string as a specific style.
 func parseOrderedEnumAs(s string, style ListStyle) (int, bool) {
+	// No style reads an empty enumerator; without this the decimal case would
+	// fall out of its loop and call it zero.
+	if s == "" {
+		return 0, false
+	}
 	switch style {
 	case ListDecimal:
 		for _, c := range s {
@@ -1492,18 +1497,41 @@ func isAllUpper(s string) bool {
 }
 
 // parseRoman parses an uppercase Roman numeral string and returns its value.
+var romanValues = map[byte]int{
+	'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000,
+}
+
+// maxRomanRun is how many times a digit may repeat in a row: the "one" digits
+// four times, the "five" digits not at all, since VV is only ever a mistake
+// for X.
+func maxRomanRun(val int) int {
+	switch val {
+	case 5, 50, 500:
+		return 1
+	}
+	return 4
+}
+
+// parseRoman converts a Roman numeral to its value. Additive and subtractive
+// spellings are both accepted — IIII and IV are each 4, as on a clock face —
+// but not runs that spill into the next digit up: IIIII is not 5, it is a
+// mistake for V.
 func parseRoman(s string) (int, bool) {
 	if len(s) == 0 {
 		return 0, false
 	}
-	romanValues := map[byte]int{
-		'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000,
-	}
-	total := 0
-	prev := 0
+	total, prev, run := 0, 0, 0
 	for i := len(s) - 1; i >= 0; i-- {
 		val, exists := romanValues[s[i]]
 		if !exists {
+			return 0, false
+		}
+		if val == prev {
+			run++
+		} else {
+			run = 1
+		}
+		if run > maxRomanRun(val) {
 			return 0, false
 		}
 		if val < prev {
@@ -1516,35 +1544,7 @@ func parseRoman(s string) (int, bool) {
 	if total <= 0 {
 		return 0, false
 	}
-	// Validate by checking that the roman numeral round-trips
-	if toRoman(total) != s {
-		return 0, false
-	}
 	return total, true
-}
-
-// toRoman converts an integer to an uppercase Roman numeral string.
-func toRoman(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	type pair struct {
-		value  int
-		symbol string
-	}
-	pairs := []pair{
-		{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"},
-		{100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"},
-		{10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"},
-	}
-	var buf strings.Builder
-	for _, p := range pairs {
-		for n >= p.value {
-			buf.WriteString(p.symbol)
-			n -= p.value
-		}
-	}
-	return buf.String()
 }
 
 func stripIndent(text string, n int) string {
