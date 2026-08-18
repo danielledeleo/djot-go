@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -127,15 +128,29 @@ func readInput(files []string, in io.Reader) (string, error) {
 
 // openOutput returns the writer to render into and a close function. When path
 // is empty it renders to fallback (stdout) and close is a no-op.
+// openOutput returns the writer to render into and a function to finish with.
+//
+// The renderers write in small pieces — a tag, a run of text, a tag — so the
+// destination is buffered. Handing them an unbuffered os.Stdout turns each of
+// those into its own write syscall, which for a large document costs several
+// times what the parse did.
 func openOutput(path string, fallback io.Writer) (io.Writer, func() error, error) {
 	if path == "" {
-		return fallback, func() error { return nil }, nil
+		buf := bufio.NewWriter(fallback)
+		return buf, buf.Flush, nil
 	}
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	return f, f.Close, nil
+	buf := bufio.NewWriter(f)
+	return buf, func() error {
+		if err := buf.Flush(); err != nil {
+			f.Close()
+			return err
+		}
+		return f.Close()
+	}, nil
 }
 
 // version reports the CLI version. When built with `go install …/cmd/djot@VER`
