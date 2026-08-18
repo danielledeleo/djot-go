@@ -48,89 +48,98 @@ func largeDoc() string {
 	return b.String()
 }
 
-// hugeDoc generates a ~1 MB document with diverse block and inline content.
+// hugeDocSize is what hugeDoc aims for. Chapters are whole, so the result runs
+// a little over.
+const hugeDocSize = 1 << 20
+
+// hugeDoc generates a document of about hugeDocSize with diverse block and
+// inline content. It adds chapters until it reaches the target rather than a
+// fixed number of them, so the size stays right when a chapter's content
+// changes: the previous count of 100 was documented as ~1 MB but gave 239 KB.
 func hugeDoc() string {
 	var b strings.Builder
-
-	// A realistic mix of djot features repeated to reach ~1 MB.
-	// Each "chapter" is ~10 KB, so ~100 chapters ≈ 1 MB.
-	for ch := 0; ch < 100; ch++ {
-		b.WriteString(fmt.Sprintf("# Chapter %d: The Art of Parsing\n\n", ch+1))
-
-		// Prose paragraphs with inline formatting
-		b.WriteString("The quick brown fox *jumps* over the **lazy dog**. ")
-		b.WriteString("This sentence has _emphasis_, **strong**, and `inline code`. ")
-		b.WriteString("Here is a [link](https://example.com/page) and an ")
-		b.WriteString("![image](https://example.com/img.png \"title\"). ")
-		b.WriteString("Smart quotes: \"hello\" and 'world'. ")
-		b.WriteString("Dashes: em---dash and en--dash. Ellipsis...\n\n")
-
-		b.WriteString(fmt.Sprintf("## Section %d.1: Lists\n\n", ch+1))
-
-		// Bullet list
-		for i := 0; i < 10; i++ {
-			b.WriteString(fmt.Sprintf("- Item %d with *emphasis* and a [link](https://example.com/%d)\n", i+1, i))
-		}
-		b.WriteString("\n")
-
-		// Ordered list
-		for i := 0; i < 5; i++ {
-			b.WriteString(fmt.Sprintf("%d. Ordered item with `code` and **bold** text\n", i+1))
-		}
-		b.WriteString("\n")
-
-		// Task list
-		b.WriteString("- [ ] Unchecked task\n- [x] Checked task\n- [ ] Another task\n\n")
-
-		b.WriteString(fmt.Sprintf("## Section %d.2: Blocks\n\n", ch+1))
-
-		// Blockquote
-		b.WriteString("> This is a blockquote with *formatting*.\n")
-		b.WriteString("> It spans multiple lines and has **bold** words.\n")
-		b.WriteString(">\n")
-		b.WriteString("> > Nested blockquote with a [link](https://example.com).\n\n")
-
-		// Code block
-		b.WriteString("```go\n")
-		b.WriteString("func process(items []string) error {\n")
-		b.WriteString("    for _, item := range items {\n")
-		b.WriteString("        if err := handle(item); err != nil {\n")
-		b.WriteString("            return fmt.Errorf(\"process %s: %w\", item, err)\n")
-		b.WriteString("        }\n")
-		b.WriteString("    }\n")
-		b.WriteString("    return nil\n")
-		b.WriteString("}\n")
-		b.WriteString("```\n\n")
-
-		// Table
-		b.WriteString("| Name   | Type    | Description                          |\n")
-		b.WriteString("|--------|---------|--------------------------------------|\n")
-		for i := 0; i < 5; i++ {
-			b.WriteString(fmt.Sprintf("| field%d | string  | A field with *formatted* description |\n", i))
-		}
-		b.WriteString("\n")
-
-		// Div
-		b.WriteString("::: warning\n")
-		b.WriteString("This is a warning admonition with _emphasis_ and a :symbol:.\n")
-		b.WriteString(":::\n\n")
-
-		// Definition list
-		b.WriteString(": Term one\n\n")
-		b.WriteString("  Definition of term one with **bold** text.\n\n")
-		b.WriteString(": Term two\n\n")
-		b.WriteString("  Definition of term two with `code`.\n\n")
-
-		// Footnotes
-		b.WriteString(fmt.Sprintf("A paragraph with footnotes[^%da] and more[^%db].\n\n", ch, ch))
-		b.WriteString(fmt.Sprintf("[^%da]: First footnote for chapter %d.\n\n", ch, ch+1))
-		b.WriteString(fmt.Sprintf("[^%db]: Second footnote with *emphasis*.\n\n", ch))
-
-		// Thematic break
-		b.WriteString("* * *\n\n")
+	b.Grow(hugeDocSize + 4096)
+	for ch := 0; b.Len() < hugeDocSize; ch++ {
+		writeChapter(&b, ch)
 	}
-
 	return b.String()
+}
+
+// writeChapter appends one chapter's worth of mixed djot constructs.
+func writeChapter(b *strings.Builder, ch int) {
+	b.WriteString(fmt.Sprintf("# Chapter %d: The Art of Parsing\n\n", ch+1))
+
+	// Prose paragraphs with inline formatting
+	b.WriteString("The quick brown fox *jumps* over the **lazy dog**. ")
+	b.WriteString("This sentence has _emphasis_, **strong**, and `inline code`. ")
+	b.WriteString("Here is a [link](https://example.com/page) and an ")
+	b.WriteString("![image](https://example.com/img.png \"title\"). ")
+	b.WriteString("Smart quotes: \"hello\" and 'world'. ")
+	b.WriteString("Dashes: em---dash and en--dash. Ellipsis...\n\n")
+
+	b.WriteString(fmt.Sprintf("## Section %d.1: Lists\n\n", ch+1))
+
+	// Bullet list
+	for i := 0; i < 10; i++ {
+		b.WriteString(fmt.Sprintf("- Item %d with *emphasis* and a [link](https://example.com/%d)\n", i+1, i))
+	}
+	b.WriteString("\n")
+
+	// Ordered list
+	for i := 0; i < 5; i++ {
+		b.WriteString(fmt.Sprintf("%d. Ordered item with `code` and **bold** text\n", i+1))
+	}
+	b.WriteString("\n")
+
+	// Task list
+	b.WriteString("- [ ] Unchecked task\n- [x] Checked task\n- [ ] Another task\n\n")
+
+	b.WriteString(fmt.Sprintf("## Section %d.2: Blocks\n\n", ch+1))
+
+	// Blockquote
+	b.WriteString("> This is a blockquote with *formatting*.\n")
+	b.WriteString("> It spans multiple lines and has **bold** words.\n")
+	b.WriteString(">\n")
+	b.WriteString("> > Nested blockquote with a [link](https://example.com).\n\n")
+
+	// Code block
+	b.WriteString("```go\n")
+	b.WriteString("func process(items []string) error {\n")
+	b.WriteString("    for _, item := range items {\n")
+	b.WriteString("        if err := handle(item); err != nil {\n")
+	b.WriteString("            return fmt.Errorf(\"process %s: %w\", item, err)\n")
+	b.WriteString("        }\n")
+	b.WriteString("    }\n")
+	b.WriteString("    return nil\n")
+	b.WriteString("}\n")
+	b.WriteString("```\n\n")
+
+	// Table
+	b.WriteString("| Name   | Type    | Description                          |\n")
+	b.WriteString("|--------|---------|--------------------------------------|\n")
+	for i := 0; i < 5; i++ {
+		b.WriteString(fmt.Sprintf("| field%d | string  | A field with *formatted* description |\n", i))
+	}
+	b.WriteString("\n")
+
+	// Div
+	b.WriteString("::: warning\n")
+	b.WriteString("This is a warning admonition with _emphasis_ and a :symbol:.\n")
+	b.WriteString(":::\n\n")
+
+	// Definition list
+	b.WriteString(": Term one\n\n")
+	b.WriteString("  Definition of term one with **bold** text.\n\n")
+	b.WriteString(": Term two\n\n")
+	b.WriteString("  Definition of term two with `code`.\n\n")
+
+	// Footnotes
+	b.WriteString(fmt.Sprintf("A paragraph with footnotes[^%da] and more[^%db].\n\n", ch, ch))
+	b.WriteString(fmt.Sprintf("[^%da]: First footnote for chapter %d.\n\n", ch, ch+1))
+	b.WriteString(fmt.Sprintf("[^%db]: Second footnote with *emphasis*.\n\n", ch))
+
+	// Thematic break
+	b.WriteString("* * *\n\n")
 }
 
 // pathologicalInline generates a document heavy on inline parsing (many
