@@ -15,7 +15,6 @@ language designed by John MacFarlane as a successor to Markdown.
 - Typed AST with source positions
 - Custom rendering via hooks
 - `djot` command-line tool (HTML, AST, and JSON output)
-- ~33 MB/s parse throughput on realistic documents
 
 ## Install
 
