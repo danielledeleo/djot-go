@@ -11,7 +11,7 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 	// (openers, openerIdx) are cleared between blocks rather than reallocated,
 	// which previously dominated parse-time allocation.
 	p := &inlineParser{
-		openers:   make(map[byte][]*opener, 4),
+		openers:   make(map[byte][]opener, 4),
 		openerIdx: make(map[int]bool, 8),
 		arena:     arena,
 	}
@@ -61,19 +61,22 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 // It resets the parser's scratch state, so a single inlineParser can be reused
 // across every block in a document.
 func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBracesUntil int) []*Node {
-	// Rough heuristic: ~1 node per 8 bytes of input. The nodes slice is returned
-	// as the block's AST children, so it must be freshly allocated each call; the
-	// scratch maps are cleared and reused.
-	estNodes := len(input)/8 + 4
+	// Nodes are collected into a scratch buffer reused across blocks, and the
+	// result is copied into a right-sized run at the end. The scratch maps are
+	// cleared rather than reallocated for the same reason.
 	p.input = input
 	p.pos = 0
-	p.nodes = make([]*Node, 0, estNodes)
+	p.nodes = p.scratch[:0]
 	clear(p.openers)
 	clear(p.openerIdx)
 	p.doc = doc
 	p.baseOffset = baseOffset
 	p.plainBracesUntil = plainBracesUntil
-	return p.parse()
+	out := p.parse()
+	// Keep the grown buffer for the next block, and hand back a right-sized
+	// copy so the block's Children do not pin the scratch buffer.
+	p.scratch = out[:0]
+	return p.slices.clone(out)
 }
 
 type opener struct {
@@ -87,11 +90,13 @@ type inlineParser struct {
 	input      string
 	pos        int
 	nodes      []*Node
-	openers    map[byte][]*opener
+	openers    map[byte][]opener
 	openerIdx  map[int]bool // set of nodeIdx values that are opener placeholders
 	doc        *Doc
-	baseOffset int        // source byte offset corresponding to input[0]
-	arena      *nodeArena // shared node allocator for the whole document
+	baseOffset int            // source byte offset corresponding to input[0]
+	arena      *nodeArena     // shared node allocator for the whole document
+	slices     nodeSliceArena // shared allocator for child slices
+	scratch    []*Node        // reused node buffer across blocks
 
 	// plainBracesUntil is an offset in input before which braces are ordinary
 	// characters rather than attribute syntax; see Node.plainBracesUntil.
@@ -352,8 +357,8 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 	if canClose {
 		if openers, ok := p.openers[char]; ok && len(openers) > 0 {
 			// Only check the most recent non-marked opener.
-			var op *opener
-			var opIdx int
+			var op opener
+			opIdx := -1
 			for i := len(openers) - 1; i >= 0; i-- {
 				if !openers[i].marked {
 					op = openers[i]
@@ -361,12 +366,11 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 					break
 				}
 			}
-			if op != nil {
+			if opIdx >= 0 {
 				children := p.nodes[op.nodeIdx+1:]
 				if len(children) > 0 {
 					p.openers[char] = append(openers[:opIdx], openers[opIdx+1:]...)
-					childCopy := make([]*Node, len(children))
-					copy(childCopy, children)
+					childCopy := p.slices.clone(children)
 					p.invalidateOpenersFrom(op.nodeIdx)
 					p.nodes = p.nodes[:op.nodeIdx]
 					node := p.arena.new(Node{Kind: kind, Children: childCopy})
@@ -383,7 +387,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 		idx := len(p.nodes)
 		p.add(Node{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
-		p.openers[char] = append(p.openers[char], &opener{
+		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
 			pos:     start,
 			nodeIdx: idx,
@@ -405,7 +409,7 @@ func (p *inlineParser) parseImageOpen() {
 		}
 		idx := len(p.nodes)
 		p.add(Node{Kind: Text, Text: "!["})
-		p.openers['['] = append(p.openers['['], &opener{
+		p.openers['['] = append(p.openers['['], opener{
 			char:    '!', // special marker for image opener
 			pos:     p.pos,
 			nodeIdx: idx,
@@ -484,8 +488,8 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	if canClose {
 		if openers, ok := p.openers[char]; ok && len(openers) > 0 {
 			// Find the last non-marked opener.
-			var op *opener
-			var opIdx int
+			var op opener
+			opIdx := -1
 			for i := len(openers) - 1; i >= 0; i-- {
 				if !openers[i].marked {
 					op = openers[i]
@@ -493,14 +497,13 @@ func (p *inlineParser) parseDelimiter(char byte) {
 					break
 				}
 			}
-			if op != nil {
+			if opIdx >= 0 {
 				children := p.nodes[op.nodeIdx+1:]
 				// Reject empty emphasis (opener adjacent to closer with no content).
 				if len(children) > 0 {
 					p.openers[char] = append(openers[:opIdx], openers[opIdx+1:]...)
 
-					childCopy := make([]*Node, len(children))
-					copy(childCopy, children)
+					childCopy := p.slices.clone(children)
 
 					// Invalidate any openers whose nodeIdx >= op.nodeIdx.
 					p.invalidateOpenersFrom(op.nodeIdx)
@@ -523,7 +526,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 		idx := len(p.nodes)
 		p.add(Node{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
-		p.openers[char] = append(p.openers[char], &opener{
+		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
 			pos:     start,
 			nodeIdx: idx,
@@ -586,7 +589,7 @@ func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 func (p *inlineParser) parseBracketOpen() {
 	idx := len(p.nodes)
 	p.add(Node{Kind: Text, Text: "["})
-	p.openers['['] = append(p.openers['['], &opener{
+	p.openers['['] = append(p.openers['['], opener{
 		char:    '[',
 		pos:     p.pos,
 		nodeIdx: idx,
@@ -647,8 +650,7 @@ func (p *inlineParser) parseBracketClose() {
 
 	// Gather children between [ (or ![) and ].
 	children := p.nodes[op.nodeIdx+1:]
-	childCopy := make([]*Node, len(children))
-	copy(childCopy, children)
+	childCopy := p.slices.clone(children)
 	p.invalidateOpenersFrom(op.nodeIdx)
 	p.nodes = p.nodes[:op.nodeIdx]
 
@@ -798,7 +800,7 @@ func (p *inlineParser) parseOpenBrace() {
 			idx := len(p.nodes)
 			p.add(Node{Kind: Text, Text: string(char)})
 			p.openerIdx[idx] = true
-			p.openers[char] = append(p.openers[char], &opener{
+			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
 				pos:     start,
 				nodeIdx: idx,
@@ -815,7 +817,7 @@ func (p *inlineParser) parseOpenBrace() {
 			idx := len(p.nodes)
 			p.add(Node{Kind: Text, Text: "-"})
 			p.openerIdx[idx] = true
-			p.openers[char] = append(p.openers[char], &opener{
+			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
 				pos:     start,
 				nodeIdx: idx,
@@ -858,8 +860,7 @@ func (p *inlineParser) parseCloseBrace() {
 								break
 							}
 
-							childCopy := make([]*Node, len(children))
-							copy(childCopy, children)
+							childCopy := p.slices.clone(children)
 
 							p.openers[char] = append(openers[:i], openers[i+1:]...)
 							p.invalidateOpenersFrom(op.nodeIdx)
@@ -1026,8 +1027,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 							children = children[:len(children)-1]
 						}
 					}
-					childCopy := make([]*Node, len(children))
-					copy(childCopy, children)
+					childCopy := p.slices.clone(children)
 					p.openers[qchar] = append(openers[:i], openers[i+1:]...)
 					p.invalidateOpenersFrom(op.nodeIdx)
 					p.nodes = p.nodes[:op.nodeIdx]
@@ -1068,8 +1068,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 					continue
 				}
 				children := p.nodes[op.nodeIdx+1:]
-				childCopy := make([]*Node, len(children))
-				copy(childCopy, children)
+				childCopy := p.slices.clone(children)
 				p.openers[char] = append(openers[:i], openers[i+1:]...)
 				p.invalidateOpenersFrom(op.nodeIdx)
 				p.nodes = p.nodes[:op.nodeIdx]
@@ -1087,7 +1086,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 		idx := len(p.nodes)
 		p.add(Node{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
-		p.openers[char] = append(p.openers[char], &opener{
+		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
 			pos:     start,
 			nodeIdx: idx,
@@ -1424,4 +1423,40 @@ func processBackslashEscapes(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// nodeSliceArena bump-allocates runs of []*Node from shared chunks, so the
+// child lists of inline containers cost one allocation per chunk instead of
+// one per container. Returned slices are capped to their length, so any later
+// append reallocates instead of writing into the next run.
+type nodeSliceArena struct {
+	chunk []*Node
+	next  int
+}
+
+const (
+	sliceArenaMinChunk = 256
+	sliceArenaMaxChunk = 8192
+)
+
+func (a *nodeSliceArena) clone(src []*Node) []*Node {
+	if len(src) == 0 {
+		return nil
+	}
+	if len(a.chunk)+len(src) > cap(a.chunk) {
+		size := a.next
+		if size < sliceArenaMinChunk {
+			size = sliceArenaMinChunk
+		}
+		if size < len(src) {
+			size = len(src)
+		}
+		a.chunk = make([]*Node, 0, size)
+		if size < sliceArenaMaxChunk {
+			a.next = size * 2
+		}
+	}
+	start := len(a.chunk)
+	a.chunk = append(a.chunk, src...)
+	return a.chunk[start:len(a.chunk):len(a.chunk)]
 }

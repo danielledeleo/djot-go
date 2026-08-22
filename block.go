@@ -19,7 +19,6 @@ type blockLine struct {
 	end    int    // byte offset (exclusive, before newline)
 	text   string // full line content (no newline)
 	indent int    // count of leading spaces
-	strip  string // content after stripping indent
 }
 
 func newBlockParser(input string) *blockParser {
@@ -57,9 +56,9 @@ func (cl *contentLines) addBlank(srcStart, srcEnd int) {
 // with source positions mapped back to the original input. The refs map
 // is shared with the parent parser so reference definitions are globally visible.
 func (cl *contentLines) subParser(refs map[string]*Node, arena *nodeArena) *blockParser {
-	input := strings.Join(cl.lines, "\n")
-	// Build blockLines directly from the already-split content lines,
-	// avoiding the cost of re-splitting the joined string.
+	// blockLines are built straight from the already-split content lines, so
+	// the sub-parser never needs the joined text: input stays empty, and
+	// splitLines (its only reader) is never called on a sub-parser.
 	lines := make([]blockLine, len(cl.lines))
 	offset := 0
 	for i, text := range cl.lines {
@@ -69,7 +68,6 @@ func (cl *contentLines) subParser(refs map[string]*Node, arena *nodeArena) *bloc
 			end:    offset + len(text),
 			text:   text,
 			indent: indent,
-			strip:  text,
 		}
 		// Overwrite with original source positions if available.
 		if i < len(cl.spans) {
@@ -78,7 +76,7 @@ func (cl *contentLines) subParser(refs map[string]*Node, arena *nodeArena) *bloc
 		}
 		offset += len(text) + 1 // +1 for the \n separator
 	}
-	return &blockParser{input: input, lines: lines, references: refs, arena: arena}
+	return &blockParser{lines: lines, references: refs, arena: arena}
 }
 
 func (bp *blockParser) splitLines() {
@@ -101,7 +99,6 @@ func (bp *blockParser) splitLines() {
 			end:    lineEnd,
 			text:   text,
 			indent: indent,
-			strip:  text,
 		})
 		if end == -1 {
 			break
