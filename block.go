@@ -28,53 +28,43 @@ func newBlockParser(input string) *blockParser {
 }
 
 // contentLines collects reconstructed content lines alongside their original
-// source positions. This ensures every content line always has a corresponding
-// source span, making it impossible to add text without tracking its origin.
-type contentLines struct {
-	lines []string
-	spans []sourceSpan
-}
+// source positions. Text and origin travel in the same element rather than in
+// two parallel slices, so a line cannot exist without its span and the two can
+// never fall out of step. Growing the buffer also costs one allocation
+// per step instead of two.
+type contentLines []contentLine
 
-type sourceSpan struct {
+type contentLine struct {
+	text  string
 	start int // byte offset in original source where content begins
 	end   int // byte offset in original source where the line ends
 }
 
 // add appends a content line with its original source span.
 func (cl *contentLines) add(text string, srcStart, srcEnd int) {
-	cl.lines = append(cl.lines, text)
-	cl.spans = append(cl.spans, sourceSpan{start: srcStart, end: srcEnd})
+	*cl = append(*cl, contentLine{text: text, start: srcStart, end: srcEnd})
 }
 
 // addBlank appends an empty line (for blank continuation lines).
 func (cl *contentLines) addBlank(srcStart, srcEnd int) {
-	cl.lines = append(cl.lines, "")
-	cl.spans = append(cl.spans, sourceSpan{start: srcStart, end: srcEnd})
+	cl.add("", srcStart, srcEnd)
 }
 
 // subParser creates a block parser from the collected content lines,
 // with source positions mapped back to the original input. The refs map
 // is shared with the parent parser so reference definitions are globally visible.
-func (cl *contentLines) subParser(refs map[string]*Node, arena *nodeArena) *blockParser {
+func (cl contentLines) subParser(refs map[string]*Node, arena *nodeArena) *blockParser {
 	// blockLines are built straight from the already-split content lines, so
 	// the sub-parser never needs the joined text: input stays empty, and
 	// splitLines (its only reader) is never called on a sub-parser.
-	lines := make([]blockLine, len(cl.lines))
-	offset := 0
-	for i, text := range cl.lines {
-		indent := countLeadingSpaces(text)
+	lines := make([]blockLine, len(cl))
+	for i, line := range cl {
 		lines[i] = blockLine{
-			start:  offset,
-			end:    offset + len(text),
-			text:   text,
-			indent: indent,
+			start:  line.start,
+			end:    line.end,
+			text:   line.text,
+			indent: countLeadingSpaces(line.text),
 		}
-		// Overwrite with original source positions if available.
-		if i < len(cl.spans) {
-			lines[i].start = cl.spans[i].start
-			lines[i].end = cl.spans[i].end
-		}
-		offset += len(text) + 1 // +1 for the \n separator
 	}
 	return &blockParser{lines: lines, references: refs, arena: arena}
 }
@@ -1730,7 +1720,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *Node, stripped string, in
 		}
 	}
 
-	if len(content.lines) > 0 {
+	if len(content) > 0 {
 		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(node, 0, "")
 	}
