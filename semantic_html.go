@@ -18,6 +18,8 @@ type semanticHTMLRenderer struct {
 	writer io.Writer
 	err    error
 
+	symbolHook SymbolRenderFunc
+
 	tight         bool
 	footnotes     map[string]int
 	footnoteNums  map[string]int
@@ -27,19 +29,30 @@ type semanticHTMLRenderer struct {
 }
 
 func renderSemanticHTML(tape *semanticTape) string {
-	r := renderSemanticHTMLInto(tape, nil)
+	r := renderSemanticHTMLInto(tape, nil, nil)
 	return r.out.String()
 }
 
 func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
-	r := renderSemanticHTMLInto(tape, w)
+	r := renderSemanticHTMLInto(tape, w, nil)
 	return r.err
 }
 
-func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer) *semanticHTMLRenderer {
+func renderSemanticHTMLWithSymbol(tape *semanticTape, hook SymbolRenderFunc) string {
+	r := renderSemanticHTMLInto(tape, nil, hook)
+	return r.out.String()
+}
+
+func renderSemanticHTMLToWithSymbol(w io.Writer, tape *semanticTape, hook SymbolRenderFunc) error {
+	r := renderSemanticHTMLInto(tape, w, hook)
+	return r.err
+}
+
+func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, symbolHook SymbolRenderFunc) *semanticHTMLRenderer {
 	r := &semanticHTMLRenderer{
 		tape:         tape,
 		writer:       writer,
+		symbolHook:   symbolHook,
 		footnotes:    make(map[string]int),
 		footnoteNums: make(map[string]int),
 		fnrefTotal:   make(map[string]int),
@@ -211,6 +224,20 @@ func (r *semanticHTMLRenderer) renderContainer(i int, tag string) {
 }
 
 func (r *semanticHTMLRenderer) renderNode(i int) {
+	if r.err != nil {
+		return
+	}
+	if r.symbolHook != nil && r.kind(i) == KindSymbol {
+		r.symbolHook(
+			SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
+			ElementRenderer{semantic: r, record: i},
+		)
+		return
+	}
+	r.renderDefault(i)
+}
+
+func (r *semanticHTMLRenderer) renderDefault(i int) {
 	record := r.tape.records[i]
 	switch r.kind(i) {
 	case KindDocument:

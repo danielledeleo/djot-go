@@ -85,6 +85,20 @@ func ExampleWithNodeRenderer() {
 	// <p>Visit <a href="https://djot.net" target="_blank">djot</a>.</p>
 }
 
+func ExampleWithSymbolRenderer() {
+	doc := djot.Parse("Launch :rocket: or keep :unknown:.")
+	html := djot.RenderHTML(doc, djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
+		if symbol.Name == "rocket" {
+			r.Write("🚀")
+			return
+		}
+		r.Default()
+	}))
+	fmt.Println(html)
+	// Output:
+	// <p>Launch 🚀 or keep :unknown:.</p>
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

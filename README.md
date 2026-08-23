@@ -82,21 +82,25 @@ html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n dj
 Inside a hook, `r.Default()` emits the built-in rendering and `r.Children()`
 renders child nodes without the wrapper element.
 
-For simple cases that just return an HTML string, use `WithRenderFunc`:
+Symbols have a compact rendering hook that does not materialize the AST for an
+ordinary parsed document:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-    symbol := n.(*djot.Symbol)
+html := djot.RenderHTML(doc, djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
     if symbol.Name == "youtube" {
-        return `<iframe src="https://www.youtube.com/embed/` + symbol.Attributes().Get("id") + `"></iframe>`
+        r.Write(`<span class="youtube-icon"></span>`)
+        return
     }
-    return "" // empty string falls through to default rendering
+    r.Default()
 }))
 ```
 
-Symbols (`:name:{attrs}`) are parsed into typed AST nodes and render as
-`:name:` by default — making them natural extension points for icons, embeds,
-and shortcodes with arbitrary attributes.
+Symbols (`:name:`) render literally by default, making them natural extension
+points for icons and shortcodes. `r.Default()` retains that built-in rendering;
+returning without writing suppresses the symbol. If the typed AST has been
+modified, the same hook runs through the tree renderer and sees those changes.
+
+`WithRenderFunc` remains available as a concise Node-based hook for other kinds.
 
 ### Footnote backlinks
 

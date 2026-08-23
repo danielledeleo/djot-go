@@ -36,8 +36,58 @@ type NodeRenderer interface {
 	Default()
 }
 
+// SymbolView is a value view of a Djot symbol. Changing the value does not
+// modify the parsed document.
+type SymbolView struct {
+	Name string
+}
+
+// SymbolRenderFunc overrides rendering for a symbol without requiring callers
+// to materialize or traverse the typed AST. Use the renderer to write a
+// replacement or call [ElementRenderer.Default] to preserve the built-in
+// :name: rendering. Returning without doing either suppresses the symbol.
+type SymbolRenderFunc func(symbol SymbolView, renderer ElementRenderer)
+
+// ElementRenderer controls output from a tape-backed rendering hook. It is
+// valid only for the duration of the callback. Its zero value emits no output.
+type ElementRenderer struct {
+	semantic *semanticHTMLRenderer
+	tree     *htmlRenderer
+	record   int
+	node     Node
+}
+
+// Write emits raw HTML.
+func (r ElementRenderer) Write(s string) {
+	if r.semantic != nil {
+		r.semantic.write(s)
+	} else if r.tree != nil {
+		r.tree.write(s)
+	}
+}
+
+// Children renders the element's children through the complete hook pipeline.
+func (r ElementRenderer) Children() {
+	if r.semantic != nil {
+		r.semantic.renderChildren(r.record)
+	} else if r.tree != nil && r.node != nil {
+		forEachChild(r.node, r.tree.renderNode)
+	}
+}
+
+// Default renders the element using the built-in renderer without invoking
+// its hook again.
+func (r ElementRenderer) Default() {
+	if r.semantic != nil {
+		r.semantic.renderDefault(r.record)
+	} else if r.tree != nil && r.node != nil {
+		r.tree.renderDefault(r.node)
+	}
+}
+
 type renderConfig struct {
 	hooks                 map[Kind]NodeRenderFunc
+	symbolHook            SymbolRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
@@ -118,13 +168,31 @@ func WithMultiBacklinks() RenderOption {
 // If called multiple times for the same kind, the last one wins.
 //
 // Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
-// For simpler cases where you just need to return an HTML string, see [WithRenderFunc].
+// For a symbol hook that can avoid AST materialization, see [WithSymbolRenderer].
 func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
 	return func(cfg *renderConfig) {
 		if cfg.hooks == nil {
 			cfg.hooks = make(map[Kind]NodeRenderFunc)
 		}
 		cfg.hooks[kind] = fn
+		if kind == KindSymbol {
+			cfg.symbolHook = nil
+		}
+	}
+}
+
+// WithSymbolRenderer registers a symbol rendering hook. Parser-produced,
+// unmodified documents invoke the hook directly from the compact semantic
+// representation. If a caller has changed the typed tree, the same hook runs
+// against that tree so mutations remain authoritative.
+//
+// Hooks write raw HTML. Call [ElementRenderer.Default] to retain the built-in
+// rendering for a symbol. If multiple symbol or Node hooks for [KindSymbol] are
+// registered, the last one wins.
+func WithSymbolRenderer(fn SymbolRenderFunc) RenderOption {
+	return func(cfg *renderConfig) {
+		cfg.symbolHook = fn
+		delete(cfg.hooks, KindSymbol)
 	}
 }
 
@@ -173,7 +241,8 @@ func WithRenderFunc(kind Kind, fn func(n Node) string) RenderOption {
 }
 
 // RenderHTML renders a parsed document to an HTML string. Optional
-// [RenderOption] values can customize rendering via [WithNodeRenderer].
+// [RenderOption] values can customize rendering via [WithNodeRenderer] and
+// [WithSymbolRenderer].
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
 	if len(opts) == 0 {
 		tape, root, direct := doc.semanticRenderSnapshot()
@@ -181,8 +250,15 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 			return renderSemanticHTML(tape)
 		}
 	}
+	cfg := makeRenderConfig(opts)
+	if cfg.canRenderSemantic() {
+		tape, root, direct := doc.semanticRenderSnapshot()
+		if tape != nil && (direct || tape.matchesAST(root)) {
+			return renderSemanticHTMLWithSymbol(tape, cfg.symbolHook)
+		}
+	}
 	var b strings.Builder
-	r := newHTMLRenderer(&b, doc, opts...)
+	r := newHTMLRendererWithConfig(&b, doc, cfg)
 	r.renderChildren(doc.Root())
 	r.renderFootnotesSection()
 	return b.String()
@@ -200,10 +276,30 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 			return renderSemanticHTMLTo(w, tape)
 		}
 	}
-	r := newHTMLRenderer(w, doc, opts...)
+	cfg := makeRenderConfig(opts)
+	if cfg.canRenderSemantic() {
+		tape, root, direct := doc.semanticRenderSnapshot()
+		if tape != nil && (direct || tape.matchesAST(root)) {
+			return renderSemanticHTMLToWithSymbol(w, tape, cfg.symbolHook)
+		}
+	}
+	r := newHTMLRendererWithConfig(w, doc, cfg)
 	r.renderChildren(doc.Root())
 	r.renderFootnotesSection()
 	return r.err
+}
+
+func makeRenderConfig(opts []RenderOption) renderConfig {
+	var cfg renderConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+func (cfg *renderConfig) canRenderSemantic() bool {
+	return len(cfg.hooks) == 0 && !cfg.multiBacklinks && cfg.footnoteID == nil &&
+		cfg.footnoteRefID == nil && cfg.footnoteBacklinkLabel == nil
 }
 
 type footnoteInfo struct {
@@ -217,7 +313,8 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
-	hooks map[Kind]NodeRenderFunc
+	hooks      map[Kind]NodeRenderFunc
+	symbolHook SymbolRenderFunc
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -246,14 +343,15 @@ type htmlRenderer struct {
 }
 
 func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer {
-	var cfg renderConfig
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+	return newHTMLRendererWithConfig(w, doc, makeRenderConfig(opts))
+}
+
+func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRenderer {
 	r := &htmlRenderer{
 		w:               w,
 		doc:             doc,
 		hooks:           cfg.hooks,
+		symbolHook:      cfg.symbolHook,
 		footnotes:       make(map[string]*Footnote),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
@@ -359,8 +457,15 @@ func (nr *nodeRendererImpl) Write(s string) {
 }
 
 func (r *htmlRenderer) renderNode(n Node) {
+	if r.err != nil {
+		return
+	}
 	if fn, ok := r.hooks[n.Kind()]; ok {
 		fn(n, &nodeRendererImpl{r: r, n: n})
+		return
+	}
+	if r.symbolHook != nil && n.Kind() == KindSymbol {
+		r.symbolHook(SymbolView{Name: n.(*Symbol).Name}, ElementRenderer{tree: r, node: n})
 		return
 	}
 	r.renderDefault(n)
