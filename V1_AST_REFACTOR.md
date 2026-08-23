@@ -1,7 +1,7 @@
 # v1 parser and typed AST refactor plan
 
-Status: compact parser, lazy document, and direct HTML milestones complete;
-typed Node and tiered extensions pending
+Status: compact parser, lazy document, direct HTML, and typed Node milestones
+complete; tiered extensions pending
 
 Baseline: v0.3.2 (`c5c4ead`)
 
@@ -188,6 +188,40 @@ is built mechanically from the same semantic records used by the fast renderer,
 so there is one parser and one set of Djot semantics rather than a fast parser
 and a customizable parser that can drift apart.
 
+### Production typed-AST milestone
+
+The universal exported struct has been replaced by the closed `Node`, `Block`,
+and `Inline` interfaces and 43 focused concrete pointer types. Child storage is
+grammar-specific (`[]Block`, `[]Inline`, `[]*ListItem`, `[]*TaskListItem`, and
+`[]*TableCell`), while `Kind` remains available for generic tools and hook
+registration. Source ranges live in `SourceSpan`; `Span` is the concrete Djot
+inline-container type.
+
+The six dominant concrete shapes use typed slabs during tape materialization.
+Their shallow sizes are 72–104 bytes on arm64, down from 264 bytes for every
+legacy node. `Attributes` is an ordered slice-backed value rather than a map
+plus a separate order slice.
+
+Measurements on the unchanged frozen corpora:
+
+| Measurement | Legacy v0.3.2 | Typed production tree | Change |
+| --- | ---: | ---: | ---: |
+| Huge materialized document retained | 48,694,248 B | ~20,585,000 B | 58% lower |
+| Attribute-heavy document retained | 2,620,704 B | ~1,227,000 B | 53% lower |
+| Huge `Preorder` | n/a | ~0.79 ms, 0 allocs | allocation-free |
+| Huge transforming `Walk` | ~0.666 ms, 0 allocs | ~1.00 ms, 0 allocs | interface dispatch cost |
+
+The materialized figures include the compact tape retained by parsed documents;
+the untouched fast path still retains only about 6.84 MB on the Huge corpus.
+Parsing and default rendering do not materialize nodes, so their performance
+remains governed by the compact milestone above. Typed rendering is selected
+when a tree is constructed or mutated or a current render hook is registered.
+
+`Walk` now visits and may replace or remove its supplied root, returns the new
+root, and rejects category-invalid replacements. `Preorder` is the faster
+read-only traversal. Generic `WithRenderer` infers a concrete node kind once at
+registration, while `WithNodeRenderer` remains available for kind-driven code.
+
 ### Extension planning without capability declarations
 
 Extensions select a constrained interface instead of asserting a capability
@@ -205,12 +239,12 @@ from its API. Advanced dynamic hooks may eventually request transactional
 escalation, but output already committed to an `io.Writer` cannot be rewound;
 that feature is not required for the initial v1 design.
 
-## Current shape
+## Previous public shape
 
-Every AST element is a `*Node` tagged by `Node.Kind`. The struct contains common
+Every AST element was a `*Node` tagged by `Node.Kind`. The struct contained common
 tree metadata, parser-only state, and the payload fields for every node kind.
 
-This produces a convenient homogeneous `[]*Node` tree and enables the current
+This produced a convenient homogeneous `[]*Node` tree and enabled a common
 chunk allocator, but it also:
 
 - exposes many meaningless zero-valued fields on every node;
@@ -230,7 +264,7 @@ hooks, examples, and direct external AST construction.
 
 ```go
 type Node interface {
-    Span() Span
+    Span() SourceSpan
     Attributes() *Attributes
     Kind() Kind
     node()
@@ -265,11 +299,11 @@ Concrete nodes embed an unexported base implementation:
 
 ```go
 type nodeBase struct {
-    span  Span
+    span  SourceSpan
     attrs Attributes
 }
 
-type Span struct {
+type SourceSpan struct {
     Start Pos
     End   Pos
 }
@@ -366,10 +400,10 @@ Separating them removes the current synthetic-node special case.
 
 ## Traversal and transformation
 
-Provide a simple allocation-free read API when the minimum Go version permits:
+Provide a simple allocation-free read API without raising the Go 1.22 minimum:
 
 ```go
-func Preorder(root Node) iter.Seq[Node]
+func Preorder(root Node, visit func(Node) bool)
 ```
 
 Retain an action-based mutation API, but replace the current `any` return with
@@ -385,7 +419,7 @@ var (
 )
 
 func Replace(Node) Action
-func Walk(Node, func(Node) Action)
+func Walk(Node, func(Node) Action) Node
 func WalkBottomUp(Node, func(Node))
 ```
 
@@ -537,7 +571,7 @@ slab allocators.
 
 ### 2. Introduce the typed AST foundation
 
-1. Add `Span`, `Attributes`, `Node`, `Block`, `Inline`, and concrete types.
+1. Add `SourceSpan`, `Attributes`, `Node`, `Block`, `Inline`, and concrete types.
 2. Add compile-time interface assertions for every concrete type.
 3. Add exhaustive internal child iteration and kind mapping.
 4. Add constructors only where they materially improve common transformations;
@@ -569,14 +603,13 @@ slab allocators.
 - Changing the Djot syntax, HTML semantics, or serialized AST schema.
 - Promising lower memory before retained-heap measurements exist.
 
-## Decisions required before implementation
+## Resolved API decisions
 
-1. Minimum Go version: retain 1.22 or move to 1.23+ for `iter.Seq`.
-2. Whether `Kind()` belongs on `Node` or is a package-level `KindOf` helper.
-3. Public shape of ordered `Attributes` and whether direct ranging is allowed.
-4. Representation of optional destinations.
-5. Root replacement/removal semantics for `Walk` versus a new `Transform`.
-6. Ordinary allocation versus typed family arenas.
-7. Whether generic typed renderer hooks are worth adding in v1.
-
-Resolve these from prototype code and usage examples, not aesthetics alone.
+1. Retain Go 1.22; `Preorder` takes a callback rather than exposing `iter.Seq`.
+2. Keep `Kind()` on `Node` for diagnostics and generic tooling.
+3. Use ordered `Attributes` with explicit `Range` and copying `Entries` APIs.
+4. Preserve optional destinations with `Destination` plus `DestinationSet`.
+5. Make `Walk` visit its root and return the replacement or nil on removal.
+6. Use typed slabs for the six dominant shapes and ordinary allocation for
+   rare types.
+7. Ship generic `WithRenderer` alongside explicit `WithNodeRenderer`.

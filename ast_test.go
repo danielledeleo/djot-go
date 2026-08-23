@@ -7,28 +7,31 @@ import (
 )
 
 // TestNodeKindRanges guards the iota ordering that IsBlock/IsInline depend on.
-// If you add a new NodeKind, add it to the correct group here. If this test
+// If you add a new Kind, add it to the correct group here. If this test
 // breaks, you've probably inserted a kind in the wrong position.
 func TestNodeKindRanges(t *testing.T) {
-	blocks := []djot.NodeKind{
-		djot.Document, djot.Section, djot.Paragraph, djot.Heading,
-		djot.ThematicBreak, djot.CodeBlock, djot.RawBlock,
-		djot.BlockQuote, djot.Div,
-		djot.BulletList, djot.OrderedList, djot.TaskList,
-		djot.ListItem, djot.TaskListItem,
-		djot.DefinitionList, djot.Term, djot.Definition,
-		djot.Table, djot.TableRow, djot.TableCell, djot.Caption,
-		djot.Footnote,
+	blocks := []djot.Kind{
+		djot.KindSection, djot.KindParagraph, djot.KindHeading,
+		djot.KindThematicBreak, djot.KindCodeBlock, djot.KindRawBlock,
+		djot.KindBlockQuote, djot.KindDiv,
+		djot.KindBulletList, djot.KindOrderedList, djot.KindTaskList,
+		djot.KindListItem, djot.KindTaskListItem,
+		djot.KindDefinitionList, djot.KindTerm, djot.KindDefinition,
+		djot.KindTable, djot.KindTableRow, djot.KindTableCell, djot.KindCaption,
+		djot.KindFootnote,
 	}
-	inlines := []djot.NodeKind{
-		djot.Text, djot.SoftBreak, djot.HardBreak, djot.NonBreakingSpace,
-		djot.Emphasis, djot.Strong, djot.Superscript, djot.Subscript,
-		djot.Insert, djot.Delete, djot.Mark,
-		djot.Link, djot.Image, djot.Span,
-		djot.Verbatim, djot.InlineMath, djot.DisplayMath, djot.RawInline,
-		djot.Symbol, djot.FootnoteReference,
-		djot.DoubleQuoted, djot.SingleQuoted,
-		djot.Ellipsis, djot.EmDash, djot.EnDash,
+	if djot.KindDocument.IsBlock() || djot.KindDocument.IsInline() {
+		t.Error("document kind must be neither Block nor Inline")
+	}
+	inlines := []djot.Kind{
+		djot.KindText, djot.KindSoftBreak, djot.KindHardBreak, djot.KindNonBreakingSpace,
+		djot.KindEmphasis, djot.KindStrong, djot.KindSuperscript, djot.KindSubscript,
+		djot.KindInsert, djot.KindDelete, djot.KindMark,
+		djot.KindLink, djot.KindImage, djot.KindSpan,
+		djot.KindVerbatim, djot.KindInlineMath, djot.KindDisplayMath, djot.KindRawInline,
+		djot.KindSymbol, djot.KindFootnoteReference,
+		djot.KindDoubleQuoted, djot.KindSingleQuoted,
+		djot.KindEllipsis, djot.KindEmDash, djot.KindEnDash,
 	}
 
 	for _, k := range blocks {

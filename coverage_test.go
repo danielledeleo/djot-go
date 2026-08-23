@@ -10,7 +10,7 @@ import (
 func TestDocPosition(t *testing.T) {
 	doc := djot.Parse("hello\nworld\nthird")
 	// "world" starts at offset 6, which is line 2, col 1.
-	file, line, col := doc.Position(doc.Root().Children[0].Start)
+	file, line, col := doc.Position(doc.Root().Children[0].Span().Start)
 	if file != "<input>" {
 		t.Errorf("file = %q, want <input>", file)
 	}

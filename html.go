@@ -3,6 +3,7 @@ package djot
 import (
 	"errors"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -14,7 +15,7 @@ type RenderOption func(*renderConfig)
 
 // NodeRenderFunc is a hook that overrides rendering for a specific node kind.
 // It receives the node being rendered and a [NodeRenderer] for controlling output.
-type NodeRenderFunc func(n *Node, r NodeRenderer)
+type NodeRenderFunc func(n Node, r NodeRenderer)
 
 // NodeRenderer provides methods for controlling output from within a render hook.
 //
@@ -36,7 +37,7 @@ type NodeRenderer interface {
 }
 
 type renderConfig struct {
-	hooks                 map[NodeKind]NodeRenderFunc
+	hooks                 map[Kind]NodeRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
@@ -118,30 +119,51 @@ func WithMultiBacklinks() RenderOption {
 //
 // Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
 // For simpler cases where you just need to return an HTML string, see [WithRenderFunc].
-func WithNodeRenderer(kind NodeKind, fn NodeRenderFunc) RenderOption {
+func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
 	return func(cfg *renderConfig) {
 		if cfg.hooks == nil {
-			cfg.hooks = make(map[NodeKind]NodeRenderFunc)
+			cfg.hooks = make(map[Kind]NodeRenderFunc)
 		}
 		cfg.hooks[kind] = fn
 	}
+}
+
+// WithRenderer registers a type-safe render hook. T must be one concrete node
+// pointer type; the kind is inferred once when the option is constructed.
+//
+//	djot.WithRenderer(func(symbol *djot.Symbol, r djot.NodeRenderer) {
+//	    r.Write(symbol.Name)
+//	})
+func WithRenderer[T Node](fn func(T, NodeRenderer)) RenderOption {
+	var zero T
+	if reflect.TypeOf(zero) == nil {
+		panic("djot: WithRenderer requires a concrete node pointer type")
+	}
+	kind := zero.Kind()
+	return WithNodeRenderer(kind, func(node Node, renderer NodeRenderer) {
+		typed, ok := node.(T)
+		if !ok {
+			panic("djot: inferred renderer kind does not match concrete node type")
+		}
+		fn(typed, renderer)
+	})
 }
 
 // WithRenderFunc registers a simple render hook for the given node kind.
 // The function receives the node and returns an HTML string to emit.
 // If it returns an empty string, the default rendering is used.
 //
-// This is convenient for leaf nodes like [Symbol] where you don't need
+// This is convenient for leaf nodes like [KindSymbol] where you don't need
 // [NodeRenderer.Children] or [NodeRenderer.Default]:
 //
-//	html := RenderHTML(doc, WithRenderFunc(Symbol, func(n *Node) string {
-//	    if n.Name == "star" {
+//	html := RenderHTML(doc, WithRenderFunc(KindSymbol, func(n Node) string {
+//	    if symbol, ok := n.(*Symbol); ok && symbol.Name == "star" {
 //	        return "⭐"
 //	    }
 //	    return "" // fall through to default
 //	}))
-func WithRenderFunc(kind NodeKind, fn func(n *Node) string) RenderOption {
-	return WithNodeRenderer(kind, func(n *Node, r NodeRenderer) {
+func WithRenderFunc(kind Kind, fn func(n Node) string) RenderOption {
+	return WithNodeRenderer(kind, func(n Node, r NodeRenderer) {
 		if s := fn(n); s != "" {
 			r.Write(s)
 			return
@@ -187,7 +209,7 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 type footnoteInfo struct {
 	num   int
 	label string
-	node  *Node // may be nil if undefined
+	node  *Footnote // may be nil if undefined
 }
 
 type htmlRenderer struct {
@@ -195,7 +217,7 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
-	hooks map[NodeKind]NodeRenderFunc
+	hooks map[Kind]NodeRenderFunc
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -204,7 +226,7 @@ type htmlRenderer struct {
 
 	// Footnote definitions derived from the AST at render time.
 	// This ensures correctness even after AST mutations (e.g., include/splice).
-	footnotes map[string]*Node
+	footnotes map[string]*Footnote
 	// Footnote numbering: label → sequential number
 	footnoteNums map[string]int
 	// Ordered list of referenced footnotes (by first reference order)
@@ -232,7 +254,7 @@ func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer 
 		w:               w,
 		doc:             doc,
 		hooks:           cfg.hooks,
-		footnotes:       make(map[string]*Node),
+		footnotes:       make(map[string]*Footnote),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
 		fnrefTotal:      make(map[string]int),
@@ -263,29 +285,26 @@ func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer 
 // references in document order. Footnote definitions' content is also walked
 // (in reference order) to find nested footnote references.
 func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
-	// First pass: walk the main document tree (skipping Footnote definition nodes)
-	// to find all FootnoteReference nodes in order.
+	// First pass: walk the main document tree (skipping footnote definition nodes)
+	// to find all footnote-reference nodes in order.
 	// Collect footnote definitions from the AST so the renderer is
 	// independent of Doc.Footnotes() (which may be stale after AST mutations).
-	Walk(doc.Root(), func(n *Node) any {
-		if n.Kind == Footnote {
-			r.footnotes[n.Label] = n
+	walkRead(doc.Root(), func(n Node) {
+		if footnote, ok := n.(*Footnote); ok {
+			r.footnotes[footnote.Label] = footnote
 		}
-		return Continue
 	})
 
-	var walkForRefs func(n *Node)
-	walkForRefs = func(n *Node) {
-		if n.Kind == Footnote {
+	var walkForRefs func(n Node)
+	walkForRefs = func(n Node) {
+		if _, ok := n.(*Footnote); ok {
 			return // skip footnote definition bodies in first pass
 		}
-		if n.Kind == FootnoteReference {
-			r.getFootnoteNum(n.Label)
-			r.fnrefTotal[n.Label]++
+		if reference, ok := n.(*FootnoteReference); ok {
+			r.getFootnoteNum(reference.Label)
+			r.fnrefTotal[reference.Label]++
 		}
-		for _, child := range n.Children {
-			walkForRefs(child)
-		}
+		forEachChild(n, walkForRefs)
 	}
 	walkForRefs(doc.Root())
 
@@ -294,9 +313,7 @@ func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 	for i := 0; i < len(r.footnoteOrder); i++ {
 		fi := r.footnoteOrder[i]
 		if fi.node != nil {
-			for _, child := range fi.node.Children {
-				walkForRefs(child)
-			}
+			forEachChild(fi.node, walkForRefs)
 		}
 	}
 }
@@ -326,13 +343,11 @@ func (r *htmlRenderer) write(s string) {
 // nodeRendererImpl implements NodeRenderer for use in hooks.
 type nodeRendererImpl struct {
 	r *htmlRenderer
-	n *Node
+	n Node
 }
 
 func (nr *nodeRendererImpl) Children() {
-	for _, child := range nr.n.Children {
-		nr.r.renderNode(child)
-	}
+	forEachChild(nr.n, nr.r.renderNode)
 }
 
 func (nr *nodeRendererImpl) Default() {
@@ -343,27 +358,27 @@ func (nr *nodeRendererImpl) Write(s string) {
 	nr.r.write(s)
 }
 
-func (r *htmlRenderer) renderNode(n *Node) {
-	if fn, ok := r.hooks[n.Kind]; ok {
+func (r *htmlRenderer) renderNode(n Node) {
+	if fn, ok := r.hooks[n.Kind()]; ok {
 		fn(n, &nodeRendererImpl{r: r, n: n})
 		return
 	}
 	r.renderDefault(n)
 }
 
-func (r *htmlRenderer) renderDefault(n *Node) {
-	switch n.Kind {
-	case Document:
+func (r *htmlRenderer) renderDefault(n Node) {
+	switch n.Kind() {
+	case KindDocument:
 		r.renderChildren(n)
 
-	case Section:
+	case KindSection:
 		r.write("<section")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderChildren(n)
 		r.write("</section>\n")
 
-	case Paragraph:
+	case KindParagraph:
 		// In tight lists, paragraphs are unwrapped.
 		r.write("<p")
 		r.renderAttrs(n)
@@ -371,8 +386,9 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		r.renderInlineChildren(n)
 		r.write("</p>\n")
 
-	case Heading:
-		level := n.Level
+	case KindHeading:
+		heading := n.(*Heading)
+		level := heading.Level
 		if level < 1 {
 			level = 1
 		} else if level > 6 {
@@ -385,58 +401,62 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		r.renderInlineChildren(n)
 		r.write("</" + tag + ">\n")
 
-	case ThematicBreak:
+	case KindThematicBreak:
 		r.write("<hr")
 		r.renderAttrs(n)
 		r.write(">\n")
 
-	case CodeBlock:
+	case KindCodeBlock:
+		code := n.(*CodeBlock)
 		r.write("<pre")
 		r.renderAttrs(n)
 		r.write("><code")
-		if n.Lang != "" {
-			r.write(" class=\"language-" + escapeAttr(n.Lang) + "\"")
+		if code.Language != "" {
+			r.write(" class=\"language-" + escapeAttr(code.Language) + "\"")
 		}
 		r.write(">")
-		r.write(escapeHTML(n.Text))
+		r.write(escapeHTML(code.Text))
 		r.write("</code></pre>\n")
 
-	case RawBlock:
-		if n.Format == "html" {
-			r.write(n.Text)
+	case KindRawBlock:
+		raw := n.(*RawBlock)
+		if raw.Format == "html" {
+			r.write(raw.Text)
 		}
 
-	case BlockQuote:
+	case KindBlockQuote:
 		r.write("<blockquote")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderChildren(n)
 		r.write("</blockquote>\n")
 
-	case Div:
+	case KindDiv:
 		r.write("<div")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderChildren(n)
 		r.write("</div>\n")
 
-	case BulletList:
+	case KindBulletList:
+		list := n.(*BulletList)
 		r.write("<ul")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		r.withTight(n.tight, func() {
-			for _, child := range n.Children {
+		r.withTight(list.Tight, func() {
+			for _, child := range list.Items {
 				r.renderNode(child)
 			}
 		})
 		r.write("</ul>\n")
 
-	case OrderedList:
+	case KindOrderedList:
+		list := n.(*OrderedList)
 		r.write("<ol")
-		if n.ListStart != 1 {
-			r.write(" start=\"" + strconv.Itoa(n.ListStart) + "\"")
+		if list.Start != 1 {
+			r.write(" start=\"" + strconv.Itoa(list.Start) + "\"")
 		}
-		switch n.ListStyle {
+		switch list.Style {
 		case ListAlphaLower:
 			r.write(" type=\"a\"")
 		case ListAlphaUpper:
@@ -448,41 +468,42 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		}
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		r.withTight(n.tight, func() {
-			for _, child := range n.Children {
+		r.withTight(list.Tight, func() {
+			for _, child := range list.Items {
 				r.renderNode(child)
 			}
 		})
 		r.write("</ol>\n")
 
-	case Table:
+	case KindTable:
 		r.write("<table")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderChildren(n)
 		r.write("</table>\n")
 
-	case Caption:
+	case KindCaption:
 		r.write("<caption>")
 		r.renderInlineChildren(n)
 		r.write("</caption>\n")
 
-	case TableRow:
+	case KindTableRow:
 		r.write("<tr")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderChildren(n)
 		r.write("</tr>\n")
 
-	case TableCell:
+	case KindTableCell:
+		cell := n.(*TableCell)
 		tag := "td"
-		if n.IsHeader {
+		if cell.Header {
 			tag = "th"
 		}
 		r.write("<" + tag)
-		if n.CellAlign != AlignDefault {
+		if cell.Alignment != AlignDefault {
 			var alignStr string
-			switch n.CellAlign {
+			switch cell.Alignment {
 			case AlignLeft:
 				alignStr = "left"
 			case AlignRight:
@@ -498,48 +519,49 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		r.renderInlineChildren(n)
 		r.write("</" + tag + ">\n")
 
-	case DefinitionList:
+	case KindDefinitionList:
+		list := n.(*DefinitionList)
 		r.write("<dl")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		r.withTight(n.tight, func() {
-			for _, child := range n.Children {
-				r.renderNode(child)
-			}
+		r.withTight(list.Tight, func() {
+			forEachChild(list, r.renderNode)
 		})
 		r.write("</dl>\n")
 
-	case Term:
+	case KindTerm:
 		r.write("<dt>")
 		r.renderInlineChildren(n)
 		r.write("</dt>\n")
 
-	case Definition:
+	case KindDefinition:
 		r.write("<dd>\n")
 		r.renderListItemChildren(n)
 		r.write("</dd>\n")
 
-	case TaskList:
+	case KindTaskList:
+		list := n.(*TaskList)
 		r.write("<ul class=\"task-list\"")
 		r.renderNonInternalAttrs(n)
 		r.write(">\n")
-		r.withTight(n.tight, func() {
-			for _, child := range n.Children {
+		r.withTight(list.Tight, func() {
+			for _, child := range list.Items {
 				r.renderNode(child)
 			}
 		})
 		r.write("</ul>\n")
 
-	case ListItem:
+	case KindListItem:
 		r.write("<li")
 		r.renderAttrs(n)
 		r.write(">\n")
 		r.renderListItemChildren(n)
 		r.write("</li>\n")
 
-	case TaskListItem:
+	case KindTaskListItem:
+		item := n.(*TaskListItem)
 		r.write("<li>\n")
-		if n.Checked {
+		if item.Checked {
 			r.write(`<input disabled="" type="checkbox" checked=""/>`)
 		} else {
 			r.write(`<input disabled="" type="checkbox"/>`)
@@ -549,128 +571,135 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		r.write("</li>\n")
 
 	// Inline nodes.
-	case Text:
-		r.write(escapeHTML(n.Text))
+	case KindText:
+		r.write(escapeHTML(n.(*Text).Value))
 
-	case SoftBreak:
+	case KindSoftBreak:
 		r.write("\n")
 
-	case HardBreak:
+	case KindHardBreak:
 		r.write("<br>\n")
 
-	case NonBreakingSpace:
+	case KindNonBreakingSpace:
 		r.write("&nbsp;")
 
-	case Emphasis:
+	case KindEmphasis:
 		r.write("<em")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</em>")
 
-	case Strong:
+	case KindStrong:
 		r.write("<strong")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</strong>")
 
-	case Superscript:
+	case KindSuperscript:
 		r.write("<sup")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</sup>")
 
-	case Subscript:
+	case KindSubscript:
 		r.write("<sub")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</sub>")
 
-	case Insert:
+	case KindInsert:
 		r.write("<ins")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</ins>")
 
-	case Delete:
+	case KindDelete:
 		r.write("<del")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</del>")
 
-	case Mark:
+	case KindMark:
 		r.write("<mark")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</mark>")
 
-	case Link:
+	case KindLink:
+		link := n.(*Link)
 		r.write("<a")
-		if n.Target != "" || n.HasTarget {
-			r.write(" href=\"" + escapeAttr(n.Target) + "\"")
+		if link.Destination != "" || link.DestinationSet {
+			r.write(" href=\"" + escapeAttr(link.Destination) + "\"")
 		}
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</a>")
 
-	case Image:
+	case KindImage:
+		image := n.(*Image)
 		r.write("<img")
 		alt := collectText(n)
 		if alt != "" {
 			r.write(" alt=\"" + escapeAttr(alt) + "\"")
 		}
-		if n.Target != "" || n.HasTarget {
-			r.write(" src=\"" + escapeAttr(n.Target) + "\"")
+		if image.Destination != "" || image.DestinationSet {
+			r.write(" src=\"" + escapeAttr(image.Destination) + "\"")
 		}
 		r.renderAttrs(n)
 		r.write(">")
 
-	case Span:
+	case KindSpan:
 		r.write("<span")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
 		r.write("</span>")
 
-	case Verbatim:
+	case KindVerbatim:
+		verbatim := n.(*Verbatim)
 		r.write("<code>")
-		r.write(escapeHTML(n.Text))
+		r.write(escapeHTML(verbatim.Text))
 		r.write("</code>")
 
-	case InlineMath:
+	case KindInlineMath:
+		math := n.(*InlineMath)
 		r.write(`<span class="math inline">\(`)
-		r.write(escapeHTML(n.Text))
+		r.write(escapeHTML(math.Text))
 		r.write(`\)</span>`)
 
-	case DisplayMath:
+	case KindDisplayMath:
+		math := n.(*DisplayMath)
 		r.write(`<span class="math display">\[`)
-		r.write(escapeHTML(n.Text))
+		r.write(escapeHTML(math.Text))
 		r.write(`\]</span>`)
 
-	case RawInline:
-		if n.Format == "html" {
-			r.write(n.Text)
+	case KindRawInline:
+		raw := n.(*RawInline)
+		if raw.Format == "html" {
+			r.write(raw.Text)
 		}
 
-	case Symbol:
-		r.write(":" + escapeHTML(n.Name) + ":")
+	case KindSymbol:
+		r.write(":" + escapeHTML(n.(*Symbol).Name) + ":")
 
-	case Footnote:
+	case KindFootnote:
 		// Footnote definitions are rendered in the endnotes section, not inline.
 		return
 
-	case FootnoteReference:
-		num := r.footnoteNums[n.Label]
+	case KindFootnoteReference:
+		reference := n.(*FootnoteReference)
+		num := r.footnoteNums[reference.Label]
 		ns := strconv.Itoa(num)
-		r.fnrefSeen[n.Label]++
-		k := r.fnrefSeen[n.Label]
+		r.fnrefSeen[reference.Label]++
+		k := r.fnrefSeen[reference.Label]
 		var idAttr string
 		// Multi mode gives every reference a unique id; the default emits the id
 		// only on the first reference, so the HTML has no duplicate ids.
@@ -679,35 +708,31 @@ func (r *htmlRenderer) renderDefault(n *Node) {
 		}
 		r.write(`<a` + idAttr + ` href="#` + r.footnoteID(num) + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
 
-	case DoubleQuoted:
+	case KindDoubleQuoted:
 		r.write("\u201c")
 		r.renderInlineChildren(n)
 		r.write("\u201d")
 
-	case SingleQuoted:
+	case KindSingleQuoted:
 		r.write("\u2018")
 		r.renderInlineChildren(n)
 		r.write("\u2019")
 
-	case Ellipsis:
+	case KindEllipsis:
 		r.write("\u2026")
-	case EmDash:
+	case KindEmDash:
 		r.write("\u2014")
-	case EnDash:
+	case KindEnDash:
 		r.write("\u2013")
 	}
 }
 
-func (r *htmlRenderer) renderChildren(n *Node) {
-	for _, child := range n.Children {
-		r.renderNode(child)
-	}
+func (r *htmlRenderer) renderChildren(n Node) {
+	forEachChild(n, r.renderNode)
 }
 
-func (r *htmlRenderer) renderInlineChildren(n *Node) {
-	for _, child := range n.Children {
-		r.renderNode(child)
-	}
+func (r *htmlRenderer) renderInlineChildren(n Node) {
+	forEachChild(n, r.renderNode)
 }
 
 // withTight runs fn with r.tight set to t, restoring the prior value afterward.
@@ -722,16 +747,16 @@ func (r *htmlRenderer) withTight(t bool, fn func()) {
 
 // renderListItemChildren renders the children of a list item or definition,
 // unwrapping paragraph content when r.tight is set.
-func (r *htmlRenderer) renderListItemChildren(n *Node) {
+func (r *htmlRenderer) renderListItemChildren(n Node) {
 	if r.tight {
-		for _, child := range n.Children {
-			if child.Kind == Paragraph {
+		forEachChild(n, func(child Node) {
+			if child.Kind() == KindParagraph {
 				r.renderInlineChildren(child)
 				r.write("\n")
 			} else {
 				r.renderNode(child)
 			}
-		}
+		})
 		return
 	}
 	r.renderChildren(n)
@@ -749,7 +774,7 @@ func (r *htmlRenderer) renderFootnotesSection() {
 			children := fi.node.Children
 			lastParagraphIdx := -1
 			for i, child := range children {
-				if child.Kind == Paragraph {
+				if child.Kind() == KindParagraph {
 					lastParagraphIdx = i
 				}
 			}
@@ -825,22 +850,18 @@ func backrefLabel(i int) string {
 	return string(b)
 }
 
-func (r *htmlRenderer) renderAttrs(n *Node) {
-	if len(n.Attrs) == 0 {
+func (r *htmlRenderer) renderAttrs(n Node) {
+	if n.Attributes().Len() == 0 {
 		return
 	}
-	// Use insertion order (attrOrder) for deterministic output. All keys in
-	// attrOrder are guaranteed valid (parser-derived or SetAttr-validated).
-	for _, k := range n.attrOrder {
-		if v, ok := n.Attrs[k]; ok {
-			r.write(" " + k + "=\"" + escapeAttr(v) + "\"")
-		}
+	for _, attribute := range n.Attributes().items {
+		r.write(" " + attribute.Key + "=\"" + escapeAttr(attribute.Value) + "\"")
 	}
 }
 
 // renderNonInternalAttrs is an alias for renderAttrs, kept for call-site clarity
 // on list containers where internal attributes were historically filtered.
-func (r *htmlRenderer) renderNonInternalAttrs(n *Node) {
+func (r *htmlRenderer) renderNonInternalAttrs(n Node) {
 	r.renderAttrs(n)
 }
 
@@ -907,19 +928,14 @@ func escapeAttrSlow(s string, first int) string {
 }
 
 // collectText extracts visible text from a materialized public node tree.
-func collectText(n *Node) string {
-	switch n.Kind {
-	case Text:
-		return n.Text
-	case SoftBreak, HardBreak, NonBreakingSpace:
+func collectText(n Node) string {
+	switch n.Kind() {
+	case KindText:
+		return n.(*Text).Value
+	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
 		return " "
 	}
 	var b strings.Builder
-	for _, child := range n.Children {
-		b.WriteString(collectText(child))
-	}
-	if b.Len() == 0 && n.Text != "" {
-		return n.Text
-	}
+	forEachChild(n, func(child Node) { b.WriteString(collectText(child)) })
 	return b.String()
 }

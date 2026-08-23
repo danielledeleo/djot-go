@@ -13,13 +13,12 @@ import (
 func wrapSections(root *parseNode, arena *parseNodeArena) {
 	// Pre-populate ID set with any explicitly-set IDs on non-heading nodes.
 	usedIDs := make(map[string]int)
-	walkParse(root, func(n *parseNode) any {
-		if n.Kind != Heading {
+	walkParse(root, func(n *parseNode) {
+		if n.Kind != KindHeading {
 			if id := n.Attr("id"); id != "" {
 				usedIDs[id]++
 			}
 		}
-		return Continue
 	})
 	// Assign IDs to headings inside block containers (no section wrapping).
 	assignContainerHeadingIDs(root, usedIDs)
@@ -29,9 +28,9 @@ func wrapSections(root *parseNode, arena *parseNodeArena) {
 
 // isBlockContainer returns true for node kinds that are block containers
 // where headings should NOT be wrapped in sections.
-func isBlockContainer(kind NodeKind) bool {
+func isBlockContainer(kind Kind) bool {
 	switch kind {
-	case BlockQuote, Div, ListItem, TaskListItem:
+	case KindBlockQuote, KindDiv, KindListItem, KindTaskListItem:
 		return true
 	}
 	return false
@@ -43,7 +42,7 @@ func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
 	for _, child := range node.Children {
 		if isBlockContainer(child.Kind) {
 			assignHeadingIDsInContainer(child, idCounts)
-		} else if child.Kind != Heading {
+		} else if child.Kind != KindHeading {
 			// Recurse into non-heading, non-container nodes too
 			// (e.g. the document root itself on first call).
 			assignContainerHeadingIDs(child, idCounts)
@@ -55,7 +54,7 @@ func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
 // block container, recursing into nested containers.
 func assignHeadingIDsInContainer(node *parseNode, idCounts map[string]int) {
 	for _, child := range node.Children {
-		if child.Kind == Heading {
+		if child.Kind == KindHeading {
 			id := child.Attr("id")
 			explicit := id != ""
 			if !explicit {
@@ -77,14 +76,14 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 
 	for i < len(nodes) {
 		node := nodes[i]
-		if node.Kind != Heading {
+		if node.Kind != KindHeading {
 			result = append(result, node)
 			i++
 			continue
 		}
 
 		// Create a section wrapping this heading and subsequent content.
-		section := arena.new(parseNodeSpec{Kind: Section})
+		section := arena.new(parseNodeSpec{Kind: KindSection})
 
 		// Generate or use provided ID.
 		id := node.Attr("id")
@@ -122,7 +121,7 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 		// Collect subsequent nodes that belong in this section.
 		for i < len(nodes) {
 			next := nodes[i]
-			if next.Kind == Heading && next.Level <= node.Level {
+			if next.Kind == KindHeading && next.Level <= node.Level {
 				break
 			}
 			section.Children = append(section.Children, next)
@@ -176,11 +175,11 @@ func autoID(heading *parseNode) string {
 // collectText extracts all text content from a node and its children.
 func collectParseText(n *parseNode) string {
 	switch n.Kind {
-	case Text:
+	case KindText:
 		return n.Text
-	case SoftBreak, HardBreak:
+	case KindSoftBreak, KindHardBreak:
 		return " "
-	case NonBreakingSpace:
+	case KindNonBreakingSpace:
 		return " "
 	}
 	var b strings.Builder

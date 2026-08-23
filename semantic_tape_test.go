@@ -18,6 +18,18 @@ func renderLegacyHTMLForTest(doc *Doc, opts ...RenderOption) string {
 	return result
 }
 
+func findTypedNode[T Node](root Node) T {
+	var found T
+	have := false
+	walkRead(root, func(node Node) {
+		if candidate, ok := node.(T); ok && !have {
+			found = candidate
+			have = true
+		}
+	})
+	return found
+}
+
 func TestSemanticTapeDefaultRendering(t *testing.T) {
 	inputs := []string{
 		"# Heading\n\nText with *emphasis* and [a link](https://example.com).\n",
@@ -58,7 +70,7 @@ func TestDocumentMaterializesLazily(t *testing.T) {
 		t.Fatal("Footnotes did not rebuild the parsed definition index")
 	}
 	found := false
-	Walk(root, func(node *Node) any {
+	Walk(root, func(node Node) Action {
 		if node == footnote {
 			found = true
 		}
@@ -72,23 +84,21 @@ func TestDocumentMaterializesLazily(t *testing.T) {
 func TestDocumentMaterializesReferences(t *testing.T) {
 	doc := Parse("[label]: /target\n\n[label][]\n")
 	ref := doc.References()["label"]
-	if ref == nil || ref.Target != "/target" {
+	if ref == nil || ref.Destination != "/target" {
 		t.Fatalf("References()[label] = %#v", ref)
 	}
 }
 
 func TestNewDocRendersMutableAST(t *testing.T) {
-	doc := NewDoc(&Node{
-		Kind: Document,
-		Children: []*Node{{
-			Kind:     Paragraph,
-			Children: []*Node{{Kind: Text, Text: "custom"}},
+	doc := NewDoc(&Document{
+		Children: []Block{&Paragraph{
+			Children: []Inline{&Text{Value: "custom"}},
 		}},
 	})
 	if got, want := RenderHTML(doc), "<p>custom</p>\n"; got != want {
 		t.Fatalf("RenderHTML(NewDoc(...)) = %q, want %q", got, want)
 	}
-	doc.Root().Children[0].Children[0].Text = "changed"
+	findTypedNode[*Text](doc.Root()).Value = "changed"
 	if got, want := RenderHTML(doc), "<p>changed</p>\n"; got != want {
 		t.Fatalf("RenderHTML after mutation = %q, want %q", got, want)
 	}
@@ -96,13 +106,13 @@ func TestNewDocRendersMutableAST(t *testing.T) {
 		t.Fatalf("NewDoc(nil).Footnotes() = %v, want empty", got)
 	}
 	refs := doc.References()
-	refs["custom"] = &Node{Kind: Link, Target: "/custom"}
-	if doc.References()["custom"].Target != "/custom" {
+	refs["custom"] = &Reference{Destination: "/custom", DestinationSet: true}
+	if doc.References()["custom"].Destination != "/custom" {
 		t.Fatal("NewDoc References map is not mutable and persistent")
 	}
 
-	replacement := &Node{Kind: Document, Children: []*Node{{
-		Kind: Paragraph, Children: []*Node{{Kind: Text, Text: "replacement"}},
+	replacement := &Document{Children: []Block{&Paragraph{
+		Children: []Inline{&Text{Value: "replacement"}},
 	}}}
 	doc.SetRoot(replacement)
 	if doc.Root() != replacement || RenderHTML(doc) != "<p>replacement</p>\n" {
@@ -113,7 +123,7 @@ func TestNewDocRendersMutableAST(t *testing.T) {
 func TestDocumentLazyStateConcurrentFirstAccess(t *testing.T) {
 	doc := Parse("reference[^note]\n\n[^note]: body\n\n[label]: /target\n")
 	const workers = 32
-	roots := make([]*Node, workers)
+	roots := make([]*Document, workers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -158,14 +168,8 @@ func TestSemanticTapePreservesWideOrderedListStart(t *testing.T) {
 	if got, want := RenderHTML(doc), "<ol start=\"2147483648\">\n<li>\nitem\n</li>\n</ol>\n"; got != want {
 		t.Fatalf("wide ordered-list render differs\nwant: %q\n got: %q", want, got)
 	}
-	var list *Node
-	Walk(doc.Root(), func(node *Node) any {
-		if node.Kind == OrderedList {
-			list = node
-		}
-		return Continue
-	})
-	if list == nil || list.ListStart != start {
+	list := findTypedNode[*OrderedList](doc.Root())
+	if list == nil || list.Start != start {
 		t.Fatalf("materialized ListStart = %v, want %d", list, start)
 	}
 }
@@ -230,11 +234,11 @@ func (w *firstWriteRecorder) Write(p []byte) (int, error) {
 }
 
 func TestSemanticTapeMutationFallback(t *testing.T) {
-	mutateFirst := func(kind NodeKind, mutate func(*Node)) func(*Doc) {
+	mutateFirst := func(kind Kind, mutate func(Node)) func(*Doc) {
 		return func(doc *Doc) {
-			var found *Node
-			Walk(doc.Root(), func(node *Node) any {
-				if found == nil && node.Kind == kind {
+			var found Node
+			Walk(doc.Root(), func(node Node) Action {
+				if found == nil && node.Kind() == kind {
 					found = node
 				}
 				return Continue
@@ -254,90 +258,91 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 			name:  "text",
 			input: "hello\n",
 			mutate: func(doc *Doc) {
-				doc.Root().Children[0].Children[0].Text = "changed"
+				findTypedNode[*Text](doc.Root()).Value = "changed"
 			},
 		},
 		{
 			name:  "attributes",
 			input: "# heading\n",
 			mutate: func(doc *Doc) {
-				doc.Root().Children[0].SetAttr("class", "changed")
+				findTypedNode[*Section](doc.Root()).Attributes().Set("class", "changed")
 			},
 		},
 		{
 			name:  "target",
 			input: "[link](old)\n",
 			mutate: func(doc *Doc) {
-				doc.Root().Children[0].Children[0].Target = "new"
+				findTypedNode[*Link](doc.Root()).Destination = "new"
 			},
 		},
 		{
 			name:  "children",
 			input: "one\n",
 			mutate: func(doc *Doc) {
-				doc.Root().Children = append(doc.Root().Children, &Node{
-					Kind:     Paragraph,
-					Children: []*Node{{Kind: Text, Text: "two"}},
+				doc.Root().Children = append(doc.Root().Children, &Paragraph{
+					Children: []Inline{&Text{Value: "two"}},
 				})
 			},
 		},
 		{
 			name:   "heading level",
 			input:  "# heading\n",
-			mutate: mutateFirst(Heading, func(node *Node) { node.Level = 2 }),
+			mutate: mutateFirst(KindHeading, func(node Node) { node.(*Heading).Level = 2 }),
 		},
 		{
 			name:  "ordered list style and start",
 			input: "2. item\n",
-			mutate: mutateFirst(OrderedList, func(node *Node) {
-				node.ListStyle = ListAlphaUpper
-				node.ListStart = 27
+			mutate: mutateFirst(KindOrderedList, func(node Node) {
+				node.(*OrderedList).Style = ListAlphaUpper
+				node.(*OrderedList).Start = 27
 			}),
 		},
 		{
 			name:   "tight list",
 			input:  "- one\n- two\n",
-			mutate: mutateFirst(BulletList, func(node *Node) { node.tight = false }),
+			mutate: mutateFirst(KindBulletList, func(node Node) { node.(*BulletList).Tight = false }),
 		},
 		{
 			name:   "task checked",
 			input:  "- [ ] item\n",
-			mutate: mutateFirst(TaskListItem, func(node *Node) { node.Checked = true }),
+			mutate: mutateFirst(KindTaskListItem, func(node Node) { node.(*TaskListItem).Checked = true }),
 		},
 		{
-			name:   "table cell flags",
-			input:  "| a |\n|:--:|\n| b |\n",
-			mutate: mutateFirst(TableCell, func(node *Node) { node.CellAlign, node.IsHeader = AlignRight, false }),
+			name:  "table cell flags",
+			input: "| a |\n|:--:|\n| b |\n",
+			mutate: mutateFirst(KindTableCell, func(node Node) {
+				node.(*TableCell).Alignment, node.(*TableCell).Header = AlignRight, false
+			}),
 		},
 		{
 			name:   "explicit empty target",
 			input:  "[link]()\n",
-			mutate: mutateFirst(Link, func(node *Node) { node.HasTarget = false }),
+			mutate: mutateFirst(KindLink, func(node Node) { node.(*Link).DestinationSet = false }),
 		},
 		{
 			name:  "code block payload",
 			input: "``` go\ncode\n```\n",
-			mutate: mutateFirst(CodeBlock, func(node *Node) {
-				node.Text = "changed"
-				node.Lang = "rust"
+			mutate: mutateFirst(KindCodeBlock, func(node Node) {
+				node.(*CodeBlock).Text = "changed"
+				node.(*CodeBlock).Language = "rust"
 			}),
 		},
 		{
 			name:  "raw payload",
 			input: "``` =html\n<b>raw</b>\n```\n",
-			mutate: mutateFirst(RawBlock, func(node *Node) {
-				node.Format = "latex"
+			mutate: mutateFirst(KindRawBlock, func(node Node) {
+				node.(*RawBlock).Format = "latex"
 			}),
 		},
 		{
 			name:   "symbol name",
 			input:  ":symbol:\n",
-			mutate: mutateFirst(Symbol, func(node *Node) { node.Name = "changed" }),
+			mutate: mutateFirst(KindSymbol, func(node Node) { node.(*Symbol).Name = "changed" }),
 		},
 		{
 			name:   "footnote label",
 			input:  "reference[^a]\n\n[^a]: note\n",
-			mutate: mutateFirst(FootnoteReference, func(node *Node) { node.Label = "changed" }),
+			mutate: mutateFirst(KindFootnoteReference, func(node Node) { node.(*FootnoteReference).Label = "changed" }),
 		},
 	}
 
@@ -426,6 +431,22 @@ func BenchmarkInternalParseNodeLayout(b *testing.B) {
 	b.ReportMetric(float64(unsafe.Sizeof(parsePayload{})), "rare-payload-B")
 	for i := 0; i < b.N; i++ {
 	}
+}
+
+func BenchmarkMaterializeTypedAST(b *testing.B) {
+	parsed := Parse(benchmarkHugeDocument())
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		doc := &Doc{semantic: parsed.semantic}
+		root := doc.Root()
+		if root == nil {
+			b.Fatal("materialized nil root")
+		}
+	}
+}
+
+func benchmarkHugeDocument() string {
+	return strings.Repeat("A paragraph with *emphasis*, **strong**, and [a link](https://example.com).\n\n", 14000)
 }
 
 func BenchmarkSparseDocument(b *testing.B) {

@@ -226,14 +226,14 @@ func BenchmarkASTShape(b *testing.B) {
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			doc := djot.Parse(tc.doc)
-			nodes := 1 // Walk visits descendants, not its supplied root.
+			nodes := 0
 			nodesWithAttrs := 0
 			attrs := 0
-			djot.Walk(doc.Root(), func(n *djot.Node) any {
+			djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
 				nodes++
-				if len(n.Attrs) > 0 {
+				if n.Attributes().Len() > 0 {
 					nodesWithAttrs++
-					attrs += len(n.Attrs)
+					attrs += n.Attributes().Len()
 				}
 				return djot.Continue
 			})
@@ -254,10 +254,9 @@ func BenchmarkASTShape(b *testing.B) {
 // useful when choosing which concrete node families to prototype first.
 func BenchmarkASTKindDistribution(b *testing.B) {
 	doc := djot.Parse(hugeDoc())
-	counts := make([]int, int(djot.EnDash)+1)
-	counts[doc.Root().Kind]++
-	djot.Walk(doc.Root(), func(n *djot.Node) any {
-		counts[n.Kind]++
+	counts := make([]int, int(djot.KindEnDash)+1)
+	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+		counts[n.Kind()]++
 		return djot.Continue
 	})
 
@@ -268,15 +267,19 @@ func BenchmarkASTKindDistribution(b *testing.B) {
 	b.StopTimer()
 	for kind, count := range counts {
 		if count > 0 {
-			b.ReportMetric(float64(count), "node-"+djot.NodeKind(kind).String()+"/doc")
+			b.ReportMetric(float64(count), "node-"+djot.Kind(kind).String()+"/doc")
 		}
 	}
 }
 
-// BenchmarkNodeSize records the shallow size of the current universal Node.
-// It excludes child backing arrays, attribute maps, and string data.
+// BenchmarkNodeSize records representative concrete typed-node sizes.
 func BenchmarkNodeSize(b *testing.B) {
-	b.ReportMetric(float64(unsafe.Sizeof(djot.Node{})), "shallow-B/node")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.Text{})), "text-B")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.Strong{})), "strong-B")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.Paragraph{})), "paragraph-B")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.TableCell{})), "table-cell-B")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.ListItem{})), "list-item-B")
+	b.ReportMetric(float64(unsafe.Sizeof(djot.Link{})), "link-B")
 	for i := 0; i < b.N; i++ {
 	}
 }
@@ -304,6 +307,47 @@ func BenchmarkRetainedAST(b *testing.B) {
 			b.ReportMetric(float64(retained)/float64(b.N), "retained-B/doc")
 		})
 	}
+}
+
+func BenchmarkRetainedMaterializedAST(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"Medium", mediumDoc()},
+		{"Huge_1MB", hugeDoc()},
+		{"Attributes_100KB", attributeHeavyDoc(100 * 1024)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var retained uint64
+			for i := 0; i < b.N; i++ {
+				retained += measureRetainedMaterializedAST(tc.doc)
+			}
+			b.ReportMetric(float64(retained)/float64(b.N), "retained-B/doc")
+		})
+	}
+}
+
+func measureRetainedMaterializedAST(input string) uint64 {
+	warm := djot.Parse(input)
+	runtime.KeepAlive(warm.Root())
+	warm = nil
+	runtime.GC()
+
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	doc := djot.Parse(input)
+	root := doc.Root()
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(root)
+	runtime.KeepAlive(doc)
+
+	if after.HeapAlloc <= before.HeapAlloc {
+		return 0
+	}
+	return after.HeapAlloc - before.HeapAlloc
 }
 
 func measureRetainedAST(input string) uint64 {
@@ -421,12 +465,37 @@ func BenchmarkWalk(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.doc)))
 			parsed := djot.Parse(tc.doc)
+			root := parsed.Root()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				djot.Walk(parsed.Root(), func(n *djot.Node) any {
+				djot.Walk(root, func(n djot.Node) djot.Action {
 					return djot.Continue
 				})
+			}
+		})
+	}
+}
+
+// BenchmarkPreorder measures the allocation-free read-only traversal path.
+func BenchmarkPreorder(b *testing.B) {
+	huge := hugeDoc()
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"Small", smallDoc()},
+		{"Medium", mediumDoc()},
+		{"Large", largeDoc()},
+		{"Huge_1MB", huge},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.SetBytes(int64(len(tc.doc)))
+			root := djot.Parse(tc.doc).Root()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				djot.Preorder(root, func(djot.Node) bool { return true })
 			}
 		})
 	}

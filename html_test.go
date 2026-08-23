@@ -187,20 +187,20 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
 			d := djot.Parse("# x")
-			var sect *djot.Node
+			var sect *djot.Section
 			for _, child := range d.Root().Children {
-				if child.Kind == djot.Section {
-					sect = child
+				if section, ok := child.(*djot.Section); ok {
+					sect = section
 				}
 			}
 			if sect == nil {
-				t.Fatal("expected Section child")
+				t.Fatal("expected KindSection child")
 			}
 
-			if ok := sect.SetAttr(tc.key, "v"); ok {
+			if ok := sect.Attributes().Set(tc.key, "v"); ok {
 				t.Errorf("SetAttr(%q, _) returned true, want false", tc.key)
 			}
-			if got := sect.Attr(tc.key); got != "" {
+			if got := sect.Attributes().Get(tc.key); got != "" {
 				t.Errorf("after rejected SetAttr, Attr(%q) = %q, want empty", tc.key, got)
 			}
 			if got := djot.RenderHTML(d); got != baseline {
@@ -228,19 +228,19 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 	for _, k := range valid {
 		t.Run(k, func(t *testing.T) {
 			d := djot.Parse("# x")
-			var sect *djot.Node
+			var sect *djot.Section
 			for _, child := range d.Root().Children {
-				if child.Kind == djot.Section {
-					sect = child
+				if section, ok := child.(*djot.Section); ok {
+					sect = section
 				}
 			}
 			if sect == nil {
-				t.Fatal("expected Section child")
+				t.Fatal("expected KindSection child")
 			}
-			if ok := sect.SetAttr(k, "v"); !ok {
+			if ok := sect.Attributes().Set(k, "v"); !ok {
 				t.Errorf("SetAttr(%q, _) returned false, want true", k)
 			}
-			if got := sect.Attr(k); got != "v" {
+			if got := sect.Attributes().Get(k); got != "v" {
 				t.Errorf("Attr(%q) = %q, want %q", k, got, "v")
 			}
 			got := djot.RenderHTML(d)
@@ -255,20 +255,20 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 	// Calling SetAttr with an invalid key after a valid SetAttr on a different
 	// key must not mutate any state.
 	d := djot.Parse("# x")
-	var sect *djot.Node
+	var sect *djot.Section
 	for _, child := range d.Root().Children {
-		if child.Kind == djot.Section {
-			sect = child
+		if section, ok := child.(*djot.Section); ok {
+			sect = section
 		}
 	}
 	if sect == nil {
-		t.Fatal("expected Section child")
+		t.Fatal("expected KindSection child")
 	}
-	sect.SetAttr("data-good", "v1")
-	if ok := sect.SetAttr("evil key", "v2"); ok {
+	sect.Attributes().Set("data-good", "v1")
+	if ok := sect.Attributes().Set("evil key", "v2"); ok {
 		t.Fatal("expected SetAttr to reject invalid key")
 	}
-	if got := sect.Attr("data-good"); got != "v1" {
+	if got := sect.Attributes().Get("data-good"); got != "v1" {
 		t.Errorf("data-good was disturbed: got %q, want %q", got, "v1")
 	}
 }
@@ -276,8 +276,8 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 func TestAddClassWithSpecialValueStaysWellFormed(t *testing.T) {
 	d := djot.Parse("# x")
 	for _, child := range d.Root().Children {
-		if child.Kind == djot.Section {
-			child.AddClass(`"><script>alert(1)</script>`)
+		if section, ok := child.(*djot.Section); ok {
+			section.Attributes().AddClass(`"><script>alert(1)</script>`)
 		}
 	}
 	got := djot.RenderHTML(d)

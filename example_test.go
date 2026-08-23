@@ -39,11 +39,11 @@ func ExampleWalk() {
 
 	// Count strong and emphasis nodes.
 	strong, emphasis := 0, 0
-	djot.Walk(doc.Root(), func(n *djot.Node) any {
-		switch n.Kind {
-		case djot.Strong:
+	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+		switch n.Kind() {
+		case djot.KindStrong:
 			strong++
-		case djot.Emphasis:
+		case djot.KindEmphasis:
 			emphasis++
 		}
 		return djot.Continue
@@ -57,9 +57,11 @@ func ExampleWalk_replace() {
 	doc := djot.Parse("Hello *world*!")
 
 	// Replace all Strong nodes with Emphasis.
-	djot.Walk(doc.Root(), func(n *djot.Node) any {
-		if n.Kind == djot.Strong {
-			return djot.Replace(&djot.Node{Kind: djot.Emphasis, Children: n.Children})
+	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+		if strong, ok := n.(*djot.Strong); ok {
+			replacement := &djot.Emphasis{Children: strong.Children}
+			djot.CopyMetadata(replacement, strong)
+			return djot.Replace(replacement)
 		}
 		return djot.Continue
 	})
@@ -72,8 +74,9 @@ func ExampleWithNodeRenderer() {
 	doc := djot.Parse("Visit [djot](https://djot.net).")
 
 	// Render links with target="_blank".
-	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.Link, func(n *djot.Node, r djot.NodeRenderer) {
-		r.Write(fmt.Sprintf(`<a href="%s" target="_blank">`, n.Target))
+	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindLink, func(n djot.Node, r djot.NodeRenderer) {
+		link := n.(*djot.Link)
+		r.Write(fmt.Sprintf(`<a href="%s" target="_blank">`, link.Destination))
 		r.Children()
 		r.Write("</a>")
 	}))

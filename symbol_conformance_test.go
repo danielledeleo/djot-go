@@ -8,13 +8,17 @@ import (
 )
 
 // flattenInlines walks the first paragraph's inline children and returns a
-// compact []"Kind:value" representation, merging adjacent Text nodes the way
+// compact []"Kind:value" representation, merging adjacent KindText nodes the way
 // the reference djot.js coalesces str runs. Used to compare djot-go symbol
 // parsing against the canonical implementation.
-func flattenInlines(t *testing.T, doc *djot.Node) []string {
+func flattenInlines(t *testing.T, doc *djot.Document) []string {
 	t.Helper()
-	if len(doc.Children) == 0 || doc.Children[0].Kind != djot.Paragraph {
+	if len(doc.Children) == 0 {
 		t.Fatalf("expected a leading paragraph, got %+v", doc.Children)
+	}
+	paragraph, ok := doc.Children[0].(*djot.Paragraph)
+	if !ok {
+		t.Fatalf("expected a leading paragraph, got %T", doc.Children[0])
 	}
 	var out []string
 	var textBuf strings.Builder
@@ -24,16 +28,16 @@ func flattenInlines(t *testing.T, doc *djot.Node) []string {
 			textBuf.Reset()
 		}
 	}
-	for _, n := range doc.Children[0].Children {
-		switch n.Kind {
-		case djot.Text:
-			textBuf.WriteString(n.Text)
-		case djot.Symbol:
+	for _, n := range paragraph.Children {
+		switch n := n.(type) {
+		case *djot.Text:
+			textBuf.WriteString(n.Value)
+		case *djot.Symbol:
 			flush()
 			out = append(out, "symb:"+n.Name)
 		default:
 			flush()
-			out = append(out, n.Kind.String())
+			out = append(out, n.Kind().String())
 		}
 	}
 	flush()
@@ -52,8 +56,8 @@ func flattenInlines(t *testing.T, doc *djot.Node) []string {
 //
 // Notably the reference DOES extract symb"30" from the timestamp 10:30:00 and
 // symb"b" from a:b:c. This greedy behavior is spec-conformant, not a bug, so a
-// downstream consumer cannot treat a leftover Symbol as necessarily intentional
-// — incidental digits:digits:digits prose produces real Symbol nodes.
+// downstream consumer cannot treat a leftover KindSymbol as necessarily intentional
+// — incidental digits:digits:digits prose produces real KindSymbol nodes.
 func TestSymbolConformance(t *testing.T) {
 	cases := []struct {
 		name string

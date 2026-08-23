@@ -47,20 +47,20 @@ func Parse(input string) *Doc {
 // registerHeadingRefs creates implicit reference definitions for headings,
 // mapping the heading's text content to the section's (or heading's) ID.
 func registerHeadingRefs(doc *Doc) {
-	walkParse(doc.parseRoot, func(n *parseNode) any {
-		if n.Kind == Section {
+	walkParse(doc.parseRoot, func(n *parseNode) {
+		if n.Kind == KindSection {
 			id := n.Attr("id")
 			if id == "" {
-				return Continue
+				return
 			}
 			// Find the heading child.
 			for _, child := range n.Children {
-				if child.Kind == Heading {
+				if child.Kind == KindHeading {
 					label := collectParseText(child)
 					if label != "" {
 						if _, exists := doc.parseReferences[label]; !exists {
 							doc.parseReferences[label] = &parseNode{
-								Kind:         Link,
+								Kind:         KindLink,
 								parsePayload: &parsePayload{Target: "#" + id, Label: label},
 							}
 						}
@@ -69,23 +69,21 @@ func registerHeadingRefs(doc *Doc) {
 				}
 			}
 		}
-		return Continue
 	})
 }
 
-// resolveUnresolvedRefs walks the AST looking for Link/Image nodes with empty
+// resolveUnresolvedRefs walks the parse tree looking for link/image nodes with empty
 // Target (emitted when the inline parser couldn't resolve a reference) and
 // resolves them against the now-complete reference map.
 func resolveUnresolvedRefs(doc *Doc) {
-	walkParse(doc.parseRoot, func(n *parseNode) any {
-		if (n.Kind == Link || n.Kind == Image) && n.Target == "" && !n.HasTarget {
+	walkParse(doc.parseRoot, func(n *parseNode) {
+		if (n.Kind == KindLink || n.Kind == KindImage) && n.Target == "" && !n.HasTarget {
 			label := collectParseText(n)
 			if ref, ok := doc.parseReferences[label]; ok {
 				n.Target = ref.Target
 				n.HasTarget = true
 			}
 		}
-		return Continue
 	})
 }
 
@@ -101,8 +99,8 @@ func tightenBlockEnds(n *parseNode) {
 		tightenBlockEnds(c)
 	}
 	switch n.Kind {
-	case BulletList, OrderedList, TaskList, DefinitionList,
-		ListItem, TaskListItem, BlockQuote, Table, Footnote:
+	case KindBulletList, KindOrderedList, KindTaskList, KindDefinitionList,
+		KindListItem, KindTaskListItem, KindBlockQuote, KindTable, KindFootnote:
 		if len(n.Children) > 0 {
 			if last := n.Children[len(n.Children)-1]; last.End.Offset > 0 {
 				n.End = last.End

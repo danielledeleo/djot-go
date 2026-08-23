@@ -5,7 +5,7 @@ package djot
 // an arena-backed payload. Public Nodes are materialized from the final semantic
 // tape and are never used while parsing.
 type parseNode struct {
-	Kind      NodeKind
+	Kind      Kind
 	Children  []*parseNode
 	Attrs     map[string]string
 	attrOrder []string
@@ -39,7 +39,7 @@ type parsePayload struct {
 // parseNodeSpec is a short-lived constructor value. It preserves readable
 // parser literals without forcing every live node to carry every payload field.
 type parseNodeSpec struct {
-	Kind      NodeKind
+	Kind      Kind
 	Children  []*parseNode
 	Attrs     map[string]string
 	attrOrder []string
@@ -64,11 +64,11 @@ type parseNodeSpec struct {
 	Label            string
 }
 
-func parseNodeNeedsPayload(kind NodeKind) bool {
+func parseNodeNeedsPayload(kind Kind) bool {
 	switch kind {
-	case Heading, Link, Image, Symbol, Verbatim, CodeBlock, RawBlock, RawInline,
-		BulletList, OrderedList, TaskList, DefinitionList, TaskListItem,
-		TableRow, TableCell, Footnote, FootnoteReference:
+	case KindHeading, KindLink, KindImage, KindSymbol, KindVerbatim, KindCodeBlock, KindRawBlock, KindRawInline,
+		KindBulletList, KindOrderedList, KindTaskList, KindDefinitionList, KindTaskListItem,
+		KindTableRow, KindTableCell, KindFootnote, KindFootnoteReference:
 		return true
 	default:
 		return false
@@ -109,14 +109,19 @@ type parseSlab[T any] struct {
 	next  int
 }
 
+const (
+	parseArenaMinChunk = 32
+	parseArenaMaxChunk = 2048
+)
+
 func (a *parseSlab[T]) alloc() *T {
 	if len(a.chunk) == cap(a.chunk) {
 		size := a.next
-		if size < arenaMinChunk {
-			size = arenaMinChunk
+		if size < parseArenaMinChunk {
+			size = parseArenaMinChunk
 		}
 		a.chunk = make([]T, 0, size)
-		if size < arenaMaxChunk {
+		if size < parseArenaMaxChunk {
 			a.next = size * 2
 		}
 	}
@@ -164,11 +169,9 @@ func (a *parseNodeArena) new(src parseNodeSpec) *parseNode {
 	return dst
 }
 
-func walkParse(root *parseNode, fn func(*parseNode) any) {
+func walkParse(root *parseNode, fn func(*parseNode)) {
 	for _, child := range root.Children {
-		if action, ok := fn(child).(Action); !ok || action != Continue {
-			panic("walkParse only supports Continue")
-		}
+		fn(child)
 		walkParse(child, fn)
 	}
 }

@@ -16,9 +16,11 @@
 // [Walk] visits nodes top-down and supports [Continue], [SkipChildren], [Remove],
 // and [Replace] actions. [WalkBottomUp] visits children before parents.
 //
-//	djot.Walk(doc.Root(), func(n *djot.Node) any {
-//	    if n.Kind == djot.Strong {
-//	        return djot.Replace(&djot.Node{Kind: djot.Emphasis, Children: n.Children})
+//	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+//	    if strong, ok := n.(*djot.Strong); ok {
+//	        replacement := &djot.Emphasis{Children: strong.Children}
+//	        djot.CopyMetadata(replacement, strong)
+//	        return djot.Replace(replacement)
 //	    }
 //	    return djot.Continue
 //	})
@@ -27,7 +29,7 @@
 //
 // Override rendering for specific node kinds with [WithNodeRenderer]:
 //
-//	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.Image, func(n *djot.Node, r djot.NodeRenderer) {
+//	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindImage, func(n djot.Node, r djot.NodeRenderer) {
 //	    r.Write("<figure>")
 //	    r.Default()
 //	    r.Write("</figure>")

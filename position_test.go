@@ -10,64 +10,63 @@ func TestPositionTracking(t *testing.T) {
 	input := "# Hello\n\nworld"
 	doc := djot.Parse(input)
 
-	// The AST should be: Document > Section > [Heading, Paragraph]
+	// The AST should be: KindDocument > KindSection > [KindHeading, KindParagraph]
 	root := doc.Root()
-	if root.Kind != djot.Document {
-		t.Fatalf("expected Document, got %v", root.Kind)
+	if root.Kind() != djot.KindDocument {
+		t.Fatalf("expected KindDocument, got %v", root.Kind())
 	}
-	if root.Start.Offset != 0 {
-		t.Errorf("document Start.Offset = %d, want 0", root.Start.Offset)
+	if root.Span().Start.Offset != 0 {
+		t.Errorf("document Start.Offset = %d, want 0", root.Span().Start.Offset)
 	}
 
 	// Find the section (headings get wrapped).
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}
-	section := root.Children[0]
-	if section.Kind != djot.Section {
-		t.Fatalf("expected Section, got %v", section.Kind)
+	section, ok := root.Children[0].(*djot.Section)
+	if !ok {
+		t.Fatalf("expected *Section, got %T", root.Children[0])
 	}
 
 	if len(section.Children) < 2 {
 		t.Fatalf("section has %d children, want >= 2", len(section.Children))
 	}
 
-	heading := section.Children[0]
-	para := section.Children[1]
-
-	if heading.Kind != djot.Heading {
-		t.Fatalf("expected Heading, got %v", heading.Kind)
+	heading, ok := section.Children[0].(*djot.Heading)
+	if !ok {
+		t.Fatalf("expected *Heading, got %T", section.Children[0])
 	}
-	if para.Kind != djot.Paragraph {
-		t.Fatalf("expected Paragraph, got %v", para.Kind)
-	}
-
-	// Heading "# Hello" starts at offset 0.
-	if heading.Start.Offset != 0 {
-		t.Errorf("heading Start.Offset = %d, want 0", heading.Start.Offset)
-	}
-	// Heading ends at offset 7 (exclusive end of "# Hello" line).
-	if heading.End.Offset != 7 {
-		t.Errorf("heading End.Offset = %d, want 7", heading.End.Offset)
+	para, ok := section.Children[1].(*djot.Paragraph)
+	if !ok {
+		t.Fatalf("expected *Paragraph, got %T", section.Children[1])
 	}
 
-	// Paragraph "world" starts at offset 9 (after "# Hello\n\n").
-	if para.Start.Offset != 9 {
-		t.Errorf("paragraph Start.Offset = %d, want 9", para.Start.Offset)
+	// KindHeading "# Hello" starts at offset 0.
+	if heading.Span().Start.Offset != 0 {
+		t.Errorf("heading Start.Offset = %d, want 0", heading.Span().Start.Offset)
 	}
-	// Paragraph ends at offset 14 (exclusive end of "world").
-	if para.End.Offset != 14 {
-		t.Errorf("paragraph End.Offset = %d, want 14", para.End.Offset)
+	// KindHeading ends at offset 7 (exclusive end of "# Hello" line).
+	if heading.Span().End.Offset != 7 {
+		t.Errorf("heading End.Offset = %d, want 7", heading.Span().End.Offset)
 	}
 
-	// Section should inherit heading start and paragraph end.
-	if section.Start.Offset != heading.Start.Offset {
+	// KindParagraph "world" starts at offset 9 (after "# Hello\n\n").
+	if para.Span().Start.Offset != 9 {
+		t.Errorf("paragraph Start.Offset = %d, want 9", para.Span().Start.Offset)
+	}
+	// KindParagraph ends at offset 14 (exclusive end of "world").
+	if para.Span().End.Offset != 14 {
+		t.Errorf("paragraph End.Offset = %d, want 14", para.Span().End.Offset)
+	}
+
+	// KindSection should inherit heading start and paragraph end.
+	if section.Span().Start.Offset != heading.Span().Start.Offset {
 		t.Errorf("section Start.Offset = %d, want %d (heading start)",
-			section.Start.Offset, heading.Start.Offset)
+			section.Span().Start.Offset, heading.Span().Start.Offset)
 	}
-	if section.End.Offset != para.End.Offset {
+	if section.Span().End.Offset != para.Span().End.Offset {
 		t.Errorf("section End.Offset = %d, want %d (paragraph end)",
-			section.End.Offset, para.End.Offset)
+			section.Span().End.Offset, para.Span().End.Offset)
 	}
 
 	// Verify that inline nodes within the heading also have positions.
@@ -75,10 +74,10 @@ func TestPositionTracking(t *testing.T) {
 		t.Fatal("heading has no inline children")
 	}
 	textNode := heading.Children[0]
-	if textNode.Kind != djot.Text {
-		t.Fatalf("expected Text child, got %v", textNode.Kind)
+	if textNode.Kind() != djot.KindText {
+		t.Fatalf("expected KindText child, got %v", textNode.Kind())
 	}
-	if textNode.Start.Offset == 0 && textNode.End.Offset == 0 {
+	if textNode.Span().Start.Offset == 0 && textNode.Span().End.Offset == 0 {
 		t.Error("heading text node should have non-zero positions")
 	}
 }
@@ -93,16 +92,16 @@ func TestPositionCodeBlock(t *testing.T) {
 	}
 
 	cb := root.Children[0]
-	if cb.Kind != djot.CodeBlock {
-		t.Fatalf("expected CodeBlock, got %v", cb.Kind)
+	if cb.Kind() != djot.KindCodeBlock {
+		t.Fatalf("expected KindCodeBlock, got %v", cb.Kind())
 	}
 
-	if cb.Start.Offset != 0 {
-		t.Errorf("code block Start.Offset = %d, want 0", cb.Start.Offset)
+	if cb.Span().Start.Offset != 0 {
+		t.Errorf("code block Start.Offset = %d, want 0", cb.Span().Start.Offset)
 	}
 	// Code block: "```go\nfmt.Println()\n```" = 5+1+13+1+3 = 23 bytes.
-	if cb.End.Offset != 23 {
-		t.Errorf("code block End.Offset = %d, want 23", cb.End.Offset)
+	if cb.Span().End.Offset != 23 {
+		t.Errorf("code block End.Offset = %d, want 23", cb.Span().End.Offset)
 	}
 }
 
@@ -111,23 +110,23 @@ func TestPositionThematicBreak(t *testing.T) {
 	doc := djot.Parse(input)
 
 	root := doc.Root()
-	// Should have: Paragraph("hello"), ThematicBreak, Paragraph("world")
+	// Should have: KindParagraph("hello"), KindThematicBreak, KindParagraph("world")
 	if len(root.Children) < 3 {
 		t.Fatalf("expected >= 3 children, got %d", len(root.Children))
 	}
 
 	tb := root.Children[1]
-	if tb.Kind != djot.ThematicBreak {
-		t.Fatalf("expected ThematicBreak, got %v", tb.Kind)
+	if tb.Kind() != djot.KindThematicBreak {
+		t.Fatalf("expected KindThematicBreak, got %v", tb.Kind())
 	}
 
 	// "* * *" starts at offset 7 (after "hello\n\n").
-	if tb.Start.Offset != 7 {
-		t.Errorf("thematic break Start.Offset = %d, want 7", tb.Start.Offset)
+	if tb.Span().Start.Offset != 7 {
+		t.Errorf("thematic break Start.Offset = %d, want 7", tb.Span().Start.Offset)
 	}
 	// "* * *" ends at offset 12.
-	if tb.End.Offset != 12 {
-		t.Errorf("thematic break End.Offset = %d, want 12", tb.End.Offset)
+	if tb.Span().End.Offset != 12 {
+		t.Errorf("thematic break End.Offset = %d, want 12", tb.Span().End.Offset)
 	}
 }
 
@@ -140,32 +139,32 @@ func TestPositionList(t *testing.T) {
 		t.Fatal("document has no children")
 	}
 
-	list := root.Children[0]
-	if list.Kind != djot.BulletList {
-		t.Fatalf("expected BulletList, got %v", list.Kind)
+	list, ok := root.Children[0].(*djot.BulletList)
+	if !ok {
+		t.Fatalf("expected *BulletList, got %T", root.Children[0])
 	}
 
-	if list.Start.Offset != 0 {
-		t.Errorf("list Start.Offset = %d, want 0", list.Start.Offset)
+	if list.Span().Start.Offset != 0 {
+		t.Errorf("list Start.Offset = %d, want 0", list.Span().Start.Offset)
 	}
 	// "- one\n- two" ends at offset 11.
-	if list.End.Offset != 11 {
-		t.Errorf("list End.Offset = %d, want 11", list.End.Offset)
+	if list.Span().End.Offset != 11 {
+		t.Errorf("list End.Offset = %d, want 11", list.Span().End.Offset)
 	}
 
 	// Check items.
-	if len(list.Children) < 2 {
-		t.Fatalf("expected >= 2 items, got %d", len(list.Children))
+	if len(list.Items) < 2 {
+		t.Fatalf("expected >= 2 items, got %d", len(list.Items))
 	}
 
-	item1 := list.Children[0]
-	item2 := list.Children[1]
+	item1 := list.Items[0]
+	item2 := list.Items[1]
 
-	if item1.Start.Offset != 0 {
-		t.Errorf("item1 Start.Offset = %d, want 0", item1.Start.Offset)
+	if item1.Span().Start.Offset != 0 {
+		t.Errorf("item1 Start.Offset = %d, want 0", item1.Span().Start.Offset)
 	}
-	if item2.Start.Offset != 6 {
-		t.Errorf("item2 Start.Offset = %d, want 6", item2.Start.Offset)
+	if item2.Span().Start.Offset != 6 {
+		t.Errorf("item2 Start.Offset = %d, want 6", item2.Span().Start.Offset)
 	}
 }
 
@@ -179,16 +178,16 @@ func TestPositionBlockQuote(t *testing.T) {
 	}
 
 	bq := root.Children[0]
-	if bq.Kind != djot.BlockQuote {
-		t.Fatalf("expected BlockQuote, got %v", bq.Kind)
+	if bq.Kind() != djot.KindBlockQuote {
+		t.Fatalf("expected KindBlockQuote, got %v", bq.Kind())
 	}
 
-	if bq.Start.Offset != 0 {
-		t.Errorf("block quote Start.Offset = %d, want 0", bq.Start.Offset)
+	if bq.Span().Start.Offset != 0 {
+		t.Errorf("block quote Start.Offset = %d, want 0", bq.Span().Start.Offset)
 	}
 	// "> hello" ends at offset 7.
-	if bq.End.Offset != 7 {
-		t.Errorf("block quote End.Offset = %d, want 7", bq.End.Offset)
+	if bq.Span().End.Offset != 7 {
+		t.Errorf("block quote End.Offset = %d, want 7", bq.Span().End.Offset)
 	}
 }
 
@@ -202,16 +201,16 @@ func TestPositionDiv(t *testing.T) {
 	}
 
 	div := root.Children[0]
-	if div.Kind != djot.Div {
-		t.Fatalf("expected Div, got %v", div.Kind)
+	if div.Kind() != djot.KindDiv {
+		t.Fatalf("expected KindDiv, got %v", div.Kind())
 	}
 
-	if div.Start.Offset != 0 {
-		t.Errorf("div Start.Offset = %d, want 0", div.Start.Offset)
+	if div.Span().Start.Offset != 0 {
+		t.Errorf("div Start.Offset = %d, want 0", div.Span().Start.Offset)
 	}
-	// Div ends at closing ":::" which ends at offset 21.
-	if div.End.Offset != 21 {
-		t.Errorf("div End.Offset = %d, want 21", div.End.Offset)
+	// KindDiv ends at closing ":::" which ends at offset 21.
+	if div.Span().End.Offset != 21 {
+		t.Errorf("div End.Offset = %d, want 21", div.Span().End.Offset)
 	}
 }
 

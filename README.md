@@ -51,9 +51,9 @@ djot.RenderHTMLTo(&buf, doc)
 ### Walk the AST
 
 ```go
-djot.Walk(doc.Root(), func(n *djot.Node) any {
-    if n.Kind == djot.Link {
-        fmt.Println(n.Target)
+djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+    if link, ok := n.(*djot.Link); ok {
+        fmt.Println(link.Destination)
     }
     return djot.Continue
 })
@@ -71,9 +71,10 @@ their mutable AST only when `doc.Root()` is requested.
 Override the HTML output for specific node kinds:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.CodeBlock, func(n *djot.Node, r djot.NodeRenderer) {
+html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
+    code := n.(*djot.CodeBlock)
     r.Write(`<pre class="highlight"><code>`)
-    r.Write(n.Text)
+    r.Write(code.Text)
     r.Write("</code></pre>")
 }))
 ```
@@ -84,9 +85,10 @@ renders child nodes without the wrapper element.
 For simple cases that just return an HTML string, use `WithRenderFunc`:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.Symbol, func(n *djot.Node) string {
-    if n.Name == "youtube" {
-        return `<iframe src="https://www.youtube.com/embed/` + n.Attr("id") + `"></iframe>`
+html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
+    symbol := n.(*djot.Symbol)
+    if symbol.Name == "youtube" {
+        return `<iframe src="https://www.youtube.com/embed/` + symbol.Attributes().Get("id") + `"></iframe>`
     }
     return "" // empty string falls through to default rendering
 }))

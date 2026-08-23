@@ -15,15 +15,15 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 		openerIdx: make(map[int]bool, 8),
 		arena:     arena,
 	}
-	walkParse(root, func(n *parseNode) any {
+	walkParse(root, func(n *parseNode) {
 		switch n.Kind {
-		case Paragraph, Heading, Term, TableCell, Caption:
+		case KindParagraph, KindHeading, KindTerm, KindTableCell, KindCaption:
 			if n.Text != "" {
 				// Compute the source offset for the inline text content.
 				// For headings, text starts after "# " markers.
 				// For other blocks, text starts at the block's content area.
 				baseOffset := n.Start.Offset
-				if n.Kind == Heading && doc != nil && len(doc.Files) > 0 {
+				if n.Kind == KindHeading && doc != nil && len(doc.Files) > 0 {
 					src := doc.Files[0].Source
 					off := n.Start.Offset
 					// Skip leading whitespace, then skip '#' markers and space.
@@ -37,7 +37,7 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 						off++
 					}
 					baseOffset = off
-				} else if n.Kind == Paragraph && doc != nil && len(doc.Files) > 0 {
+				} else if n.Kind == KindParagraph && doc != nil && len(doc.Files) > 0 {
 					src := doc.Files[0].Source
 					off := n.Start.Offset
 					// Skip leading whitespace on first line.
@@ -51,7 +51,6 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 				n.plainBracesUntil = 0
 			}
 		}
-		return Continue
 	})
 }
 
@@ -124,9 +123,9 @@ func (p *inlineParser) parse() []*parseNode {
 		case '*', '_':
 			p.parseDelimiter(c)
 		case '^':
-			p.parseDelimiterPair(c, Superscript)
+			p.parseDelimiterPair(c, KindSuperscript)
 		case '~':
-			p.parseDelimiterPair(c, Subscript)
+			p.parseDelimiterPair(c, KindSubscript)
 		case '[':
 			p.parseBracketOpen()
 		case '!':
@@ -147,9 +146,9 @@ func (p *inlineParser) parse() []*parseNode {
 		case '<':
 			p.parseAutolink()
 		case '"':
-			p.parseSmartQuote('"', DoubleQuoted)
+			p.parseSmartQuote('"', KindDoubleQuoted)
 		case '\'':
-			p.parseSmartQuote('\'', SingleQuoted)
+			p.parseSmartQuote('\'', KindSingleQuoted)
 		case '+', '=':
 			p.parseMarkedCloserChar(c)
 		case '-':
@@ -159,7 +158,7 @@ func (p *inlineParser) parse() []*parseNode {
 		case ':':
 			p.parseSymbol()
 		case '\n':
-			p.add(parseNodeSpec{Kind: SoftBreak})
+			p.add(parseNodeSpec{Kind: KindSoftBreak})
 			p.pos++
 		default:
 			p.parseText()
@@ -188,7 +187,7 @@ func (p *inlineParser) parseEscape() {
 	if p.pos+1 >= len(p.input) {
 		// Trailing backslash at end of input = hard break.
 		p.trimTrailingSpaces()
-		p.add(parseNodeSpec{Kind: HardBreak})
+		p.add(parseNodeSpec{Kind: KindHardBreak})
 		p.pos++
 		return
 	}
@@ -198,7 +197,7 @@ func (p *inlineParser) parseEscape() {
 	// Escaped newline = hard break.
 	if next == '\n' {
 		p.trimTrailingSpaces()
-		p.add(parseNodeSpec{Kind: HardBreak})
+		p.add(parseNodeSpec{Kind: KindHardBreak})
 		p.pos += 2
 		return
 	}
@@ -212,7 +211,7 @@ func (p *inlineParser) parseEscape() {
 		}
 		if j < len(p.input) && p.input[j] == '\n' {
 			p.trimTrailingSpaces()
-			p.add(parseNodeSpec{Kind: HardBreak})
+			p.add(parseNodeSpec{Kind: KindHardBreak})
 			p.pos = j + 1
 			return
 		}
@@ -220,7 +219,7 @@ func (p *inlineParser) parseEscape() {
 
 	// Escaped space = non-breaking space.
 	if next == ' ' {
-		p.add(parseNodeSpec{Kind: NonBreakingSpace})
+		p.add(parseNodeSpec{Kind: KindNonBreakingSpace})
 		p.pos += 2
 		return
 	}
@@ -268,7 +267,7 @@ func (p *inlineParser) parseVerbatim() {
 
 			content := p.input[p.pos:i]
 			content = stripVerbatimSpaces(content)
-			node := p.arena.new(parseNodeSpec{Kind: Verbatim, Text: content})
+			node := p.arena.new(parseNodeSpec{Kind: KindVerbatim, Text: content})
 			node.Start = p.srcPos(start)
 			node.End = p.srcPos(endAfter - 1)
 			p.addNode(node)
@@ -280,7 +279,7 @@ func (p *inlineParser) parseVerbatim() {
 	// No closing backticks found — verbatim extends to end of inline content.
 	content := p.input[start+n:]
 	content = stripVerbatimSpaces(content)
-	p.add(parseNodeSpec{Kind: Verbatim, Text: content})
+	p.add(parseNodeSpec{Kind: KindVerbatim, Text: content})
 	p.pos = len(p.input)
 }
 
@@ -320,9 +319,9 @@ func (p *inlineParser) parseMath() {
 					continue
 				}
 				content := p.input[p.pos:i]
-				kind := InlineMath
+				kind := KindInlineMath
 				if dollars >= 2 {
-					kind = DisplayMath
+					kind = KindDisplayMath
 				}
 				p.add(parseNodeSpec{Kind: kind, Text: content})
 				p.pos = endAfter
@@ -341,13 +340,13 @@ func (p *inlineParser) parseMath() {
 	p.pos = start + dollars
 }
 
-func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
+func (p *inlineParser) parseDelimiterPair(char byte, kind Kind) {
 	start := p.pos
 	p.pos++
 
 	// Check if this is a marked closer: ^} or ~}
 	if p.pos < len(p.input) && p.input[p.pos] == '}' {
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 		return
 	}
 
@@ -385,7 +384,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -393,7 +392,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 			nodeIdx: idx,
 		})
 	} else {
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 	}
 }
 
@@ -408,7 +407,7 @@ func (p *inlineParser) parseImageOpen() {
 			return
 		}
 		idx := len(p.nodes)
-		p.add(parseNodeSpec{Kind: Text, Text: "!["})
+		p.add(parseNodeSpec{Kind: KindText, Text: "!["})
 		p.openers['['] = append(p.openers['['], opener{
 			char:    '!', // special marker for image opener
 			pos:     p.pos,
@@ -443,14 +442,14 @@ func (p *inlineParser) parseAutolink() {
 
 	// Check for URL autolink (contains ://)
 	if strings.Contains(content, "://") {
-		p.add(parseNodeSpec{Kind: Link, Target: content, Children: []*parseNode{{Kind: Text, Text: content}}})
+		p.add(parseNodeSpec{Kind: KindLink, Target: content, Children: []*parseNode{{Kind: KindText, Text: content}}})
 		p.pos += end + 1
 		return
 	}
 
 	// Check for email autolink (contains @ and no spaces)
 	if strings.Contains(content, "@") && !strings.Contains(content, " ") {
-		p.add(parseNodeSpec{Kind: Link, Target: "mailto:" + content, Children: []*parseNode{{Kind: Text, Text: content}}})
+		p.add(parseNodeSpec{Kind: KindLink, Target: "mailto:" + content, Children: []*parseNode{{Kind: KindText, Text: content}}})
 		p.pos += end + 1
 		return
 	}
@@ -465,9 +464,9 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	start := p.pos
 	p.pos++
 
-	kind := Emphasis
+	kind := KindEmphasis
 	if char == '*' {
-		kind = Strong
+		kind = KindStrong
 	}
 
 	// Check if this delimiter is followed by } — if so, it's a marked closer.
@@ -476,7 +475,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	if p.pos < len(p.input) && p.input[p.pos] == '}' {
 		// This is part of a _} or *} marked closer. Don't process here;
 		// just emit the delimiter char as text and let parseCloseBrace handle it.
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 		return
 	}
 
@@ -524,7 +523,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -532,7 +531,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 			nodeIdx: idx,
 		})
 	} else {
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 	}
 }
 
@@ -588,7 +587,7 @@ func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 
 func (p *inlineParser) parseBracketOpen() {
 	idx := len(p.nodes)
-	p.add(parseNodeSpec{Kind: Text, Text: "["})
+	p.add(parseNodeSpec{Kind: KindText, Text: "["})
 	p.openers['['] = append(p.openers['['], opener{
 		char:    '[',
 		pos:     p.pos,
@@ -602,7 +601,7 @@ func (p *inlineParser) parseBracketClose() {
 
 	openers, ok := p.openers['[']
 	if !ok || len(openers) == 0 {
-		p.add(parseNodeSpec{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
 		return
 	}
 
@@ -611,7 +610,7 @@ func (p *inlineParser) parseBracketClose() {
 
 	// Safety check: if op.nodeIdx is beyond current nodes, the opener was invalidated.
 	if op.nodeIdx >= len(p.nodes) {
-		p.add(parseNodeSpec{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
 		return
 	}
 
@@ -630,7 +629,7 @@ func (p *inlineParser) parseBracketClose() {
 		if !strings.Contains(label, "[") {
 			p.invalidateOpenersFrom(op.nodeIdx)
 			p.nodes = p.nodes[:op.nodeIdx]
-			p.add(parseNodeSpec{Kind: FootnoteReference, Label: label})
+			p.add(parseNodeSpec{Kind: KindFootnoteReference, Label: label})
 			return
 		}
 	}
@@ -642,7 +641,7 @@ func (p *inlineParser) parseBracketClose() {
 	// times, and copying on each was quadratic.
 	if p.pos >= len(p.input) || (p.input[p.pos] != '(' && p.input[p.pos] != '[' && p.input[p.pos] != '{') {
 		p.invalidateOpenersFrom(op.nodeIdx)
-		p.add(parseNodeSpec{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
 		return
 	}
 
@@ -670,12 +669,12 @@ func (p *inlineParser) parseBracketClose() {
 			p.pos = end + 1
 			linkEnd := p.srcPos(p.pos - 1)
 			if isImage {
-				node := p.arena.new(parseNodeSpec{Kind: Image, Target: target, HasTarget: true, Children: childCopy})
+				node := p.arena.new(parseNodeSpec{Kind: KindImage, Target: target, HasTarget: true, Children: childCopy})
 				node.Start = linkStart
 				node.End = linkEnd
 				p.addNode(node)
 			} else {
-				node := p.arena.new(parseNodeSpec{Kind: Link, Target: target, HasTarget: true, Children: childCopy})
+				node := p.arena.new(parseNodeSpec{Kind: KindLink, Target: target, HasTarget: true, Children: childCopy})
 				node.Start = linkStart
 				node.End = linkEnd
 				p.addNode(node)
@@ -700,9 +699,9 @@ func (p *inlineParser) parseBracketClose() {
 			}
 			// Reference not found - emit empty link/image
 			if isImage {
-				p.add(parseNodeSpec{Kind: Image, Children: childCopy})
+				p.add(parseNodeSpec{Kind: KindImage, Children: childCopy})
 			} else {
-				p.add(parseNodeSpec{Kind: Link, Children: childCopy})
+				p.add(parseNodeSpec{Kind: KindLink, Children: childCopy})
 			}
 			return
 		}
@@ -715,7 +714,7 @@ func (p *inlineParser) parseBracketClose() {
 			inner := p.input[p.pos+1 : end]
 			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
-				node := p.arena.new(parseNodeSpec{Kind: Span, Children: childCopy, Attrs: attrs, attrOrder: attrOrder})
+				node := p.arena.new(parseNodeSpec{Kind: KindSpan, Children: childCopy, Attrs: attrs, attrOrder: attrOrder})
 				p.addNode(node)
 				p.pos = end + 1
 				return
@@ -725,15 +724,15 @@ func (p *inlineParser) parseBracketClose() {
 
 	// No special syntax follows — just emit literal brackets with content.
 	if isImage {
-		p.add(parseNodeSpec{Kind: Text, Text: "!["})
+		p.add(parseNodeSpec{Kind: KindText, Text: "!["})
 	} else {
-		p.add(parseNodeSpec{Kind: Text, Text: "["})
+		p.add(parseNodeSpec{Kind: KindText, Text: "["})
 	}
 	p.nodes = append(p.nodes, childCopy...)
-	p.add(parseNodeSpec{Kind: Text, Text: "]"})
+	p.add(parseNodeSpec{Kind: KindText, Text: "]"})
 }
 
-// resolveReference looks up a reference label and creates a Link or Image node.
+// resolveReference looks up a reference label and creates a link or image node.
 func (p *inlineParser) resolveReference(label string, children []*parseNode, isImage bool) bool {
 	if p.doc == nil || p.doc.parseReferences == nil {
 		return false
@@ -744,7 +743,7 @@ func (p *inlineParser) resolveReference(label string, children []*parseNode, isI
 	}
 	target := ref.Target
 	if isImage {
-		node := p.arena.new(parseNodeSpec{Kind: Image, Target: target, HasTarget: true, Children: children})
+		node := p.arena.new(parseNodeSpec{Kind: KindImage, Target: target, HasTarget: true, Children: children})
 		// Copy ref attrs
 		if ref.Attrs != nil {
 			for k, v := range ref.Attrs {
@@ -757,7 +756,7 @@ func (p *inlineParser) resolveReference(label string, children []*parseNode, isI
 		}
 		p.addNode(node)
 	} else {
-		node := p.arena.new(parseNodeSpec{Kind: Link, Target: target, HasTarget: true, Children: children})
+		node := p.arena.new(parseNodeSpec{Kind: KindLink, Target: target, HasTarget: true, Children: children})
 		if ref.Attrs != nil {
 			for k, v := range ref.Attrs {
 				if k == "class" {
@@ -785,9 +784,9 @@ func (p *inlineParser) parseOpenBrace() {
 	// Check if this is a marked opener: {_ or {* or {" or {' or {+ or {- or {= or {^ or {~
 	if p.pos+1 < len(p.input) {
 		next := p.input[p.pos+1]
-		// {= after a Verbatim node should be parsed as a raw format specifier,
-		// not as a marked opener for Mark.
-		if next == '=' && len(p.nodes) > 0 && p.nodes[len(p.nodes)-1].Kind == Verbatim {
+		// {= after a verbatim node should be parsed as a raw format specifier,
+		// not as a marked opener.
+		if next == '=' && len(p.nodes) > 0 && p.nodes[len(p.nodes)-1].Kind == KindVerbatim {
 			p.parseInlineAttr()
 			return
 		}
@@ -798,7 +797,7 @@ func (p *inlineParser) parseOpenBrace() {
 			p.pos += 2
 
 			idx := len(p.nodes)
-			p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+			p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 			p.openerIdx[idx] = true
 			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
@@ -815,7 +814,7 @@ func (p *inlineParser) parseOpenBrace() {
 			p.pos += 2
 
 			idx := len(p.nodes)
-			p.add(parseNodeSpec{Kind: Text, Text: "-"})
+			p.add(parseNodeSpec{Kind: KindText, Text: "-"})
 			p.openerIdx[idx] = true
 			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
@@ -835,7 +834,7 @@ func (p *inlineParser) parseCloseBrace() {
 	// Check if this is a marked closer: _} or *} or +} or -} or =} or ^} or ~}
 	if len(p.nodes) > 0 {
 		prev := p.nodes[len(p.nodes)-1]
-		if prev.Kind == Text && len(prev.Text) == 1 {
+		if prev.Kind == KindText && len(prev.Text) == 1 {
 			char := prev.Text[0]
 			markedKind := markedCloserKind(char)
 			if markedKind >= 0 {
@@ -851,7 +850,7 @@ func (p *inlineParser) parseCloseBrace() {
 							// Remove the trailing delimiter text before }.
 							if len(children) > 0 {
 								last := children[len(children)-1]
-								if last.Kind == Text && last.Text == string(char) {
+								if last.Kind == KindText && last.Text == string(char) {
 									children = children[:len(children)-1]
 								}
 							}
@@ -866,7 +865,7 @@ func (p *inlineParser) parseCloseBrace() {
 							p.invalidateOpenersFrom(op.nodeIdx)
 							p.nodes = p.nodes[:op.nodeIdx]
 
-							node := p.arena.new(parseNodeSpec{Kind: NodeKind(markedKind), Children: childCopy})
+							node := p.arena.new(parseNodeSpec{Kind: Kind(markedKind), Children: childCopy})
 							// op.pos points to the char after {, so start at op.pos-1.
 							node.Start = p.srcPos(op.pos - 1)
 							p.pos++ // skip }
@@ -893,19 +892,19 @@ func (p *inlineParser) parseCloseBrace() {
 func markedCloserKind(c byte) int {
 	switch c {
 	case '_':
-		return int(Emphasis)
+		return int(KindEmphasis)
 	case '*':
-		return int(Strong)
+		return int(KindStrong)
 	case '+':
-		return int(Insert)
+		return int(KindInsert)
 	case '-':
-		return int(Delete)
+		return int(KindDelete)
 	case '=':
-		return int(Mark)
+		return int(KindMark)
 	case '^':
-		return int(Superscript)
+		return int(KindSuperscript)
 	case '~':
-		return int(Subscript)
+		return int(KindSubscript)
 	}
 	return -1
 }
@@ -927,8 +926,8 @@ func (p *inlineParser) parseInlineAttr() {
 		// Only valid if it's JUST the format specifier (no other attrs).
 		if !strings.ContainsAny(format, " \t#.") {
 			prev := p.nodes[len(p.nodes)-1]
-			if prev.Kind == Verbatim {
-				prev.Kind = RawInline
+			if prev.Kind == KindVerbatim {
+				prev.Kind = KindRawInline
 				prev.Format = format
 				p.pos = end + 1
 				return
@@ -952,12 +951,12 @@ func (p *inlineParser) parseInlineAttr() {
 	// Attach to the preceding element.
 	if len(p.nodes) > 0 {
 		prev := p.nodes[len(p.nodes)-1]
-		if prev.Kind == Text {
+		if prev.Kind == KindText {
 			text := prev.Text
 			lastSpace := strings.LastIndexByte(text, ' ')
 			if lastSpace == -1 {
 				p.nodes = p.nodes[:len(p.nodes)-1]
-				span := p.arena.new(parseNodeSpec{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: Text, Text: text}}})
+				span := p.arena.new(parseNodeSpec{Kind: KindSpan, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: KindText, Text: text}}})
 				p.addNode(span)
 			} else {
 				word := text[lastSpace+1:]
@@ -967,7 +966,7 @@ func (p *inlineParser) parseInlineAttr() {
 					return
 				}
 				prev.Text = text[:lastSpace+1]
-				span := p.arena.new(parseNodeSpec{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: Text, Text: word}}})
+				span := p.arena.new(parseNodeSpec{Kind: KindSpan, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: KindText, Text: word}}})
 				p.addNode(span)
 			}
 		} else {
@@ -998,7 +997,7 @@ func (p *inlineParser) parseSymbol() {
 	if p.pos < len(p.input) && p.input[p.pos] == ':' && p.pos > nameStart {
 		name := p.input[nameStart:p.pos]
 		p.pos++
-		p.add(parseNodeSpec{Kind: Symbol, Name: name})
+		p.add(parseNodeSpec{Kind: KindSymbol, Name: name})
 		return
 	}
 
@@ -1007,7 +1006,7 @@ func (p *inlineParser) parseSymbol() {
 	p.pos++
 }
 
-func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
+func (p *inlineParser) parseSmartQuote(char byte, kind Kind) {
 	start := p.pos
 	p.pos++
 
@@ -1023,7 +1022,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 					// Remove trailing quote text before }
 					if len(children) > 0 {
 						last := children[len(children)-1]
-						if last.Kind == Text && last.Text == string(char) {
+						if last.Kind == KindText && last.Text == string(char) {
 							children = children[:len(children)-1]
 						}
 					}
@@ -1044,9 +1043,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 		// to close, and it applies only here: a later unmatched quote is
 		// unaffected and still opens.
 		if char == '\'' {
-			p.add(parseNodeSpec{Kind: Text, Text: "’"}) // right single quote
+			p.add(parseNodeSpec{Kind: KindText, Text: "’"}) // right single quote
 		} else {
-			p.add(parseNodeSpec{Kind: Text, Text: "”"}) // right double quote
+			p.add(parseNodeSpec{Kind: KindText, Text: "”"}) // right double quote
 		}
 		p.pos++ // skip }
 		return
@@ -1084,7 +1083,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -1095,9 +1094,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 		// Could not open or close (or close with no matching opener).
 		// Single quotes become apostrophes; double quotes become left double quotes.
 		if char == '\'' {
-			p.add(parseNodeSpec{Kind: Text, Text: "\u2019"}) // right single quote / apostrophe
+			p.add(parseNodeSpec{Kind: KindText, Text: "\u2019"}) // right single quote / apostrophe
 		} else {
-			p.add(parseNodeSpec{Kind: Text, Text: "\u201c"}) // left double quote
+			p.add(parseNodeSpec{Kind: KindText, Text: "\u201c"}) // left double quote
 		}
 	}
 }
@@ -1149,7 +1148,7 @@ func (p *inlineParser) parseDashes() {
 
 	if count == 0 {
 		// Only had 1 dash and it's the closer
-		p.add(parseNodeSpec{Kind: Text, Text: "-"})
+		p.add(parseNodeSpec{Kind: KindText, Text: "-"})
 		return
 	}
 
@@ -1174,22 +1173,22 @@ func (p *inlineParser) parseDashes() {
 			en = 2
 		}
 		for i := 0; i < em; i++ {
-			p.add(parseNodeSpec{Kind: EmDash})
+			p.add(parseNodeSpec{Kind: KindEmDash})
 		}
 		for i := 0; i < en; i++ {
-			p.add(parseNodeSpec{Kind: EnDash})
+			p.add(parseNodeSpec{Kind: KindEnDash})
 		}
 	}
 
 	if trailingCloser {
-		p.add(parseNodeSpec{Kind: Text, Text: "-"})
+		p.add(parseNodeSpec{Kind: KindText, Text: "-"})
 	}
 }
 
 func (p *inlineParser) parseEllipsis() {
 	// Check for three dots.
 	if p.pos+2 < len(p.input) && p.input[p.pos+1] == '.' && p.input[p.pos+2] == '.' {
-		p.add(parseNodeSpec{Kind: Ellipsis})
+		p.add(parseNodeSpec{Kind: KindEllipsis})
 		p.pos += 3
 		return
 	}
@@ -1202,7 +1201,7 @@ func (p *inlineParser) parseEllipsis() {
 // Otherwise emit as merged text.
 func (p *inlineParser) parseMarkedCloserChar(c byte) {
 	if p.pos+1 < len(p.input) && p.input[p.pos+1] == '}' {
-		p.add(parseNodeSpec{Kind: Text, Text: string(c)})
+		p.add(parseNodeSpec{Kind: KindText, Text: string(c)})
 		p.pos++
 		return
 	}
@@ -1224,7 +1223,7 @@ func (p *inlineParser) parseText() {
 		p.pos++
 	}
 	if p.pos > start {
-		p.add(parseNodeSpec{Kind: Text, Text: p.input[start:p.pos]})
+		p.add(parseNodeSpec{Kind: KindText, Text: p.input[start:p.pos]})
 	}
 }
 
@@ -1242,12 +1241,12 @@ func (p *inlineParser) addTextChar(c byte) {
 	if len(p.nodes) > 0 {
 		idx := len(p.nodes) - 1
 		prev := p.nodes[idx]
-		if prev.Kind == Text && !p.openerIdx[idx] {
+		if prev.Kind == KindText && !p.openerIdx[idx] {
 			prev.Text = prev.Text + string(c)
 			return
 		}
 	}
-	p.add(parseNodeSpec{Kind: Text, Text: string(c)})
+	p.add(parseNodeSpec{Kind: KindText, Text: string(c)})
 }
 
 // addTextByte adds a byte as text, always creating a new node or merging
@@ -1259,7 +1258,7 @@ func (p *inlineParser) addTextByte(c byte) {
 func (p *inlineParser) trimTrailingSpaces() {
 	if len(p.nodes) > 0 {
 		prev := p.nodes[len(p.nodes)-1]
-		if prev.Kind == Text {
+		if prev.Kind == KindText {
 			prev.Text = strings.TrimRight(prev.Text, " \t")
 		}
 	}
@@ -1273,7 +1272,7 @@ func (p *inlineParser) resolveUnclosedOpeners() {
 		for _, op := range openers {
 			if op.nodeIdx < len(p.nodes) {
 				node := p.nodes[op.nodeIdx]
-				if node.Kind == Text {
+				if node.Kind == KindText {
 					switch op.char {
 					case '"':
 						node.Text = "\u201c" // left double quote
@@ -1285,11 +1284,11 @@ func (p *inlineParser) resolveUnclosedOpeners() {
 							node.Text = "{" + node.Text
 						}
 						// For unmarked openers (like * _) that are immediately
-						// followed by a Span, absorb the opener text into the span.
+						// followed by a span, absorb the opener text into it.
 						if !op.marked && op.nodeIdx+1 < len(p.nodes) {
 							next := p.nodes[op.nodeIdx+1]
-							if next.Kind == Span {
-								next.Children = append([]*parseNode{{Kind: Text, Text: node.Text}}, next.Children...)
+							if next.Kind == KindSpan {
+								next.Children = append([]*parseNode{{Kind: KindText, Text: node.Text}}, next.Children...)
 								node.Text = "" // clear the opener text
 							}
 						}

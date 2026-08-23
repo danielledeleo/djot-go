@@ -38,11 +38,11 @@ func RenderASTJSONTo(w io.Writer, doc *Doc, positions bool) error {
 	return err
 }
 
-func astJSONNode(doc *Doc, n *Node, positions bool) *jsonObj {
+func astJSONNode(doc *Doc, n Node, positions bool) *jsonObj {
 	o := &jsonObj{}
 	o.set("tag", astTagName(n))
 
-	if positions && n.Kind != Document {
+	if positions && n.Kind() != KindDocument {
 		if pos := astJSONPos(doc, n); pos != nil {
 			o.set("pos", pos)
 		}
@@ -52,42 +52,43 @@ func astJSONNode(doc *Doc, n *Node, positions bool) *jsonObj {
 		o.set(f.key, f.val)
 	}
 
-	if len(n.attrOrder) > 0 {
+	if n.Attributes().Len() > 0 {
 		attrs := &jsonObj{}
-		for _, k := range n.attrOrder {
-			attrs.set(k, n.Attrs[k])
+		for _, attribute := range n.Attributes().items {
+			attrs.set(attribute.Key, attribute.Value)
 		}
 		o.set("attributes", attrs)
 	}
 
-	if len(n.Children) > 0 {
-		kids := make([]any, 0, len(n.Children))
-		for _, c := range n.Children {
-			kids = append(kids, astJSONNode(doc, c, positions))
-		}
+	var kids []any
+	forEachChild(n, func(child Node) {
+		kids = append(kids, astJSONNode(doc, child, positions))
+	})
+	if len(kids) > 0 {
 		o.set("children", kids)
 	}
 
 	return o
 }
 
-func astJSONPos(doc *Doc, n *Node) *jsonObj {
+func astJSONPos(doc *Doc, n Node) *jsonObj {
 	if doc == nil || len(doc.Files) == 0 {
 		return nil
 	}
-	fi := &doc.Files[n.Start.File]
-	sLine, sCol := fi.Position(n.Start.Offset)
-	eLine, eCol := astEndPosition(fi, n.End.Offset)
+	span := n.Span()
+	fi := &doc.Files[span.Start.File]
+	sLine, sCol := fi.Position(span.Start.Offset)
+	eLine, eCol := astEndPosition(fi, span.End.Offset)
 
 	start := &jsonObj{}
 	start.set("line", sLine)
 	start.set("col", sCol)
-	start.set("offset", n.Start.Offset)
+	start.set("offset", span.Start.Offset)
 
 	end := &jsonObj{}
 	end.set("line", eLine)
 	end.set("col", eCol)
-	end.set("offset", n.End.Offset)
+	end.set("offset", span.End.Offset)
 
 	pos := &jsonObj{}
 	pos.set("start", start)

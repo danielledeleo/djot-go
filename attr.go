@@ -211,7 +211,7 @@ func isAttrKeyChar(c byte) bool {
 
 // isValidAttrKey reports whether k is a valid HTML attribute name under the
 // djot attribute-name grammar: a leading letter, '_', or ':' followed by
-// letters, digits, '_', '-', or ':'. Used by [Node.SetAttr] to reject keys
+// letters, digits, '_', '-', or ':'. Used by [Attributes.Set] to reject keys
 // whose characters would produce malformed HTML at render time.
 func isValidAttrKey(k string) bool {
 	if k == "" {

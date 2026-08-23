@@ -46,7 +46,7 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer) *semanticHTMLR
 		fnrefSeen:    make(map[string]int),
 	}
 	for i := 0; i+1 < len(tape.records); i++ {
-		if r.kind(i) == Footnote {
+		if r.kind(i) == KindFootnote {
 			r.footnotes[r.label(i)] = i
 		}
 	}
@@ -99,8 +99,8 @@ func (r *semanticHTMLRenderer) writeByte(value byte) {
 	}
 }
 
-func (r *semanticHTMLRenderer) kind(i int) NodeKind {
-	return NodeKind(r.tape.records[i].kind)
+func (r *semanticHTMLRenderer) kind(i int) Kind {
+	return Kind(r.tape.records[i].kind)
 }
 
 func (r *semanticHTMLRenderer) label(i int) string {
@@ -135,10 +135,10 @@ func (r *semanticHTMLRenderer) children(i int, fn func(int)) {
 }
 
 func (r *semanticHTMLRenderer) walkRefs(i int) {
-	if r.kind(i) == Footnote {
+	if r.kind(i) == KindFootnote {
 		return
 	}
-	if r.kind(i) == FootnoteReference {
+	if r.kind(i) == KindFootnoteReference {
 		label := r.label(i)
 		r.footnoteNum(label)
 		r.fnrefTotal[label]++
@@ -190,7 +190,7 @@ func (r *semanticHTMLRenderer) renderListItemChildren(i int) {
 		return
 	}
 	r.children(i, func(child int) {
-		if r.kind(child) == Paragraph {
+		if r.kind(child) == KindParagraph {
 			r.renderChildren(child)
 			r.writeByte('\n')
 		} else {
@@ -213,21 +213,21 @@ func (r *semanticHTMLRenderer) renderContainer(i int, tag string) {
 func (r *semanticHTMLRenderer) renderNode(i int) {
 	record := r.tape.records[i]
 	switch r.kind(i) {
-	case Document:
+	case KindDocument:
 		r.renderChildren(i)
-	case Section:
+	case KindSection:
 		r.write("<section")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</section>\n")
-	case Paragraph:
+	case KindParagraph:
 		r.write("<p")
 		r.renderAttrs(i)
 		r.writeByte('>')
 		r.renderChildren(i)
 		r.write("</p>\n")
-	case Heading:
+	case KindHeading:
 		level := int(record.small)
 		if level < 1 {
 			level = 1
@@ -243,11 +243,11 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case ThematicBreak:
+	case KindThematicBreak:
 		r.write("<hr")
 		r.renderAttrs(i)
 		r.write(">\n")
-	case CodeBlock:
+	case KindCodeBlock:
 		payload := r.textExtra(i)
 		r.write("<pre")
 		r.renderAttrs(i)
@@ -260,14 +260,14 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.writeByte('>')
 		r.write(escapeHTML(payload.text))
 		r.write("</code></pre>\n")
-	case RawBlock:
+	case KindRawBlock:
 		payload := r.textExtra(i)
 		if payload.extra == "html" {
 			r.write(payload.text)
 		}
-	case BlockQuote, Div:
+	case KindBlockQuote, KindDiv:
 		tag := "blockquote"
-		if r.kind(i) == Div {
+		if r.kind(i) == KindDiv {
 			tag = "div"
 		}
 		r.writeByte('<')
@@ -278,14 +278,14 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case BulletList, TaskList, DefinitionList:
+	case KindBulletList, KindTaskList, KindDefinitionList:
 		tag := "ul"
-		if r.kind(i) == DefinitionList {
+		if r.kind(i) == KindDefinitionList {
 			tag = "dl"
 		}
 		r.writeByte('<')
 		r.write(tag)
-		if r.kind(i) == TaskList {
+		if r.kind(i) == KindTaskList {
 			r.write(` class="task-list"`)
 		}
 		r.renderAttrs(i)
@@ -294,7 +294,7 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case OrderedList:
+	case KindOrderedList:
 		r.write("<ol")
 		start := r.tape.listStarts[record.payload]
 		if start != 1 {
@@ -316,23 +316,23 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write(">\n")
 		r.withTight(record.flags&semanticTight != 0, func() { r.renderChildren(i) })
 		r.write("</ol>\n")
-	case Table:
+	case KindTable:
 		r.write("<table")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</table>\n")
-	case Caption:
+	case KindCaption:
 		r.write("<caption>")
 		r.renderChildren(i)
 		r.write("</caption>\n")
-	case TableRow:
+	case KindTableRow:
 		r.write("<tr")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</tr>\n")
-	case TableCell:
+	case KindTableCell:
 		tag := "td"
 		if record.flags&semanticHeader != 0 {
 			tag = "th"
@@ -356,21 +356,21 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case Term:
+	case KindTerm:
 		r.write("<dt>")
 		r.renderChildren(i)
 		r.write("</dt>\n")
-	case Definition:
+	case KindDefinition:
 		r.write("<dd>\n")
 		r.renderListItemChildren(i)
 		r.write("</dd>\n")
-	case ListItem:
+	case KindListItem:
 		r.write("<li")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderListItemChildren(i)
 		r.write("</li>\n")
-	case TaskListItem:
+	case KindTaskListItem:
 		r.write("<li>\n")
 		if record.flags&semanticChecked != 0 {
 			r.write(`<input disabled="" type="checkbox" checked=""/>`)
@@ -380,36 +380,36 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.writeByte('\n')
 		r.renderListItemChildren(i)
 		r.write("</li>\n")
-	case Text:
+	case KindText:
 		r.write(escapeHTML(r.tape.text(record.payload)))
-	case SoftBreak:
+	case KindSoftBreak:
 		r.writeByte('\n')
-	case HardBreak:
+	case KindHardBreak:
 		r.write("<br>\n")
-	case NonBreakingSpace:
+	case KindNonBreakingSpace:
 		r.write("&nbsp;")
-	case Emphasis, Strong, Superscript, Subscript, Insert, Delete, Mark, Span:
+	case KindEmphasis, KindStrong, KindSuperscript, KindSubscript, KindInsert, KindDelete, KindMark, KindSpan:
 		tag := ""
 		switch r.kind(i) {
-		case Emphasis:
+		case KindEmphasis:
 			tag = "em"
-		case Strong:
+		case KindStrong:
 			tag = "strong"
-		case Superscript:
+		case KindSuperscript:
 			tag = "sup"
-		case Subscript:
+		case KindSubscript:
 			tag = "sub"
-		case Insert:
+		case KindInsert:
 			tag = "ins"
-		case Delete:
+		case KindDelete:
 			tag = "del"
-		case Mark:
+		case KindMark:
 			tag = "mark"
-		case Span:
+		case KindSpan:
 			tag = "span"
 		}
 		r.renderContainer(i, tag)
-	case Link:
+	case KindLink:
 		r.write("<a")
 		target := r.target(i)
 		if target != "" || record.flags&semanticHasTarget != 0 {
@@ -421,7 +421,7 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.writeByte('>')
 		r.renderChildren(i)
 		r.write("</a>")
-	case Image:
+	case KindImage:
 		r.write("<img")
 		if alt := r.collectText(i); alt != "" {
 			r.write(` alt="`)
@@ -436,30 +436,30 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		}
 		r.renderAttrs(i)
 		r.writeByte('>')
-	case Verbatim:
+	case KindVerbatim:
 		r.write("<code>")
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write("</code>")
-	case InlineMath:
+	case KindInlineMath:
 		r.write(`<span class="math inline">\(`)
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write(`\)</span>`)
-	case DisplayMath:
+	case KindDisplayMath:
 		r.write(`<span class="math display">\[`)
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write(`\]</span>`)
-	case RawInline:
+	case KindRawInline:
 		payload := r.textExtra(i)
 		if payload.extra == "html" {
 			r.write(payload.text)
 		}
-	case Symbol:
+	case KindSymbol:
 		r.writeByte(':')
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.writeByte(':')
-	case Footnote:
+	case KindFootnote:
 		return
-	case FootnoteReference:
+	case KindFootnoteReference:
 		label := r.label(i)
 		num := r.footnoteNums[label]
 		r.fnrefSeen[label]++
@@ -474,28 +474,28 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		r.write(`" role="doc-noteref"><sup>`)
 		r.write(strconv.Itoa(num))
 		r.write(`</sup></a>`)
-	case DoubleQuoted:
+	case KindDoubleQuoted:
 		r.write("“")
 		r.renderChildren(i)
 		r.write("”")
-	case SingleQuoted:
+	case KindSingleQuoted:
 		r.write("‘")
 		r.renderChildren(i)
 		r.write("’")
-	case Ellipsis:
+	case KindEllipsis:
 		r.write("…")
-	case EmDash:
+	case KindEmDash:
 		r.write("—")
-	case EnDash:
+	case KindEnDash:
 		r.write("–")
 	}
 }
 
 func (r *semanticHTMLRenderer) collectText(i int) string {
 	switch r.kind(i) {
-	case Text:
+	case KindText:
 		return r.tape.text(r.tape.records[i].payload)
-	case SoftBreak, HardBreak, NonBreakingSpace:
+	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
 		return " "
 	}
 	var out strings.Builder
@@ -515,7 +515,7 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 		if footnote.node >= 0 && int(r.tape.records[footnote.node].subtreeEnd) > footnote.node+1 {
 			lastParagraph := -1
 			r.children(footnote.node, func(child int) {
-				if r.kind(child) == Paragraph {
+				if r.kind(child) == KindParagraph {
 					lastParagraph = child
 				}
 			})
