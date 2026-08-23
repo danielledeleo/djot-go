@@ -239,6 +239,50 @@ func TestDocumentViewReferenceParityAndOrdering(t *testing.T) {
 	}
 }
 
+func TestDocumentViewAnchorParityAndDuplicates(t *testing.T) {
+	const input = "{#same}\n# First\n\n{#same}\n## Second\n\n{#box}\n::: note\ntext\n:::\n"
+	type snapshot struct {
+		id   string
+		kind djot.Kind
+		span djot.SourceSpan
+	}
+	var want []snapshot
+	for _, backend := range []string{"tape", "tree"} {
+		t.Run(backend, func(t *testing.T) {
+			doc := djot.Parse(input)
+			if backend == "tree" {
+				doc = djot.NewDoc(doc.Root())
+			}
+			var got []snapshot
+			djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+				first := document.Anchors()
+				second := document.Anchors()
+				if len(first) > 0 && &first[0] != &second[0] {
+					t.Fatal("anchor index was rebuilt within one render")
+				}
+				for _, anchor := range first {
+					if anchor.Attributes().Get("id") != anchor.ID() {
+						t.Fatalf("anchor attributes disagree for %q", anchor.ID())
+					}
+					got = append(got, snapshot{id: anchor.ID(), kind: anchor.Kind(), span: anchor.Span()})
+				}
+				r.Default()
+			}))
+			if backend == "tape" {
+				want = got
+				return
+			}
+			if !equalDocumentSummary(got, want) {
+				t.Fatalf("tree anchors differ\nwant: %#v\n got: %#v", want, got)
+			}
+		})
+	}
+	if len(want) != 3 || want[0].id != "same" || want[1].id != "same" || want[2].id != "box" ||
+		want[0].kind != djot.KindSection || want[1].kind != djot.KindSection || want[2].kind != djot.KindDiv {
+		t.Fatalf("anchors = %#v", want)
+	}
+}
+
 func TestDocumentRendererWrapsEndnotes(t *testing.T) {
 	const input = "reference[^a]\n\n[^a]: note\n"
 	for _, backend := range []string{"tape", "tree", "configured tree"} {

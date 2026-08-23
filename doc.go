@@ -45,7 +45,8 @@
 // inspection when a rendering decision depends on an element's descendants.
 // [WithDocumentRenderer] provides focused indexes and summaries such as
 // [DocumentView.Headings], [DocumentView.Footnotes],
-// [DocumentView.References], [DocumentView.Contains], and [DocumentView.Count].
+// [DocumentView.References], [DocumentView.Anchors], [DocumentView.Contains],
+// and [DocumentView.Count].
 //
 // # Security
 //

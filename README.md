@@ -170,6 +170,10 @@ source order. Footnote block contents remain part of the full Node API.
 including the implicit references generated for headings. Each entry exposes
 its destination and ordered attributes without materializing Nodes.
 
+`Anchors()` lists elements with non-empty `id` attributes in document order.
+Duplicates are preserved for validation. The index includes section and heading
+anchors but not footnote IDs synthesized by the HTML renderer.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 

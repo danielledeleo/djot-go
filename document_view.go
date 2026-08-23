@@ -32,6 +32,25 @@ type ReferenceView struct {
 	attributes     AttributeView
 }
 
+// AnchorView is compact, read-only metadata for an element with a non-empty id
+// attribute. Renderer-generated footnote ids are not document anchors.
+type AnchorView struct {
+	element ElementView
+	id      string
+}
+
+// ID returns the unescaped anchor id.
+func (a AnchorView) ID() string { return a.id }
+
+// Kind returns the kind of element carrying the id.
+func (a AnchorView) Kind() Kind { return a.element.Kind() }
+
+// Span returns the element's half-open source range.
+func (a AnchorView) Span() SourceSpan { return a.element.Span() }
+
+// Attributes returns the element's read-only ordered attributes.
+func (a AnchorView) Attributes() AttributeView { return a.element.Attributes() }
+
 // Label returns the normalized reference label.
 func (r ReferenceView) Label() string { return r.label }
 
@@ -94,6 +113,8 @@ type documentViewState struct {
 	footnotesReady  bool
 	references      []ReferenceView
 	referencesReady bool
+	anchors         []AnchorView
+	anchorsReady    bool
 	semantic        *semanticHTMLRenderer
 	tree            *htmlRenderer
 	doc             *Doc
@@ -166,6 +187,21 @@ func (d DocumentView) References() []ReferenceView {
 		d.state.referencesReady = true
 	}
 	return d.state.references
+}
+
+// Anchors returns elements with non-empty id attributes in document order.
+// Duplicate ids are preserved so callers can detect them. Renderer-generated
+// footnote ids are excluded. The index is built lazily and reused for the
+// duration of the callback.
+func (d DocumentView) Anchors() []AnchorView {
+	if d.state == nil {
+		return nil
+	}
+	if !d.state.anchorsReady {
+		d.state.anchors = buildDocumentAnchors(d.state.root)
+		d.state.anchorsReady = true
+	}
+	return d.state.anchors
 }
 
 // DocumentRenderFunc controls rendering after inspecting the complete
@@ -398,6 +434,27 @@ func buildDocumentReferences(state *documentViewState) []ReferenceView {
 		})
 	}
 	return references
+}
+
+func buildDocumentAnchors(root ElementView) []AnchorView {
+	var anchors []AnchorView
+	if root.tape != nil {
+		end := int(root.tape.records[root.record].subtreeEnd)
+		for i := root.record; i < end; i++ {
+			element := ElementView{tape: root.tape, record: i}
+			if id, ok := element.Attributes().Lookup("id"); ok && id != "" {
+				anchors = append(anchors, AnchorView{element: element, id: id})
+			}
+		}
+	} else if root.node != nil {
+		Preorder(root.node, func(node Node) bool {
+			if id, ok := node.Attributes().Lookup("id"); ok && id != "" {
+				anchors = append(anchors, AnchorView{element: ElementView{node: node}, id: id})
+			}
+			return true
+		})
+	}
+	return anchors
 }
 
 func collectDocumentText(element ElementView) string {

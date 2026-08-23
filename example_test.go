@@ -196,6 +196,20 @@ func ExampleDocumentView_References() {
 	// Output: https://djot.net
 }
 
+func ExampleDocumentView_Anchors() {
+	doc := djot.Parse("# One\n\n## Two\n")
+	var anchors []string
+	djot.RenderHTML(doc, djot.WithDocumentRenderer(
+		func(document djot.DocumentView, _ djot.DocumentRenderer) {
+			for _, anchor := range document.Anchors() {
+				anchors = append(anchors, anchor.ID())
+			}
+		},
+	))
+	fmt.Println(anchors)
+	// Output: [One Two]
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

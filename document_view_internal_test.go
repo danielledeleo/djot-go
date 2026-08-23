@@ -117,6 +117,37 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		}
 	})
 
+	t.Run("anchor index remains compact", func(t *testing.T) {
+		doc := Parse("{#one}\n# Heading\n")
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			anchors := document.Anchors()
+			if len(anchors) != 1 || anchors[0].ID() != "one" || anchors[0].Kind() != KindSection {
+				t.Fatalf("anchor index = %#v", anchors)
+			}
+			if document.state.anchors == nil || !document.state.anchorsReady {
+				t.Fatal("anchor index was not cached")
+			}
+		}))
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("anchor index materialized the typed AST")
+		}
+	})
+
+	t.Run("mutated anchors remain authoritative", func(t *testing.T) {
+		doc := Parse("# Heading\n\nparagraph\n")
+		section := findTypedNode[*Section](doc.Root())
+		section.Attributes().Set("id", "changed")
+		paragraph := findTypedNode[*Paragraph](doc.Root())
+		paragraph.Attributes().Set("id", "paragraph")
+		var got []AnchorView
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			got = document.Anchors()
+		}))
+		if len(got) != 2 || got[0].ID() != "changed" || got[1].ID() != "paragraph" || got[1].Kind() != KindParagraph {
+			t.Fatalf("mutated anchor index = %#v", got)
+		}
+	})
+
 	t.Run("mutated tree remains authoritative", func(t *testing.T) {
 		doc := Parse("# Original\n")
 		heading := findTypedNode[*Heading](doc.Root())
@@ -287,6 +318,31 @@ func TestDocumentViewAllocations(t *testing.T) {
 	if slope := (manyReferences - oneReference) / 999; slope > maxAllocationsPerAdditionalReference {
 		t.Fatalf("reference index allocations grew by %.2f per reference, want at most %d", slope, maxAllocationsPerAdditionalReference)
 	}
+
+	measureAnchors := func(anchors int) float64 {
+		var input strings.Builder
+		for i := 0; i < anchors; i++ {
+			input.WriteString("{#a")
+			input.WriteString(itoa(i))
+			input.WriteString("}\nparagraph\n\n")
+		}
+		doc := Parse(input.String())
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			_ = document.Anchors()
+		})
+		return testing.AllocsPerRun(20, func() {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	oneAnchor := measureAnchors(1)
+	manyAnchors := measureAnchors(1000)
+	const maxAllocationsPerAdditionalAnchor = 1
+	if slope := (manyAnchors - oneAnchor) / 999; slope > maxAllocationsPerAdditionalAnchor {
+		t.Fatalf("anchor index allocations grew by %.2f per anchor, want at most %d", slope, maxAllocationsPerAdditionalAnchor)
+	}
 }
 
 func BenchmarkDocumentKindCountsDelta(b *testing.B) {
@@ -396,6 +452,48 @@ func BenchmarkDocumentReferencesDelta(b *testing.B) {
 		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
 			if references := document.References(); len(references) != 1024 {
 				b.Fatal(len(references))
+			}
+		})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkDocumentAnchorsDelta(b *testing.B) {
+	var source strings.Builder
+	for i := 0; i < 4096; i++ {
+		source.WriteString("{#a")
+		source.WriteString(itoa(i))
+		source.WriteString("}\nparagraph\n\n")
+	}
+	input := source.String()
+
+	b.Run("RawNodeCrawl", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			anchors := 0
+			Preorder(doc.Root(), func(node Node) bool {
+				if id, ok := node.Attributes().Lookup("id"); ok && id != "" {
+					anchors++
+				}
+				return true
+			})
+			if anchors != 4096 {
+				b.Fatal(anchors)
+			}
+		}
+	})
+
+	b.Run("TapeAnchorIndex", func(b *testing.B) {
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if anchors := document.Anchors(); len(anchors) != 4096 {
+				b.Fatal(len(anchors))
 			}
 		})
 		b.ReportAllocs()
