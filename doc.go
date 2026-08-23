@@ -44,7 +44,8 @@
 // [WithDivRenderer]. [WithSubtreeRenderer] adds bounded, read-only structural
 // inspection when a rendering decision depends on an element's descendants.
 // [WithDocumentRenderer] provides focused indexes and summaries such as
-// [DocumentView.Headings], [DocumentView.Contains], and [DocumentView.Count].
+// [DocumentView.Headings], [DocumentView.Footnotes], [DocumentView.Contains],
+// and [DocumentView.Count].
 //
 // # Security
 //

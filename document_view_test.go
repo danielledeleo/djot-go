@@ -133,6 +133,61 @@ func TestDocumentViewKindCounts(t *testing.T) {
 	}
 }
 
+func TestDocumentViewFootnoteParityAndOrdering(t *testing.T) {
+	const input = "b[^b] again[^b] a[^a] missing[^x]\n\n[^a]: A\n\n[^b]: B with nested[^a]\n\n[^u]: unused\n"
+	type snapshot struct {
+		label      string
+		number     int
+		references int
+		defined    bool
+		span       djot.SourceSpan
+	}
+	var want []snapshot
+	for _, backend := range []string{"tape", "tree"} {
+		t.Run(backend, func(t *testing.T) {
+			doc := djot.Parse(input)
+			if backend == "tree" {
+				doc = djot.NewDoc(doc.Root())
+			}
+			var got []snapshot
+			djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+				first := document.Footnotes()
+				second := document.Footnotes()
+				if len(first) > 0 && &first[0] != &second[0] {
+					t.Fatal("footnote index was rebuilt within one render")
+				}
+				for _, footnote := range first {
+					got = append(got, snapshot{
+						label: footnote.Label(), number: footnote.Number(),
+						references: footnote.ReferenceCount(), defined: footnote.Defined(),
+						span: footnote.Span(),
+					})
+					if !footnote.Defined() && footnote.Attributes().Len() != 0 {
+						t.Fatalf("undefined footnote %q has attributes", footnote.Label())
+					}
+				}
+				r.Default()
+			}))
+			if backend == "tape" {
+				want = got
+				return
+			}
+			if !equalDocumentSummary(got, want) {
+				t.Fatalf("tree footnotes differ\nwant: %#v\n got: %#v", want, got)
+			}
+		})
+	}
+	wantMetadata := []snapshot{
+		{label: "b", number: 1, references: 2, defined: true, span: want[0].span},
+		{label: "a", number: 2, references: 2, defined: true, span: want[1].span},
+		{label: "x", number: 3, references: 1, defined: false},
+		{label: "u", defined: true, span: want[3].span},
+	}
+	if !equalDocumentSummary(want, wantMetadata) {
+		t.Fatalf("footnote metadata = %#v, want %#v", want, wantMetadata)
+	}
+}
+
 func TestDocumentRendererWrapsEndnotes(t *testing.T) {
 	const input = "reference[^a]\n\n[^a]: note\n"
 	for _, backend := range []string{"tape", "tree", "configured tree"} {

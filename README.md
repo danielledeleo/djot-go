@@ -161,6 +161,11 @@ useful for inexpensive feature detection—for example, wrapping documents that
 contain math or loading syntax-highlighting assets only when a code block is
 present.
 
+`Footnotes()` exposes compact render metadata for footnotes, including their
+labels, assigned numbers, reference counts, and whether a definition exists.
+Referenced footnotes appear in render order, followed by unused definitions in
+source order. Footnote block contents remain part of the full Node API.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 

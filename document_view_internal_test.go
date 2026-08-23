@@ -41,6 +41,37 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		}
 	})
 
+	t.Run("footnote index remains compact", func(t *testing.T) {
+		doc := Parse("reference[^a]\n\n[^a]: note\n")
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			footnotes := document.Footnotes()
+			if len(footnotes) != 1 || footnotes[0].Label() != "a" || footnotes[0].Number() != 1 {
+				t.Fatalf("footnote index = %#v", footnotes)
+			}
+			if document.state.footnotes == nil || !document.state.footnotesReady {
+				t.Fatal("footnote index was not cached")
+			}
+		}))
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("footnote index materialized the typed AST")
+		}
+	})
+
+	t.Run("mutated footnote metadata remains authoritative", func(t *testing.T) {
+		doc := Parse("reference[^a]\n\n[^a]: note\n")
+		footnote := findTypedNode[*Footnote](doc.Root())
+		footnote.Label = "changed"
+		footnote.Attributes().Set("class", "aside")
+		var got []FootnoteView
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			got = document.Footnotes()
+		}))
+		if len(got) != 2 || got[0].Label() != "a" || got[0].Defined() ||
+			got[1].Label() != "changed" || !got[1].Defined() || got[1].Attributes().Get("class") != "aside" {
+			t.Fatalf("mutated footnote index = %#v", got)
+		}
+	})
+
 	t.Run("mutated tree remains authoritative", func(t *testing.T) {
 		doc := Parse("# Original\n")
 		heading := findTypedNode[*Heading](doc.Root())
@@ -157,6 +188,35 @@ func TestDocumentViewAllocations(t *testing.T) {
 		t.Fatalf("heading index allocations grew by %.2f per heading, want at most %d (one=%.0f many=%.0f)",
 			slope, maxAllocationsPerAdditionalHeading, one, many)
 	}
+
+	measureFootnotes := func(footnotes int, inspect bool) float64 {
+		var input strings.Builder
+		for i := 0; i < footnotes; i++ {
+			input.WriteString("reference[^f")
+			input.WriteString(itoa(i))
+			input.WriteString("]\n\n[^f")
+			input.WriteString(itoa(i))
+			input.WriteString("]: note\n\n")
+		}
+		doc := Parse(input.String())
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if inspect {
+				_ = document.Footnotes()
+			}
+		})
+		return testing.AllocsPerRun(20, func() {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	oneFootnoteDelta := measureFootnotes(1, true) - measureFootnotes(1, false)
+	manyFootnoteDelta := measureFootnotes(1000, true) - measureFootnotes(1000, false)
+	const maxIndexAllocationsPerAdditionalFootnote = 4
+	if slope := (manyFootnoteDelta - oneFootnoteDelta) / 999; slope > maxIndexAllocationsPerAdditionalFootnote {
+		t.Fatalf("footnote index allocations grew by %.2f per footnote, want at most %d", slope, maxIndexAllocationsPerAdditionalFootnote)
+	}
 }
 
 func BenchmarkDocumentKindCountsDelta(b *testing.B) {
@@ -187,6 +247,50 @@ func BenchmarkDocumentKindCountsDelta(b *testing.B) {
 		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
 			if count := document.Count(KindSymbol); count != 4096 {
 				b.Fatal(count)
+			}
+		})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkDocumentFootnotesDelta(b *testing.B) {
+	var source strings.Builder
+	for i := 0; i < 1024; i++ {
+		source.WriteString("reference[^f")
+		source.WriteString(itoa(i))
+		source.WriteString("]\n\n[^f")
+		source.WriteString(itoa(i))
+		source.WriteString("]: note\n\n")
+	}
+	input := source.String()
+
+	b.Run("RawNodeCrawl", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			definitions := 0
+			Preorder(doc.Root(), func(node Node) bool {
+				if node.Kind() == KindFootnote {
+					definitions++
+				}
+				return true
+			})
+			if definitions != 1024 {
+				b.Fatal(definitions)
+			}
+		}
+	})
+
+	b.Run("TapeFootnoteIndex", func(b *testing.B) {
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if footnotes := document.Footnotes(); len(footnotes) != 1024 {
+				b.Fatal(len(footnotes))
 			}
 		})
 		b.ReportAllocs()

@@ -783,7 +783,7 @@ func (r *htmlRenderer) renderDocument() {
 		r.renderDocumentDefault()
 		return
 	}
-	state := documentViewState{root: ElementView{node: r.doc.Root()}}
+	state := documentViewState{root: ElementView{node: r.doc.Root()}, tree: r}
 	r.document(
 		DocumentView{state: &state},
 		DocumentRenderer{tree: r},

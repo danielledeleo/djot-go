@@ -84,7 +84,7 @@ func (r *semanticHTMLRenderer) renderDocument() {
 		r.renderDocumentDefault()
 		return
 	}
-	state := documentViewState{root: ElementView{tape: r.tape, record: 0}}
+	state := documentViewState{root: ElementView{tape: r.tape, record: 0}, semantic: r}
 	r.hooks.document(
 		DocumentView{state: &state},
 		DocumentRenderer{semantic: r},

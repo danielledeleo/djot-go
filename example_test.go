@@ -170,6 +170,20 @@ func ExampleDocumentView_Count() {
 	// Output: 2 false
 }
 
+func ExampleDocumentView_Footnotes() {
+	doc := djot.Parse("one[^a] two[^a]\n\n[^a]: note\n")
+	var number, references int
+	djot.RenderHTML(doc, djot.WithDocumentRenderer(
+		func(document djot.DocumentView, _ djot.DocumentRenderer) {
+			footnote := document.Footnotes()[0]
+			number = footnote.Number()
+			references = footnote.ReferenceCount()
+		},
+	))
+	fmt.Println(number, references)
+	// Output: 1 2
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

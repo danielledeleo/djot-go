@@ -10,6 +10,38 @@ type HeadingView struct {
 	id      string
 }
 
+// FootnoteView is compact, read-only metadata for one logical footnote.
+// Inspecting a footnote's block contents requires the Node API.
+type FootnoteView struct {
+	element        ElementView
+	label          string
+	number         int
+	referenceCount int
+	defined        bool
+}
+
+// Label returns the normalized footnote label.
+func (f FootnoteView) Label() string { return f.label }
+
+// Number returns the footnote's one-based render number, or zero when the
+// footnote is never referenced.
+func (f FootnoteView) Number() int { return f.number }
+
+// ReferenceCount returns the number of references to the footnote, including
+// references encountered inside other footnote definitions.
+func (f FootnoteView) ReferenceCount() int { return f.referenceCount }
+
+// Defined reports whether the document contains a definition for the label.
+func (f FootnoteView) Defined() bool { return f.defined }
+
+// Span returns the definition's half-open source range. It is zero when the
+// footnote is referenced but undefined.
+func (f FootnoteView) Span() SourceSpan { return f.element.Span() }
+
+// Attributes returns the definition's read-only ordered attributes. It is
+// empty when the footnote is referenced but undefined.
+func (f FootnoteView) Attributes() AttributeView { return f.element.Attributes() }
+
 // Level returns the heading level.
 func (h HeadingView) Level() int { return h.level }
 
@@ -30,10 +62,14 @@ func (h HeadingView) Span() SourceSpan { return h.element.Span() }
 func (h HeadingView) Attributes() AttributeView { return h.element.Attributes() }
 
 type documentViewState struct {
-	root          ElementView
-	headings      []HeadingView
-	headingsReady bool
-	kindCounts    *[int(KindEnDash) + 1]int
+	root           ElementView
+	headings       []HeadingView
+	headingsReady  bool
+	kindCounts     *[int(KindEnDash) + 1]int
+	footnotes      []FootnoteView
+	footnotesReady bool
+	semantic       *semanticHTMLRenderer
+	tree           *htmlRenderer
 }
 
 // DocumentView provides focused, read-only indexes over a complete parsed
@@ -75,6 +111,20 @@ func (d DocumentView) Count(kind Kind) int {
 		d.state.kindCounts = buildDocumentKindCounts(d.state.root)
 	}
 	return d.state.kindCounts[kind]
+}
+
+// Footnotes returns logical footnotes in render order, followed by unreferenced
+// definitions in source order. Referenced but undefined labels are included.
+// The index is built lazily and reused for the duration of the callback.
+func (d DocumentView) Footnotes() []FootnoteView {
+	if d.state == nil {
+		return nil
+	}
+	if !d.state.footnotesReady {
+		d.state.footnotes = buildDocumentFootnotes(d.state)
+		d.state.footnotesReady = true
+	}
+	return d.state.footnotes
 }
 
 // DocumentRenderFunc controls rendering after inspecting the complete
@@ -197,6 +247,72 @@ func buildDocumentKindCounts(root ElementView) *[int(KindEnDash) + 1]int {
 		})
 	}
 	return counts
+}
+
+func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
+	if state.semantic != nil {
+		renderer := state.semantic
+		footnotes := make([]FootnoteView, 0, len(renderer.footnotes))
+		seen := make(map[string]struct{}, len(renderer.footnotes))
+		for _, item := range renderer.footnoteOrder {
+			view := FootnoteView{
+				label: item.label, number: item.num,
+				referenceCount: renderer.fnrefTotal[item.label], defined: item.node >= 0,
+			}
+			if item.node >= 0 {
+				view.element = ElementView{tape: renderer.tape, record: item.node}
+			}
+			footnotes = append(footnotes, view)
+			seen[item.label] = struct{}{}
+		}
+		end := int(renderer.tape.records[0].subtreeEnd)
+		for i := 1; i < end; i++ {
+			if Kind(renderer.tape.records[i].kind) != KindFootnote {
+				continue
+			}
+			label := renderer.label(i)
+			if _, ok := seen[label]; ok || renderer.footnotes[label] != i {
+				continue
+			}
+			footnotes = append(footnotes, FootnoteView{
+				element: ElementView{tape: renderer.tape, record: i}, label: label, defined: true,
+			})
+			seen[label] = struct{}{}
+		}
+		return footnotes
+	}
+	if state.tree != nil {
+		renderer := state.tree
+		footnotes := make([]FootnoteView, 0, len(renderer.footnotes))
+		seen := make(map[string]struct{}, len(renderer.footnotes))
+		for _, item := range renderer.footnoteOrder {
+			view := FootnoteView{
+				label: item.label, number: item.num,
+				referenceCount: renderer.fnrefTotal[item.label], defined: item.node != nil,
+			}
+			if item.node != nil {
+				view.element = ElementView{node: item.node}
+			}
+			footnotes = append(footnotes, view)
+			seen[item.label] = struct{}{}
+		}
+		Preorder(state.root.node, func(node Node) bool {
+			definition, ok := node.(*Footnote)
+			if !ok {
+				return true
+			}
+			if _, ok := seen[definition.Label]; ok || renderer.footnotes[definition.Label] != definition {
+				return true
+			}
+			footnotes = append(footnotes, FootnoteView{
+				element: ElementView{node: definition}, label: definition.Label, defined: true,
+			})
+			seen[definition.Label] = struct{}{}
+			return true
+		})
+		return footnotes
+	}
+	return nil
 }
 
 func collectDocumentText(element ElementView) string {
