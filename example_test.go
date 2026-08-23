@@ -2,6 +2,7 @@ package djot_test
 
 import (
 	"fmt"
+	"html"
 	"os"
 
 	"github.com/danielledeleo/djot-go"
@@ -133,6 +134,25 @@ func ExampleWithSubtreeRenderer() {
 	// Output:
 	// <section class="contains-code"><pre><code class="language-go">fmt.Println()
 	// </code></pre>
+	// </section>
+}
+
+func ExampleWithDocumentRenderer() {
+	doc := djot.Parse("# One\n")
+	html := djot.RenderHTML(doc, djot.WithDocumentRenderer(
+		func(document djot.DocumentView, r djot.DocumentRenderer) {
+			heading := document.Headings()[0]
+			r.Write(`<nav><a href="#` + html.EscapeString(heading.ID()) + `">`)
+			r.Write(html.EscapeString(heading.Text()) + `</a></nav>`)
+			r.Write("\n")
+			r.Default()
+		},
+	))
+	fmt.Println(html)
+	// Output:
+	// <nav><a href="#One">One</a></nav>
+	// <section id="One">
+	// <h1>One</h1>
 	// </section>
 }
 

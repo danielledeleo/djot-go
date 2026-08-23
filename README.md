@@ -125,8 +125,36 @@ html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv,
 Subtree inspection scans only that element's contiguous tape range. It remains
 read-only and does not construct Nodes. `Preorder` and `Descendants` provide
 full traversal when `Contains` is not sufficient. Since every inspection is a
-scan, avoid repeatedly scanning heavily nested overlapping subtrees when one
-document-level pass would answer the same question.
+scan, avoid repeatedly scanning heavily nested overlapping subtrees. Use Nodes
+when an extension requires a general whole-document traversal.
+
+For decisions that require a focused index over the entire document,
+`WithDocumentRenderer` can inspect headings before output begins. This example
+builds a table of contents before emitting the normal document:
+
+```go
+html := djot.RenderHTML(doc, djot.WithDocumentRenderer(
+    func(document djot.DocumentView, r djot.DocumentRenderer) {
+        r.Write(`<nav><ol>`)
+        for _, heading := range document.Headings() {
+            r.Write(`<li><a href="#` + html.EscapeString(heading.ID()) + `">`)
+            r.Write(html.EscapeString(heading.Text()))
+            r.Write(`</a></li>`)
+        }
+        r.Write(`</ol></nav>`)
+        r.Default()
+    },
+))
+```
+
+`Headings()` is built lazily and reused within that render. `r.Default()` emits
+the complete normal document, including endnotes and other registered hooks, so
+output written before and after it properly wraps everything. Heading inspection
+remains tape-backed and does not materialize the AST unless another option or
+prior mutation requires the tree.
+
+`DocumentRenderer.Write` writes raw HTML, so derived text and attribute values
+must be escaped as shown above.
 
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:

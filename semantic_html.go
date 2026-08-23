@@ -41,6 +41,7 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 type semanticRenderHooks struct {
 	elements elementHooks
 	subtrees map[Kind]SubtreeRenderFunc
+	document DocumentRenderFunc
 }
 
 func renderSemanticHTMLWithHooks(tape *semanticTape, hooks semanticRenderHooks) string {
@@ -74,9 +75,27 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 			r.children(node, r.walkRefs)
 		}
 	}
+	r.renderDocument()
+	return r
+}
+
+func (r *semanticHTMLRenderer) renderDocument() {
+	if r.hooks == nil || r.hooks.document == nil {
+		r.renderDocumentDefault()
+		return
+	}
+	state := documentViewState{root: ElementView{tape: r.tape, record: 0}}
+	r.hooks.document(
+		DocumentView{state: &state},
+		DocumentRenderer{semantic: r},
+	)
+}
+
+func (r *semanticHTMLRenderer) renderDocumentDefault() {
+	clear(r.fnrefSeen)
+	r.tight = false
 	r.renderChildren(0)
 	r.renderFootnotes()
-	return r
 }
 
 func (r *semanticHTMLRenderer) write(value string) {

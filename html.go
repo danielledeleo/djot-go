@@ -300,6 +300,7 @@ type renderConfig struct {
 	hooks                 map[Kind]NodeRenderFunc
 	elements              elementHooks
 	subtrees              map[Kind]SubtreeRenderFunc
+	document              DocumentRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
@@ -462,6 +463,21 @@ func WithSubtreeRenderer(kind Kind, fn SubtreeRenderFunc) RenderOption {
 	}
 }
 
+// WithDocumentRenderer registers a whole-document rendering hook. The callback
+// can inspect focused indexes such as [DocumentView.Headings] before writing.
+// Call [DocumentRenderer.Default] to emit the normal document, including
+// endnotes, through the remaining hooks. Returning without writing or calling
+// Default suppresses all output.
+//
+// Parser-produced, unmodified documents use the compact semantic tape. Mutated
+// or externally constructed trees provide the same view through the tree
+// backend. If registered more than once, the last document hook wins.
+func WithDocumentRenderer(fn DocumentRenderFunc) RenderOption {
+	return func(cfg *renderConfig) {
+		cfg.document = fn
+	}
+}
+
 // WithRenderer registers a type-safe render hook. T must be one concrete node
 // pointer type; the kind is inferred once when the option is constructed.
 //
@@ -507,8 +523,8 @@ func WithRenderFunc(kind Kind, fn func(n Node) string) RenderOption {
 }
 
 // RenderHTML renders a parsed document to an HTML string. Optional
-// [RenderOption] values can customize rendering via [WithNodeRenderer] and
-// [WithSymbolRenderer].
+// [RenderOption] values can customize rendering through element, subtree,
+// document, and Node hooks.
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
 	if len(opts) == 0 {
 		tape, root, direct := doc.semanticRenderSnapshot()
@@ -521,14 +537,13 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLWithHooks(tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees,
+				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document,
 			})
 		}
 	}
 	var b strings.Builder
 	r := newHTMLRendererWithConfig(&b, doc, cfg)
-	r.renderChildren(doc.Root())
-	r.renderFootnotesSection()
+	r.renderDocument()
 	return b.String()
 }
 
@@ -549,13 +564,12 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLToWithHooks(w, tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees,
+				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document,
 			})
 		}
 	}
 	r := newHTMLRendererWithConfig(w, doc, cfg)
-	r.renderChildren(doc.Root())
-	r.renderFootnotesSection()
+	r.renderDocument()
 	return r.err
 }
 
@@ -586,6 +600,7 @@ type htmlRenderer struct {
 	hooks    map[Kind]NodeRenderFunc
 	elements elementHooks
 	subtrees map[Kind]SubtreeRenderFunc
+	document DocumentRenderFunc
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -624,6 +639,7 @@ func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRen
 		hooks:           cfg.hooks,
 		elements:        cfg.elements,
 		subtrees:        cfg.subtrees,
+		document:        cfg.document,
 		footnotes:       make(map[string]*Footnote),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
@@ -759,6 +775,25 @@ func (r *htmlRenderer) renderNode(n Node) {
 		return
 	}
 	r.renderDefault(n)
+}
+
+func (r *htmlRenderer) renderDocument() {
+	if r.document == nil {
+		r.renderDocumentDefault()
+		return
+	}
+	state := documentViewState{root: ElementView{node: r.doc.Root()}}
+	r.document(
+		DocumentView{state: &state},
+		DocumentRenderer{tree: r},
+	)
+}
+
+func (r *htmlRenderer) renderDocumentDefault() {
+	clear(r.fnrefSeen)
+	r.tight = false
+	r.renderChildren(r.doc.Root())
+	r.renderFootnotesSection()
 }
 
 func (r *htmlRenderer) renderDefault(n Node) {

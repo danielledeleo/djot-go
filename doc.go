@@ -35,10 +35,16 @@
 //	    r.Write("</figure>")
 //	}))
 //
+// Compact render views cover common streaming and structural decisions without
+// materializing the AST. They intentionally expose only the data required by
+// each hook. Use [Node] values when an extension needs arbitrary typed
+// inspection or mutation; doing so may materialize the AST.
+//
 // Lightweight symbol and Div customizations can use [WithSymbolRenderer] and
-// [WithDivRenderer] without materializing the AST. [WithSubtreeRenderer] adds
-// bounded, read-only descendant inspection when a rendering decision depends
-// on an element's contents.
+// [WithDivRenderer]. [WithSubtreeRenderer] adds bounded, read-only structural
+// inspection when a rendering decision depends on an element's descendants.
+// [WithDocumentRenderer] provides focused indexes such as
+// [DocumentView.Headings].
 //
 // # Security
 //
