@@ -99,6 +99,23 @@ func ExampleWithSymbolRenderer() {
 	// <p>Launch 🚀 or keep :unknown:.</p>
 }
 
+func ExampleWithDivRenderer() {
+	doc := djot.Parse("::: warning\nBe careful.\n:::\n")
+	html := djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
+		if div.Attributes().Get("class") != "warning" {
+			r.Default()
+			return
+		}
+		r.Write(`<aside class="warning">`)
+		r.Children()
+		r.Write("</aside>")
+	}))
+	fmt.Println(html)
+	// Output:
+	// <aside class="warning"><p>Be careful.</p>
+	// </aside>
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

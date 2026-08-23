@@ -35,6 +35,9 @@
 //	    r.Write("</figure>")
 //	}))
 //
+// Lightweight symbol and Div customizations can use [WithSymbolRenderer] and
+// [WithDivRenderer] without materializing the AST.
+//
 // # Security
 //
 // This package does not sanitize HTML output. When processing untrusted input,

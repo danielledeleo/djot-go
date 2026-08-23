@@ -18,7 +18,7 @@ type semanticHTMLRenderer struct {
 	writer io.Writer
 	err    error
 
-	symbolHook SymbolRenderFunc
+	elements *elementHooks
 
 	tight         bool
 	footnotes     map[string]int
@@ -38,21 +38,21 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 	return r.err
 }
 
-func renderSemanticHTMLWithSymbol(tape *semanticTape, hook SymbolRenderFunc) string {
-	r := renderSemanticHTMLInto(tape, nil, hook)
+func renderSemanticHTMLWithElements(tape *semanticTape, hooks elementHooks) string {
+	r := renderSemanticHTMLInto(tape, nil, &hooks)
 	return r.out.String()
 }
 
-func renderSemanticHTMLToWithSymbol(w io.Writer, tape *semanticTape, hook SymbolRenderFunc) error {
-	r := renderSemanticHTMLInto(tape, w, hook)
+func renderSemanticHTMLToWithElements(w io.Writer, tape *semanticTape, hooks elementHooks) error {
+	r := renderSemanticHTMLInto(tape, w, &hooks)
 	return r.err
 }
 
-func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, symbolHook SymbolRenderFunc) *semanticHTMLRenderer {
+func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *elementHooks) *semanticHTMLRenderer {
 	r := &semanticHTMLRenderer{
 		tape:         tape,
 		writer:       writer,
-		symbolHook:   symbolHook,
+		elements:     hooks,
 		footnotes:    make(map[string]int),
 		footnoteNums: make(map[string]int),
 		fnrefTotal:   make(map[string]int),
@@ -227,12 +227,33 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 	if r.err != nil {
 		return
 	}
-	if r.symbolHook != nil && r.kind(i) == KindSymbol {
-		r.symbolHook(
-			SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
-			ElementRenderer{semantic: r, record: i},
-		)
-		return
+	switch r.kind(i) {
+	case KindSymbol:
+		if r.elements != nil && r.elements.symbol != nil {
+			r.elements.symbol(
+				SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
+				ElementRenderer{semantic: r, record: i},
+			)
+			return
+		}
+	case KindDiv:
+		if r.elements != nil && r.elements.div != nil {
+			record := r.tape.records[i]
+			position := r.tape.positions[i]
+			r.elements.div(
+				DivView{
+					attributes: AttributeView{
+						tape: r.tape, start: record.attrStart, end: r.tape.records[i+1].attrStart,
+					},
+					span: SourceSpan{
+						Start: Pos{Offset: int(position.start)},
+						End:   Pos{Offset: int(position.end)},
+					},
+				},
+				ElementRenderer{semantic: r, record: i},
+			)
+			return
+		}
 	}
 	r.renderDefault(i)
 }

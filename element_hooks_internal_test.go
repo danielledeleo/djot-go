@@ -75,6 +75,9 @@ func TestSymbolRendererAllocationsDoNotScalePerCallback(t *testing.T) {
 
 	one := measure(1)
 	many := measure(1000)
+	if one > 10 {
+		t.Fatalf("fixed symbol hook allocations = %.0f, want at most 10", one)
+	}
 	if many > one+1 {
 		t.Fatalf("allocations scale with callbacks: one=%.0f many=%.0f", one, many)
 	}
@@ -149,6 +152,117 @@ func BenchmarkSymbolExtensionDelta(b *testing.B) {
 		})
 		b.ReportAllocs()
 		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func TestDivRendererMaterializationBoundary(t *testing.T) {
+	t.Run("semantic tape remains compact", func(t *testing.T) {
+		doc := Parse("::: warning\ntext\n:::\n")
+		got := RenderHTML(doc, WithDivRenderer(func(div DivView, r ElementRenderer) {
+			if div.Attributes().Get("class") != "warning" {
+				t.Fatalf("div class = %q", div.Attributes().Get("class"))
+			}
+			r.Children()
+		}))
+		if got != "<p>text</p>\n" {
+			t.Fatalf("children output = %q", got)
+		}
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("tape-backed Div hook materialized the typed AST")
+		}
+	})
+
+	t.Run("mutated tree remains authoritative", func(t *testing.T) {
+		doc := Parse("::: note\ntext\n:::\n")
+		div := findTypedNode[*Div](doc.Root())
+		div.Attributes().Set("class", "changed")
+		var seen string
+		RenderHTML(doc, WithDivRenderer(func(div DivView, r ElementRenderer) {
+			seen = div.Attributes().Get("class")
+			r.Default()
+		}))
+		if seen != "changed" {
+			t.Fatalf("tree fallback saw class %q", seen)
+		}
+	})
+
+	t.Run("externally constructed tree", func(t *testing.T) {
+		doc := NewDoc(&Document{Children: []Block{
+			&Div{Children: []Block{
+				&Paragraph{Children: []Inline{&Text{Value: "external"}}},
+			}},
+		}})
+		got := RenderHTML(doc, WithDivRenderer(func(_ DivView, r ElementRenderer) {
+			r.Write("<aside>")
+			r.Children()
+			r.Write("</aside>")
+		}))
+		if got != "<aside><p>external</p>\n</aside>" {
+			t.Fatalf("external tree output = %q", got)
+		}
+	})
+}
+
+func TestDivRendererAllocationsDoNotScalePerCallback(t *testing.T) {
+	measure := func(divs int) float64 {
+		var input strings.Builder
+		for i := 0; i < divs; i++ {
+			input.WriteString("::: note\ntext\n:::\n")
+		}
+		doc := Parse(input.String())
+		option := WithDivRenderer(func(DivView, ElementRenderer) {})
+		return testing.AllocsPerRun(20, func() {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	one := measure(1)
+	many := measure(1000)
+	if one > 10 {
+		t.Fatalf("fixed Div hook allocations = %.0f, want at most 10", one)
+	}
+	if many > one+1 {
+		t.Fatalf("allocations scale with Div callbacks: one=%.0f many=%.0f", one, many)
+	}
+}
+
+func BenchmarkDivExtensionDelta(b *testing.B) {
+	var source strings.Builder
+	for i := 0; i < 1024; i++ {
+		source.WriteString("::: warning\ntext\n:::\n")
+	}
+	input := source.String()
+
+	b.Run("NodeRenderer", func(b *testing.B) {
+		doc := Parse(input)
+		option := WithNodeRenderer(KindDiv, func(_ Node, r NodeRenderer) {
+			r.Write("<aside>")
+			r.Children()
+			r.Write("</aside>")
+		})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("TapeDivHook", func(b *testing.B) {
+		doc := Parse(input)
+		option := WithDivRenderer(func(_ DivView, r ElementRenderer) {
+			r.Write("<aside>")
+			r.Children()
+			r.Write("</aside>")
+		})
+		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
 				b.Fatal(err)

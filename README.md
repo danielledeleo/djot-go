@@ -82,6 +82,28 @@ html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n dj
 Inside a hook, `r.Default()` emits the built-in rendering and `r.Children()`
 renders child nodes without the wrapper element.
 
+For a common container customization, `WithDivRenderer` reads the Div directly
+from the compact representation. It exposes read-only attributes and streams
+children without materializing the AST:
+
+```go
+html := djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
+    if div.Attributes().Get("class") != "warning" {
+        r.Default()
+        return
+    }
+    r.Write(`<aside class="warning">`)
+    r.Children()
+    r.Write(`</aside>`)
+}))
+```
+
+`r.Default()` retains the built-in `<div>` wrapper. `r.Children()` renders the
+existing children without that wrapper, while returning without writing or
+rendering children suppresses the Div and its contents. Parsed, unmodified
+documents stay on the compact rendering path; mutated and externally built
+trees receive the same callback through the tree renderer.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 

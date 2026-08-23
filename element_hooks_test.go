@@ -138,3 +138,116 @@ func FuzzSymbolRendererMatchesRawNodeCrawl(f *testing.F) {
 		}
 	})
 }
+
+func TestDivRenderer(t *testing.T) {
+	t.Run("replace wrapper and stream hooked children", func(t *testing.T) {
+		doc := djot.Parse("::: warning\n:star:\n:::\n")
+		got := djot.RenderHTML(doc,
+			djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
+				if div.Attributes().Get("class") != "warning" {
+					r.Default()
+					return
+				}
+				r.Write(`<aside class="warning">`)
+				r.Children()
+				r.Write("</aside>\n")
+			}),
+			djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
+				r.Write("[" + symbol.Name + "]")
+			}),
+		)
+		want := "<aside class=\"warning\"><p>[star]</p>\n</aside>\n"
+		if got != want {
+			t.Fatalf("div rendering differs\nwant: %q\n got: %q", want, got)
+		}
+	})
+
+	t.Run("default and repeated children", func(t *testing.T) {
+		doc := djot.Parse("::: note\ntext\n:::\n")
+		defaultHTML := djot.RenderHTML(doc, djot.WithDivRenderer(func(_ djot.DivView, r djot.ElementRenderer) {
+			r.Default()
+		}))
+		if defaultHTML != djot.RenderHTML(doc) {
+			t.Fatalf("Default differs\nwant: %q\n got: %q", djot.RenderHTML(doc), defaultHTML)
+		}
+
+		repeated := djot.RenderHTML(doc, djot.WithDivRenderer(func(_ djot.DivView, r djot.ElementRenderer) {
+			r.Children()
+			r.Children()
+		}))
+		if repeated != "<p>text</p>\n<p>text</p>\n" {
+			t.Fatalf("repeated Children output = %q", repeated)
+		}
+	})
+
+	t.Run("attribute iteration and span", func(t *testing.T) {
+		doc := djot.Parse("{#alert .extra key=value}\n::: note\ntext\n:::\n")
+		var wantSpan djot.SourceSpan
+		var wantAttributes []djot.Attribute
+		djot.Preorder(doc.Root(), func(node djot.Node) bool {
+			if div, ok := node.(*djot.Div); ok {
+				wantSpan = div.Span()
+				wantAttributes = div.Attributes().Entries()
+				return false
+			}
+			return true
+		})
+		var attributes []djot.Attribute
+		var span djot.SourceSpan
+		djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
+			span = div.Span()
+			if div.Attributes().Len() != len(wantAttributes) {
+				t.Fatalf("attribute count = %d, want %d", div.Attributes().Len(), len(wantAttributes))
+			}
+			if value, ok := div.Attributes().Lookup("key"); !ok || value != "value" {
+				t.Fatalf("key lookup = %q, %v", value, ok)
+			}
+			div.Attributes().Range(func(attribute djot.Attribute) bool {
+				attributes = append(attributes, attribute)
+				return true
+			})
+			r.Default()
+		}))
+		if span != wantSpan {
+			t.Fatalf("Div view span = %+v, Node span = %+v", span, wantSpan)
+		}
+		if len(attributes) != len(wantAttributes) {
+			t.Fatalf("attribute order = %#v, want %#v", attributes, wantAttributes)
+		}
+		for i := range attributes {
+			if attributes[i] != wantAttributes[i] {
+				t.Fatalf("attribute %d = %#v, want %#v", i, attributes[i], wantAttributes[i])
+			}
+		}
+	})
+}
+
+func FuzzDivRendererMatchesNodeRenderer(f *testing.F) {
+	for _, seed := range []string{
+		"plain text",
+		"::: note\ntext\n:::\n",
+		"::: outer\n::: inner\n:star:\n:::\n:::\n",
+		"{.a #id key=value}\n::: list\n- one\n- two\n:::\n",
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		nodeDoc := djot.Parse(input)
+		want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, func(_ djot.Node, r djot.NodeRenderer) {
+			r.Write("<aside>")
+			r.Children()
+			r.Write("</aside>")
+		}))
+
+		tapeDoc := djot.Parse(input)
+		got := djot.RenderHTML(tapeDoc, djot.WithDivRenderer(func(_ djot.DivView, r djot.ElementRenderer) {
+			r.Write("<aside>")
+			r.Children()
+			r.Write("</aside>")
+		}))
+		if got != want {
+			t.Fatalf("tape Div hook differs from Node renderer\ninput: %q\nwant: %q\n got: %q", input, want, got)
+		}
+	})
+}

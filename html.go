@@ -48,8 +48,79 @@ type SymbolView struct {
 // :name: rendering. Returning without doing either suppresses the symbol.
 type SymbolRenderFunc func(symbol SymbolView, renderer ElementRenderer)
 
-// ElementRenderer controls output from a tape-backed rendering hook. It is
-// valid only for the duration of the callback. Its zero value emits no output.
+// AttributeView is a read-only, allocation-free view of an element's ordered
+// attributes. The view is valid only for the duration of its render callback.
+type AttributeView struct {
+	tape       *semanticTape
+	attributes *Attributes
+	start      uint32
+	end        uint32
+}
+
+// Len returns the number of attributes.
+func (a AttributeView) Len() int {
+	if a.tape != nil {
+		return int(a.end - a.start)
+	}
+	return a.attributes.Len()
+}
+
+// Get returns the value associated with key, or an empty string when absent.
+func (a AttributeView) Get(key string) string {
+	value, _ := a.Lookup(key)
+	return value
+}
+
+// Lookup returns the value associated with key and whether it is present.
+func (a AttributeView) Lookup(key string) (string, bool) {
+	if a.tape != nil {
+		for i := a.start; i < a.end; i++ {
+			attribute := a.tape.attributes[i]
+			if attribute.key == key {
+				return attribute.value, true
+			}
+		}
+		return "", false
+	}
+	return a.attributes.Lookup(key)
+}
+
+// Range calls fn for each attribute in source order, stopping when fn returns
+// false.
+func (a AttributeView) Range(fn func(Attribute) bool) {
+	if a.tape != nil {
+		for i := a.start; i < a.end; i++ {
+			attribute := a.tape.attributes[i]
+			if !fn(Attribute{Key: attribute.key, Value: attribute.value}) {
+				return
+			}
+		}
+		return
+	}
+	a.attributes.Range(fn)
+}
+
+// DivView is a value view of a Djot div. It exposes local metadata while
+// [ElementRenderer.Children] streams the div's existing children.
+type DivView struct {
+	attributes AttributeView
+	span       SourceSpan
+}
+
+// Attributes returns the div's read-only ordered attributes.
+func (d DivView) Attributes() AttributeView { return d.attributes }
+
+// Span returns the div's half-open source range.
+func (d DivView) Span() SourceSpan { return d.span }
+
+// DivRenderFunc overrides rendering for a div without materializing the typed
+// AST. Call [ElementRenderer.Children] to render its children without the
+// built-in div wrapper, or [ElementRenderer.Default] to keep that wrapper.
+type DivRenderFunc func(div DivView, renderer ElementRenderer)
+
+// ElementRenderer controls output from a compact element rendering hook. It
+// uses the semantic tape when possible and the typed tree when required. The
+// value is valid only during its callback; its zero value emits no output.
 type ElementRenderer struct {
 	semantic *semanticHTMLRenderer
 	tree     *htmlRenderer
@@ -87,11 +158,16 @@ func (r ElementRenderer) Default() {
 
 type renderConfig struct {
 	hooks                 map[Kind]NodeRenderFunc
-	symbolHook            SymbolRenderFunc
+	elements              elementHooks
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
 	footnoteBacklinkLabel func(num, k, total int) string
+}
+
+type elementHooks struct {
+	symbol SymbolRenderFunc
+	div    DivRenderFunc
 }
 
 // Default footnote id/label producers. Callers can override each independently
@@ -175,8 +251,11 @@ func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
 			cfg.hooks = make(map[Kind]NodeRenderFunc)
 		}
 		cfg.hooks[kind] = fn
-		if kind == KindSymbol {
-			cfg.symbolHook = nil
+		switch kind {
+		case KindSymbol:
+			cfg.elements.symbol = nil
+		case KindDiv:
+			cfg.elements.div = nil
 		}
 	}
 }
@@ -191,8 +270,26 @@ func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
 // registered, the last one wins.
 func WithSymbolRenderer(fn SymbolRenderFunc) RenderOption {
 	return func(cfg *renderConfig) {
-		cfg.symbolHook = fn
+		cfg.elements.symbol = fn
 		delete(cfg.hooks, KindSymbol)
+	}
+}
+
+// WithDivRenderer registers a streaming div rendering hook. The callback can
+// inspect the div's attributes and source span, write a replacement wrapper,
+// and call [ElementRenderer.Children] to stream its children through all
+// registered hooks. Call [ElementRenderer.Default] to retain the built-in div
+// wrapper. Returning without writing or rendering children suppresses the div
+// and its contents.
+//
+// Parser-produced, unmodified documents invoke the hook directly from the
+// compact semantic representation. Mutated or externally constructed trees
+// use the same hook through the tree renderer. If multiple Div or Node hooks
+// for [KindDiv] are registered, the last one wins.
+func WithDivRenderer(fn DivRenderFunc) RenderOption {
+	return func(cfg *renderConfig) {
+		cfg.elements.div = fn
+		delete(cfg.hooks, KindDiv)
 	}
 }
 
@@ -254,7 +351,7 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 	if cfg.canRenderSemantic() {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTMLWithSymbol(tape, cfg.symbolHook)
+			return renderSemanticHTMLWithElements(tape, cfg.elements)
 		}
 	}
 	var b strings.Builder
@@ -280,7 +377,7 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 	if cfg.canRenderSemantic() {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTMLToWithSymbol(w, tape, cfg.symbolHook)
+			return renderSemanticHTMLToWithElements(w, tape, cfg.elements)
 		}
 	}
 	r := newHTMLRendererWithConfig(w, doc, cfg)
@@ -313,8 +410,8 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
-	hooks      map[Kind]NodeRenderFunc
-	symbolHook SymbolRenderFunc
+	hooks    map[Kind]NodeRenderFunc
+	elements elementHooks
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -351,7 +448,7 @@ func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRen
 		w:               w,
 		doc:             doc,
 		hooks:           cfg.hooks,
-		symbolHook:      cfg.symbolHook,
+		elements:        cfg.elements,
 		footnotes:       make(map[string]*Footnote),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
@@ -464,9 +561,20 @@ func (r *htmlRenderer) renderNode(n Node) {
 		fn(n, &nodeRendererImpl{r: r, n: n})
 		return
 	}
-	if r.symbolHook != nil && n.Kind() == KindSymbol {
-		r.symbolHook(SymbolView{Name: n.(*Symbol).Name}, ElementRenderer{tree: r, node: n})
-		return
+	switch n := n.(type) {
+	case *Symbol:
+		if r.elements.symbol != nil {
+			r.elements.symbol(SymbolView{Name: n.Name}, ElementRenderer{tree: r, node: n})
+			return
+		}
+	case *Div:
+		if r.elements.div != nil {
+			r.elements.div(
+				DivView{attributes: AttributeView{attributes: n.Attributes()}, span: n.Span()},
+				ElementRenderer{tree: r, node: n},
+			)
+			return
+		}
 	}
 	r.renderDefault(n)
 }
