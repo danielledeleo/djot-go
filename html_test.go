@@ -64,6 +64,17 @@ func TestRenderHTMLToZeroLimit(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLToNilWriter(t *testing.T) {
+	if err := djot.RenderHTMLTo(nil, djot.Parse("Hello")); err == nil {
+		t.Fatal("expected an error for a nil writer")
+	}
+	doc := djot.Parse("Hello")
+	_ = doc.Root()
+	if err := djot.RenderHTMLTo(nil, doc); err == nil {
+		t.Fatal("expected the same nil-writer error after AST materialization")
+	}
+}
+
 func TestLinkBalancedParentheses(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -177,7 +188,7 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			d := djot.Parse("# x")
 			var sect *djot.Node
-			for _, child := range d.Root.Children {
+			for _, child := range d.Root().Children {
 				if child.Kind == djot.Section {
 					sect = child
 				}
@@ -218,7 +229,7 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 		t.Run(k, func(t *testing.T) {
 			d := djot.Parse("# x")
 			var sect *djot.Node
-			for _, child := range d.Root.Children {
+			for _, child := range d.Root().Children {
 				if child.Kind == djot.Section {
 					sect = child
 				}
@@ -245,7 +256,7 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 	// key must not mutate any state.
 	d := djot.Parse("# x")
 	var sect *djot.Node
-	for _, child := range d.Root.Children {
+	for _, child := range d.Root().Children {
 		if child.Kind == djot.Section {
 			sect = child
 		}
@@ -264,7 +275,7 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 
 func TestAddClassWithSpecialValueStaysWellFormed(t *testing.T) {
 	d := djot.Parse("# x")
-	for _, child := range d.Root.Children {
+	for _, child := range d.Root().Children {
 		if child.Kind == djot.Section {
 			child.AddClass(`"><script>alert(1)</script>`)
 		}

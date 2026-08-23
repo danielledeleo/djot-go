@@ -11,7 +11,7 @@ func TestPositionTracking(t *testing.T) {
 	doc := djot.Parse(input)
 
 	// The AST should be: Document > Section > [Heading, Paragraph]
-	root := doc.Root
+	root := doc.Root()
 	if root.Kind != djot.Document {
 		t.Fatalf("expected Document, got %v", root.Kind)
 	}
@@ -87,7 +87,7 @@ func TestPositionCodeBlock(t *testing.T) {
 	input := "```go\nfmt.Println()\n```"
 	doc := djot.Parse(input)
 
-	root := doc.Root
+	root := doc.Root()
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}
@@ -110,7 +110,7 @@ func TestPositionThematicBreak(t *testing.T) {
 	input := "hello\n\n* * *\n\nworld"
 	doc := djot.Parse(input)
 
-	root := doc.Root
+	root := doc.Root()
 	// Should have: Paragraph("hello"), ThematicBreak, Paragraph("world")
 	if len(root.Children) < 3 {
 		t.Fatalf("expected >= 3 children, got %d", len(root.Children))
@@ -135,7 +135,7 @@ func TestPositionList(t *testing.T) {
 	input := "- one\n- two"
 	doc := djot.Parse(input)
 
-	root := doc.Root
+	root := doc.Root()
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}
@@ -173,7 +173,7 @@ func TestPositionBlockQuote(t *testing.T) {
 	input := "> hello"
 	doc := djot.Parse(input)
 
-	root := doc.Root
+	root := doc.Root()
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}
@@ -196,7 +196,7 @@ func TestPositionDiv(t *testing.T) {
 	input := "::: warning\nhello\n:::"
 	doc := djot.Parse(input)
 
-	root := doc.Root
+	root := doc.Root()
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}

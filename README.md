@@ -51,7 +51,7 @@ djot.RenderHTMLTo(&buf, doc)
 ### Walk the AST
 
 ```go
-djot.Walk(doc.Root, func(n *djot.Node) any {
+djot.Walk(doc.Root(), func(n *djot.Node) any {
     if n.Kind == djot.Link {
         fmt.Println(n.Target)
     }
@@ -61,6 +61,10 @@ djot.Walk(doc.Root, func(n *djot.Node) any {
 
 The walker supports `Continue`, `SkipChildren`, `Remove`, and `Replace(node)`
 actions. `WalkBottomUp` visits children before parents.
+
+Use `djot.NewDoc(root)` to render an externally constructed AST. To replace a
+document's root, call `doc.SetRoot(root)`; parsed documents otherwise materialize
+their mutable AST only when `doc.Root()` is requested.
 
 ### Custom rendering
 

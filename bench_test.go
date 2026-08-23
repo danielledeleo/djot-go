@@ -2,8 +2,10 @@ package djot_test
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/danielledeleo/djot-go"
 )
@@ -171,6 +173,19 @@ func pathologicalNesting(depth int) string {
 	return b.String()
 }
 
+// attributeHeavyDoc generates a document where nearly every block and inline
+// container carries several attributes. It exercises the part of Node that is
+// most likely to change representation in the v1 AST.
+func attributeHeavyDoc(size int) string {
+	var b strings.Builder
+	b.Grow(size + 256)
+	for i := 0; b.Len() < size; i++ {
+		b.WriteString(fmt.Sprintf("{#section-%d .alpha .beta role=note data-index=%d}\n", i, i))
+		b.WriteString(fmt.Sprintf("Paragraph %d with [an attributed span]{.mark key=value}.\n\n", i))
+	}
+	return b.String()
+}
+
 // ---------------------------------------------------------------------------
 // BenchmarkParse — parse only (no rendering)
 // ---------------------------------------------------------------------------
@@ -185,6 +200,7 @@ func BenchmarkParse(b *testing.B) {
 		{"Medium", mediumDoc()},
 		{"Large", largeDoc()},
 		{"Huge_1MB", huge},
+		{"Attributes_100KB", attributeHeavyDoc(100 * 1024)},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.doc)))
@@ -195,6 +211,120 @@ func BenchmarkParse(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkASTShape records structural facts about the representative 1 MB
+// tree. These metrics make changes in bytes/op easier to interpret: a corpus
+// edit that changes node count should not masquerade as a representation win.
+func BenchmarkASTShape(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"Huge_1MB", hugeDoc()},
+		{"Attributes_100KB", attributeHeavyDoc(100 * 1024)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			doc := djot.Parse(tc.doc)
+			nodes := 1 // Walk visits descendants, not its supplied root.
+			nodesWithAttrs := 0
+			attrs := 0
+			djot.Walk(doc.Root(), func(n *djot.Node) any {
+				nodes++
+				if len(n.Attrs) > 0 {
+					nodesWithAttrs++
+					attrs += len(n.Attrs)
+				}
+				return djot.Continue
+			})
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				runtime.KeepAlive(doc)
+			}
+			b.ReportMetric(float64(nodes), "nodes/doc")
+			b.ReportMetric(float64(nodesWithAttrs), "attributed-nodes/doc")
+			b.ReportMetric(float64(attrs), "attributes/doc")
+		})
+	}
+}
+
+// BenchmarkASTKindDistribution records which variants dominate the large
+// representative tree. Run it explicitly; its intentionally wide output is
+// useful when choosing which concrete node families to prototype first.
+func BenchmarkASTKindDistribution(b *testing.B) {
+	doc := djot.Parse(hugeDoc())
+	counts := make([]int, int(djot.EnDash)+1)
+	counts[doc.Root().Kind]++
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
+		counts[n.Kind]++
+		return djot.Continue
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runtime.KeepAlive(doc)
+	}
+	b.StopTimer()
+	for kind, count := range counts {
+		if count > 0 {
+			b.ReportMetric(float64(count), "node-"+djot.NodeKind(kind).String()+"/doc")
+		}
+	}
+}
+
+// BenchmarkNodeSize records the shallow size of the current universal Node.
+// It excludes child backing arrays, attribute maps, and string data.
+func BenchmarkNodeSize(b *testing.B) {
+	b.ReportMetric(float64(unsafe.Sizeof(djot.Node{})), "shallow-B/node")
+	for i := 0; i < b.N; i++ {
+	}
+}
+
+// BenchmarkRetainedAST estimates the live heap retained by a parsed document,
+// excluding the already-live input string. Parse benchmarks report all
+// temporary allocation; this benchmark instead brackets a live AST with full
+// garbage collections. The result is inherently noisier and should be compared
+// over several runs on an otherwise idle machine.
+func BenchmarkRetainedAST(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"Medium", mediumDoc()},
+		{"Huge_1MB", hugeDoc()},
+		{"Sparse_10MB", strings.Repeat("a", 10<<20)},
+		{"Attributes_100KB", attributeHeavyDoc(100 * 1024)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var retained uint64
+			for i := 0; i < b.N; i++ {
+				retained += measureRetainedAST(tc.doc)
+			}
+			b.ReportMetric(float64(retained)/float64(b.N), "retained-B/doc")
+		})
+	}
+}
+
+func measureRetainedAST(input string) uint64 {
+	// Warm package-level/runtime paths before taking the baseline.
+	warm := djot.Parse(input)
+	runtime.KeepAlive(warm)
+	warm = nil
+	runtime.GC()
+
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	doc := djot.Parse(input)
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(doc)
+
+	if after.HeapAlloc <= before.HeapAlloc {
+		return 0
+	}
+	return after.HeapAlloc - before.HeapAlloc
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +424,7 @@ func BenchmarkWalk(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				djot.Walk(parsed.Root, func(n *djot.Node) any {
+				djot.Walk(parsed.Root(), func(n *djot.Node) any {
 					return djot.Continue
 				})
 			}

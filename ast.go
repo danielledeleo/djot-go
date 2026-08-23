@@ -1,5 +1,7 @@
 package djot
 
+import "sync"
+
 // NodeKind identifies the type of an AST node.
 type NodeKind int
 
@@ -227,13 +229,105 @@ func (n *Node) AddClass(class string) {
 	}
 }
 
-// Doc is the top-level result of parsing a djot document, containing
-// the AST root, source file information, and collected footnotes and references.
+// Doc is the top-level parsed document. Its compact semantic representation is
+// rendered directly; Root, Footnotes, and References materialize mutable Node
+// views on demand.
 type Doc struct {
-	Root       *Node
-	Files      []FileInfo
-	Footnotes  map[string]*Node // label → Footnote node
-	References map[string]*Node // label → reference definition
+	Files []FileInfo
+
+	mu            sync.RWMutex
+	root          *Node
+	rootRequested bool
+	footnotes     map[string]*Node
+	references    map[string]*Node
+	semantic      *semanticTape
+
+	// Parser-only mutable workspace, released before Parse returns.
+	parseRoot       *parseNode
+	parseReferences map[string]*parseNode
+}
+
+// NewDoc constructs a document from an existing mutable AST. Documents made
+// this way use the AST renderer; documents returned by [Parse] additionally
+// retain a compact representation for the default HTML fast path.
+func NewDoc(root *Node) *Doc {
+	return &Doc{root: root, rootRequested: true}
+}
+
+// Root returns the document's mutable AST, materializing it from the compact
+// semantic representation on first use.
+func (d *Doc) Root() *Node {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.rootRequested = true
+	return d.materializeRootLocked()
+}
+
+func (d *Doc) materializeRootLocked() *Node {
+	if d.root == nil && d.semantic != nil {
+		d.root = d.semantic.materializeAST()
+	}
+	return d.root
+}
+
+// SetRoot replaces the document's mutable AST. It discards the compact fast
+// path and any lazily built indexes; subsequent rendering uses root directly.
+// As with mutating individual nodes, callers must not call SetRoot concurrently
+// with traversal or rendering of the same document.
+func (d *Doc) SetRoot(root *Node) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.root = root
+	d.rootRequested = true
+	d.semantic = nil
+	d.footnotes = nil
+	d.references = nil
+}
+
+// semanticRenderSnapshot returns an immutable tape snapshot and, when one has
+// been requested, its materialized AST. Returning direct=true linearizes the
+// render before a concurrent Root or SetRoot call.
+func (d *Doc) semanticRenderSnapshot() (tape *semanticTape, root *Node, direct bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.semantic != nil && !d.rootRequested {
+		return d.semantic, nil, true
+	}
+	return d.semantic, d.root, false
+}
+
+// Footnotes returns the footnote-definition index. The returned nodes belong
+// to the materialized AST and may be mutated by the caller.
+func (d *Doc) Footnotes() map[string]*Node {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.footnotes == nil {
+		d.footnotes = make(map[string]*Node)
+		d.rootRequested = true
+		if root := d.materializeRootLocked(); root != nil {
+			Walk(root, func(node *Node) any {
+				if node.Kind == Footnote {
+					d.footnotes[node.Label] = node
+				}
+				return Continue
+			})
+		}
+	}
+	return d.footnotes
+}
+
+// References returns the resolved reference-definition index.
+func (d *Doc) References() map[string]*Node {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.references == nil {
+		if d.semantic != nil {
+			d.references = d.semantic.materializeReferences()
+		} else {
+			d.references = make(map[string]*Node)
+		}
+	}
+	return d.references
 }
 
 // Position resolves a Pos to a filename, line, and column.

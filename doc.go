@@ -2,8 +2,9 @@
 // designed by John MacFarlane as a successor to Markdown.
 //
 // The parser is spec-compliant with the [djot syntax reference] and passes the
-// full official test suite. It produces a typed AST that can be inspected,
-// transformed, and rendered to HTML.
+// full official test suite. Parsed documents retain a compact semantic
+// representation for rendering and materialize a mutable AST only when
+// [Doc.Root] is requested.
 //
 // # Quick start
 //
@@ -15,7 +16,7 @@
 // [Walk] visits nodes top-down and supports [Continue], [SkipChildren], [Remove],
 // and [Replace] actions. [WalkBottomUp] visits children before parents.
 //
-//	djot.Walk(doc.Root, func(n *djot.Node) any {
+//	djot.Walk(doc.Root(), func(n *djot.Node) any {
 //	    if n.Kind == djot.Strong {
 //	        return djot.Replace(&djot.Node{Kind: djot.Emphasis, Children: n.Children})
 //	    }

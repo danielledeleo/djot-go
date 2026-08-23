@@ -39,7 +39,7 @@ func ExampleWalk() {
 
 	// Count strong and emphasis nodes.
 	strong, emphasis := 0, 0
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		switch n.Kind {
 		case djot.Strong:
 			strong++
@@ -57,7 +57,7 @@ func ExampleWalk_replace() {
 	doc := djot.Parse("Hello *world*!")
 
 	// Replace all Strong nodes with Emphasis.
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Strong {
 			return djot.Replace(&djot.Node{Kind: djot.Emphasis, Children: n.Children})
 		}

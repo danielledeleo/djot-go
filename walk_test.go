@@ -9,7 +9,7 @@ import (
 func TestWalkContinue(t *testing.T) {
 	doc := djot.Parse("Hello *world* and _more_")
 	var kinds []djot.NodeKind
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		kinds = append(kinds, n.Kind)
 		return djot.Continue
 	})
@@ -32,7 +32,7 @@ func TestWalkContinue(t *testing.T) {
 func TestWalkSkipChildren(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
 	var visited []djot.NodeKind
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		visited = append(visited, n.Kind)
 		if n.Kind == djot.Strong {
 			return djot.SkipChildren
@@ -63,7 +63,7 @@ func TestWalkSkipChildren(t *testing.T) {
 
 func TestWalkRemove(t *testing.T) {
 	doc := djot.Parse("Hello *world* goodbye")
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Strong {
 			return djot.Remove
 		}
@@ -80,7 +80,7 @@ func TestWalkRemove(t *testing.T) {
 
 func TestWalkReplace(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Strong {
 			return djot.Replace(&djot.Node{
 				Kind: djot.Emphasis,
@@ -104,7 +104,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 	doc := djot.Parse("*bold*")
 	var visitedAfterReplace []djot.NodeKind
 	replaced := false
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Strong && !replaced {
 			replaced = true
 			return djot.Replace(&djot.Node{
@@ -134,7 +134,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 func TestWalkDoesNotVisitRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Document {
 			visitedRoot = true
 		}
@@ -147,7 +147,7 @@ func TestWalkDoesNotVisitRoot(t *testing.T) {
 
 func TestWalkRemoveMultiple(t *testing.T) {
 	doc := djot.Parse("*a* *b* *c*")
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Strong {
 			return djot.Remove
 		}
@@ -162,7 +162,7 @@ func TestWalkRemoveMultiple(t *testing.T) {
 func TestWalkBottomUp(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
 	var kinds []djot.NodeKind
-	djot.WalkBottomUp(doc.Root, func(n *djot.Node) {
+	djot.WalkBottomUp(doc.Root(), func(n *djot.Node) {
 		kinds = append(kinds, n.Kind)
 	})
 	if len(kinds) == 0 {
@@ -191,7 +191,7 @@ func TestWalkBottomUp(t *testing.T) {
 func TestWalkBottomUpVisitsRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	djot.WalkBottomUp(doc.Root, func(n *djot.Node) {
+	djot.WalkBottomUp(doc.Root(), func(n *djot.Node) {
 		if n.Kind == djot.Document {
 			visitedRoot = true
 		}

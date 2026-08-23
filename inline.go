@@ -6,7 +6,7 @@ import (
 
 // parseAllInlines walks the AST and parses inline content for all blocks
 // that contain raw text (paragraphs, headings).
-func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
+func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 	// One reusable inline parser for the whole document. Its scratch maps
 	// (openers, openerIdx) are cleared between blocks rather than reallocated,
 	// which previously dominated parse-time allocation.
@@ -15,7 +15,7 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 		openerIdx: make(map[int]bool, 8),
 		arena:     arena,
 	}
-	Walk(root, func(n *Node) any {
+	walkParse(root, func(n *parseNode) any {
 		switch n.Kind {
 		case Paragraph, Heading, Term, TableCell, Caption:
 			if n.Text != "" {
@@ -60,7 +60,7 @@ func parseAllInlines(root *Node, doc *Doc, arena *nodeArena) {
 // plainBracesUntil is an offset before which braces are ordinary characters.
 // It resets the parser's scratch state, so a single inlineParser can be reused
 // across every block in a document.
-func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBracesUntil int) []*Node {
+func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBracesUntil int) []*parseNode {
 	// Nodes are collected into a scratch buffer reused across blocks, and the
 	// result is copied into a right-sized run at the end. The scratch maps are
 	// cleared rather than reallocated for the same reason.
@@ -89,14 +89,14 @@ type opener struct {
 type inlineParser struct {
 	input      string
 	pos        int
-	nodes      []*Node
+	nodes      []*parseNode
 	openers    map[byte][]opener
 	openerIdx  map[int]bool // set of nodeIdx values that are opener placeholders
 	doc        *Doc
-	baseOffset int            // source byte offset corresponding to input[0]
-	arena      *nodeArena     // shared node allocator for the whole document
-	slices     nodeSliceArena // shared allocator for child slices
-	scratch    []*Node        // reused node buffer across blocks
+	baseOffset int             // source byte offset corresponding to input[0]
+	arena      *parseNodeArena // shared node allocator for the whole document
+	slices     nodeSliceArena  // shared allocator for child slices
+	scratch    []*parseNode    // reused node buffer across blocks
 
 	// plainBracesUntil is an offset in input before which braces are ordinary
 	// characters rather than attribute syntax; see Node.plainBracesUntil.
@@ -108,7 +108,7 @@ func (p *inlineParser) srcPos(offset int) Pos {
 	return Pos{Offset: p.baseOffset + offset}
 }
 
-func (p *inlineParser) parse() []*Node {
+func (p *inlineParser) parse() []*parseNode {
 	for p.pos < len(p.input) {
 		c := p.input[p.pos]
 		startPos := p.pos
@@ -159,7 +159,7 @@ func (p *inlineParser) parse() []*Node {
 		case ':':
 			p.parseSymbol()
 		case '\n':
-			p.add(Node{Kind: SoftBreak})
+			p.add(parseNodeSpec{Kind: SoftBreak})
 			p.pos++
 		default:
 			p.parseText()
@@ -188,7 +188,7 @@ func (p *inlineParser) parseEscape() {
 	if p.pos+1 >= len(p.input) {
 		// Trailing backslash at end of input = hard break.
 		p.trimTrailingSpaces()
-		p.add(Node{Kind: HardBreak})
+		p.add(parseNodeSpec{Kind: HardBreak})
 		p.pos++
 		return
 	}
@@ -198,7 +198,7 @@ func (p *inlineParser) parseEscape() {
 	// Escaped newline = hard break.
 	if next == '\n' {
 		p.trimTrailingSpaces()
-		p.add(Node{Kind: HardBreak})
+		p.add(parseNodeSpec{Kind: HardBreak})
 		p.pos += 2
 		return
 	}
@@ -212,7 +212,7 @@ func (p *inlineParser) parseEscape() {
 		}
 		if j < len(p.input) && p.input[j] == '\n' {
 			p.trimTrailingSpaces()
-			p.add(Node{Kind: HardBreak})
+			p.add(parseNodeSpec{Kind: HardBreak})
 			p.pos = j + 1
 			return
 		}
@@ -220,7 +220,7 @@ func (p *inlineParser) parseEscape() {
 
 	// Escaped space = non-breaking space.
 	if next == ' ' {
-		p.add(Node{Kind: NonBreakingSpace})
+		p.add(parseNodeSpec{Kind: NonBreakingSpace})
 		p.pos += 2
 		return
 	}
@@ -268,7 +268,7 @@ func (p *inlineParser) parseVerbatim() {
 
 			content := p.input[p.pos:i]
 			content = stripVerbatimSpaces(content)
-			node := p.arena.new(Node{Kind: Verbatim, Text: content})
+			node := p.arena.new(parseNodeSpec{Kind: Verbatim, Text: content})
 			node.Start = p.srcPos(start)
 			node.End = p.srcPos(endAfter - 1)
 			p.addNode(node)
@@ -280,7 +280,7 @@ func (p *inlineParser) parseVerbatim() {
 	// No closing backticks found — verbatim extends to end of inline content.
 	content := p.input[start+n:]
 	content = stripVerbatimSpaces(content)
-	p.add(Node{Kind: Verbatim, Text: content})
+	p.add(parseNodeSpec{Kind: Verbatim, Text: content})
 	p.pos = len(p.input)
 }
 
@@ -324,7 +324,7 @@ func (p *inlineParser) parseMath() {
 				if dollars >= 2 {
 					kind = DisplayMath
 				}
-				p.add(Node{Kind: kind, Text: content})
+				p.add(parseNodeSpec{Kind: kind, Text: content})
 				p.pos = endAfter
 				return
 			}
@@ -347,7 +347,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 
 	// Check if this is a marked closer: ^} or ~}
 	if p.pos < len(p.input) && p.input[p.pos] == '}' {
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 		return
 	}
 
@@ -373,7 +373,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 					childCopy := p.slices.clone(children)
 					p.invalidateOpenersFrom(op.nodeIdx)
 					p.nodes = p.nodes[:op.nodeIdx]
-					node := p.arena.new(Node{Kind: kind, Children: childCopy})
+					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos)
 					node.End = p.srcPos(p.pos - 1)
 					p.addNode(node)
@@ -385,7 +385,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -393,7 +393,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind NodeKind) {
 			nodeIdx: idx,
 		})
 	} else {
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 	}
 }
 
@@ -408,7 +408,7 @@ func (p *inlineParser) parseImageOpen() {
 			return
 		}
 		idx := len(p.nodes)
-		p.add(Node{Kind: Text, Text: "!["})
+		p.add(parseNodeSpec{Kind: Text, Text: "!["})
 		p.openers['['] = append(p.openers['['], opener{
 			char:    '!', // special marker for image opener
 			pos:     p.pos,
@@ -443,14 +443,14 @@ func (p *inlineParser) parseAutolink() {
 
 	// Check for URL autolink (contains ://)
 	if strings.Contains(content, "://") {
-		p.add(Node{Kind: Link, Target: content, Children: []*Node{{Kind: Text, Text: content}}})
+		p.add(parseNodeSpec{Kind: Link, Target: content, Children: []*parseNode{{Kind: Text, Text: content}}})
 		p.pos += end + 1
 		return
 	}
 
 	// Check for email autolink (contains @ and no spaces)
 	if strings.Contains(content, "@") && !strings.Contains(content, " ") {
-		p.add(Node{Kind: Link, Target: "mailto:" + content, Children: []*Node{{Kind: Text, Text: content}}})
+		p.add(parseNodeSpec{Kind: Link, Target: "mailto:" + content, Children: []*parseNode{{Kind: Text, Text: content}}})
 		p.pos += end + 1
 		return
 	}
@@ -476,7 +476,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	if p.pos < len(p.input) && p.input[p.pos] == '}' {
 		// This is part of a _} or *} marked closer. Don't process here;
 		// just emit the delimiter char as text and let parseCloseBrace handle it.
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 		return
 	}
 
@@ -511,7 +511,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 					// Remove opener placeholder and children from nodes.
 					p.nodes = p.nodes[:op.nodeIdx]
 
-					node := p.arena.new(Node{Kind: kind, Children: childCopy})
+					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos)
 					node.End = p.srcPos(p.pos - 1)
 					p.addNode(node)
@@ -524,7 +524,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -532,7 +532,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 			nodeIdx: idx,
 		})
 	} else {
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 	}
 }
 
@@ -588,7 +588,7 @@ func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 
 func (p *inlineParser) parseBracketOpen() {
 	idx := len(p.nodes)
-	p.add(Node{Kind: Text, Text: "["})
+	p.add(parseNodeSpec{Kind: Text, Text: "["})
 	p.openers['['] = append(p.openers['['], opener{
 		char:    '[',
 		pos:     p.pos,
@@ -602,7 +602,7 @@ func (p *inlineParser) parseBracketClose() {
 
 	openers, ok := p.openers['[']
 	if !ok || len(openers) == 0 {
-		p.add(Node{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: Text, Text: "]"})
 		return
 	}
 
@@ -611,7 +611,7 @@ func (p *inlineParser) parseBracketClose() {
 
 	// Safety check: if op.nodeIdx is beyond current nodes, the opener was invalidated.
 	if op.nodeIdx >= len(p.nodes) {
-		p.add(Node{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: Text, Text: "]"})
 		return
 	}
 
@@ -630,7 +630,7 @@ func (p *inlineParser) parseBracketClose() {
 		if !strings.Contains(label, "[") {
 			p.invalidateOpenersFrom(op.nodeIdx)
 			p.nodes = p.nodes[:op.nodeIdx]
-			p.add(Node{Kind: FootnoteReference, Label: label})
+			p.add(parseNodeSpec{Kind: FootnoteReference, Label: label})
 			return
 		}
 	}
@@ -642,7 +642,7 @@ func (p *inlineParser) parseBracketClose() {
 	// times, and copying on each was quadratic.
 	if p.pos >= len(p.input) || (p.input[p.pos] != '(' && p.input[p.pos] != '[' && p.input[p.pos] != '{') {
 		p.invalidateOpenersFrom(op.nodeIdx)
-		p.add(Node{Kind: Text, Text: "]"})
+		p.add(parseNodeSpec{Kind: Text, Text: "]"})
 		return
 	}
 
@@ -670,12 +670,12 @@ func (p *inlineParser) parseBracketClose() {
 			p.pos = end + 1
 			linkEnd := p.srcPos(p.pos - 1)
 			if isImage {
-				node := p.arena.new(Node{Kind: Image, Target: target, HasTarget: true, Children: childCopy})
+				node := p.arena.new(parseNodeSpec{Kind: Image, Target: target, HasTarget: true, Children: childCopy})
 				node.Start = linkStart
 				node.End = linkEnd
 				p.addNode(node)
 			} else {
-				node := p.arena.new(Node{Kind: Link, Target: target, HasTarget: true, Children: childCopy})
+				node := p.arena.new(parseNodeSpec{Kind: Link, Target: target, HasTarget: true, Children: childCopy})
 				node.Start = linkStart
 				node.End = linkEnd
 				p.addNode(node)
@@ -700,9 +700,9 @@ func (p *inlineParser) parseBracketClose() {
 			}
 			// Reference not found - emit empty link/image
 			if isImage {
-				p.add(Node{Kind: Image, Children: childCopy})
+				p.add(parseNodeSpec{Kind: Image, Children: childCopy})
 			} else {
-				p.add(Node{Kind: Link, Children: childCopy})
+				p.add(parseNodeSpec{Kind: Link, Children: childCopy})
 			}
 			return
 		}
@@ -715,7 +715,7 @@ func (p *inlineParser) parseBracketClose() {
 			inner := p.input[p.pos+1 : end]
 			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
-				node := p.arena.new(Node{Kind: Span, Children: childCopy, Attrs: attrs, attrOrder: attrOrder})
+				node := p.arena.new(parseNodeSpec{Kind: Span, Children: childCopy, Attrs: attrs, attrOrder: attrOrder})
 				p.addNode(node)
 				p.pos = end + 1
 				return
@@ -725,26 +725,26 @@ func (p *inlineParser) parseBracketClose() {
 
 	// No special syntax follows — just emit literal brackets with content.
 	if isImage {
-		p.add(Node{Kind: Text, Text: "!["})
+		p.add(parseNodeSpec{Kind: Text, Text: "!["})
 	} else {
-		p.add(Node{Kind: Text, Text: "["})
+		p.add(parseNodeSpec{Kind: Text, Text: "["})
 	}
 	p.nodes = append(p.nodes, childCopy...)
-	p.add(Node{Kind: Text, Text: "]"})
+	p.add(parseNodeSpec{Kind: Text, Text: "]"})
 }
 
 // resolveReference looks up a reference label and creates a Link or Image node.
-func (p *inlineParser) resolveReference(label string, children []*Node, isImage bool) bool {
-	if p.doc == nil || p.doc.References == nil {
+func (p *inlineParser) resolveReference(label string, children []*parseNode, isImage bool) bool {
+	if p.doc == nil || p.doc.parseReferences == nil {
 		return false
 	}
-	ref, ok := p.doc.References[label]
+	ref, ok := p.doc.parseReferences[label]
 	if !ok {
 		return false
 	}
 	target := ref.Target
 	if isImage {
-		node := p.arena.new(Node{Kind: Image, Target: target, HasTarget: true, Children: children})
+		node := p.arena.new(parseNodeSpec{Kind: Image, Target: target, HasTarget: true, Children: children})
 		// Copy ref attrs
 		if ref.Attrs != nil {
 			for k, v := range ref.Attrs {
@@ -757,7 +757,7 @@ func (p *inlineParser) resolveReference(label string, children []*Node, isImage 
 		}
 		p.addNode(node)
 	} else {
-		node := p.arena.new(Node{Kind: Link, Target: target, HasTarget: true, Children: children})
+		node := p.arena.new(parseNodeSpec{Kind: Link, Target: target, HasTarget: true, Children: children})
 		if ref.Attrs != nil {
 			for k, v := range ref.Attrs {
 				if k == "class" {
@@ -773,10 +773,10 @@ func (p *inlineParser) resolveReference(label string, children []*Node, isImage 
 }
 
 // collectNodesText extracts text content from inline nodes.
-func collectNodesText(nodes []*Node) string {
+func collectNodesText(nodes []*parseNode) string {
 	var b strings.Builder
 	for _, n := range nodes {
-		b.WriteString(collectText(n))
+		b.WriteString(collectParseText(n))
 	}
 	return b.String()
 }
@@ -798,7 +798,7 @@ func (p *inlineParser) parseOpenBrace() {
 			p.pos += 2
 
 			idx := len(p.nodes)
-			p.add(Node{Kind: Text, Text: string(char)})
+			p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 			p.openerIdx[idx] = true
 			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
@@ -815,7 +815,7 @@ func (p *inlineParser) parseOpenBrace() {
 			p.pos += 2
 
 			idx := len(p.nodes)
-			p.add(Node{Kind: Text, Text: "-"})
+			p.add(parseNodeSpec{Kind: Text, Text: "-"})
 			p.openerIdx[idx] = true
 			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
@@ -866,7 +866,7 @@ func (p *inlineParser) parseCloseBrace() {
 							p.invalidateOpenersFrom(op.nodeIdx)
 							p.nodes = p.nodes[:op.nodeIdx]
 
-							node := p.arena.new(Node{Kind: NodeKind(markedKind), Children: childCopy})
+							node := p.arena.new(parseNodeSpec{Kind: NodeKind(markedKind), Children: childCopy})
 							// op.pos points to the char after {, so start at op.pos-1.
 							node.Start = p.srcPos(op.pos - 1)
 							p.pos++ // skip }
@@ -957,7 +957,7 @@ func (p *inlineParser) parseInlineAttr() {
 			lastSpace := strings.LastIndexByte(text, ' ')
 			if lastSpace == -1 {
 				p.nodes = p.nodes[:len(p.nodes)-1]
-				span := p.arena.new(Node{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: text}}})
+				span := p.arena.new(parseNodeSpec{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: Text, Text: text}}})
 				p.addNode(span)
 			} else {
 				word := text[lastSpace+1:]
@@ -967,7 +967,7 @@ func (p *inlineParser) parseInlineAttr() {
 					return
 				}
 				prev.Text = text[:lastSpace+1]
-				span := p.arena.new(Node{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*Node{{Kind: Text, Text: word}}})
+				span := p.arena.new(parseNodeSpec{Kind: Span, Attrs: attrs, attrOrder: attrOrder, Children: []*parseNode{{Kind: Text, Text: word}}})
 				p.addNode(span)
 			}
 		} else {
@@ -998,7 +998,7 @@ func (p *inlineParser) parseSymbol() {
 	if p.pos < len(p.input) && p.input[p.pos] == ':' && p.pos > nameStart {
 		name := p.input[nameStart:p.pos]
 		p.pos++
-		p.add(Node{Kind: Symbol, Name: name})
+		p.add(parseNodeSpec{Kind: Symbol, Name: name})
 		return
 	}
 
@@ -1031,7 +1031,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 					p.openers[qchar] = append(openers[:i], openers[i+1:]...)
 					p.invalidateOpenersFrom(op.nodeIdx)
 					p.nodes = p.nodes[:op.nodeIdx]
-					node := p.arena.new(Node{Kind: kind, Children: childCopy})
+					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos - 1)
 					p.pos++ // skip }
 					node.End = p.srcPos(p.pos - 1)
@@ -1044,9 +1044,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 		// to close, and it applies only here: a later unmatched quote is
 		// unaffected and still opens.
 		if char == '\'' {
-			p.add(Node{Kind: Text, Text: "’"}) // right single quote
+			p.add(parseNodeSpec{Kind: Text, Text: "’"}) // right single quote
 		} else {
-			p.add(Node{Kind: Text, Text: "”"}) // right double quote
+			p.add(parseNodeSpec{Kind: Text, Text: "”"}) // right double quote
 		}
 		p.pos++ // skip }
 		return
@@ -1072,7 +1072,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 				p.openers[char] = append(openers[:i], openers[i+1:]...)
 				p.invalidateOpenersFrom(op.nodeIdx)
 				p.nodes = p.nodes[:op.nodeIdx]
-				node := p.arena.new(Node{Kind: kind, Children: childCopy})
+				node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 				node.Start = p.srcPos(op.pos)
 				node.End = p.srcPos(p.pos - 1)
 				p.addNode(node)
@@ -1084,7 +1084,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(Node{Kind: Text, Text: string(char)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(char)})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -1095,9 +1095,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind NodeKind) {
 		// Could not open or close (or close with no matching opener).
 		// Single quotes become apostrophes; double quotes become left double quotes.
 		if char == '\'' {
-			p.add(Node{Kind: Text, Text: "\u2019"}) // right single quote / apostrophe
+			p.add(parseNodeSpec{Kind: Text, Text: "\u2019"}) // right single quote / apostrophe
 		} else {
-			p.add(Node{Kind: Text, Text: "\u201c"}) // left double quote
+			p.add(parseNodeSpec{Kind: Text, Text: "\u201c"}) // left double quote
 		}
 	}
 }
@@ -1149,7 +1149,7 @@ func (p *inlineParser) parseDashes() {
 
 	if count == 0 {
 		// Only had 1 dash and it's the closer
-		p.add(Node{Kind: Text, Text: "-"})
+		p.add(parseNodeSpec{Kind: Text, Text: "-"})
 		return
 	}
 
@@ -1174,22 +1174,22 @@ func (p *inlineParser) parseDashes() {
 			en = 2
 		}
 		for i := 0; i < em; i++ {
-			p.add(Node{Kind: EmDash})
+			p.add(parseNodeSpec{Kind: EmDash})
 		}
 		for i := 0; i < en; i++ {
-			p.add(Node{Kind: EnDash})
+			p.add(parseNodeSpec{Kind: EnDash})
 		}
 	}
 
 	if trailingCloser {
-		p.add(Node{Kind: Text, Text: "-"})
+		p.add(parseNodeSpec{Kind: Text, Text: "-"})
 	}
 }
 
 func (p *inlineParser) parseEllipsis() {
 	// Check for three dots.
 	if p.pos+2 < len(p.input) && p.input[p.pos+1] == '.' && p.input[p.pos+2] == '.' {
-		p.add(Node{Kind: Ellipsis})
+		p.add(parseNodeSpec{Kind: Ellipsis})
 		p.pos += 3
 		return
 	}
@@ -1202,7 +1202,7 @@ func (p *inlineParser) parseEllipsis() {
 // Otherwise emit as merged text.
 func (p *inlineParser) parseMarkedCloserChar(c byte) {
 	if p.pos+1 < len(p.input) && p.input[p.pos+1] == '}' {
-		p.add(Node{Kind: Text, Text: string(c)})
+		p.add(parseNodeSpec{Kind: Text, Text: string(c)})
 		p.pos++
 		return
 	}
@@ -1224,16 +1224,16 @@ func (p *inlineParser) parseText() {
 		p.pos++
 	}
 	if p.pos > start {
-		p.add(Node{Kind: Text, Text: p.input[start:p.pos]})
+		p.add(parseNodeSpec{Kind: Text, Text: p.input[start:p.pos]})
 	}
 }
 
-func (p *inlineParser) addNode(n *Node) {
+func (p *inlineParser) addNode(n *parseNode) {
 	p.nodes = append(p.nodes, n)
 }
 
 // add appends a node built from n, allocated from the shared arena.
-func (p *inlineParser) add(n Node) {
+func (p *inlineParser) add(n parseNodeSpec) {
 	p.nodes = append(p.nodes, p.arena.new(n))
 }
 
@@ -1247,7 +1247,7 @@ func (p *inlineParser) addTextChar(c byte) {
 			return
 		}
 	}
-	p.add(Node{Kind: Text, Text: string(c)})
+	p.add(parseNodeSpec{Kind: Text, Text: string(c)})
 }
 
 // addTextByte adds a byte as text, always creating a new node or merging
@@ -1289,7 +1289,7 @@ func (p *inlineParser) resolveUnclosedOpeners() {
 						if !op.marked && op.nodeIdx+1 < len(p.nodes) {
 							next := p.nodes[op.nodeIdx+1]
 							if next.Kind == Span {
-								next.Children = append([]*Node{{Kind: Text, Text: node.Text}}, next.Children...)
+								next.Children = append([]*parseNode{{Kind: Text, Text: node.Text}}, next.Children...)
 								node.Text = "" // clear the opener text
 							}
 						}
@@ -1425,12 +1425,12 @@ func processBackslashEscapes(s string) string {
 	return b.String()
 }
 
-// nodeSliceArena bump-allocates runs of []*Node from shared chunks, so the
+// nodeSliceArena bump-allocates runs of []*parseNode from shared chunks, so the
 // child lists of inline containers cost one allocation per chunk instead of
 // one per container. Returned slices are capped to their length, so any later
 // append reallocates instead of writing into the next run.
 type nodeSliceArena struct {
-	chunk []*Node
+	chunk []*parseNode
 	next  int
 }
 
@@ -1439,7 +1439,7 @@ const (
 	sliceArenaMaxChunk = 8192
 )
 
-func (a *nodeSliceArena) clone(src []*Node) []*Node {
+func (a *nodeSliceArena) clone(src []*parseNode) []*parseNode {
 	if len(src) == 0 {
 		return nil
 	}
@@ -1451,7 +1451,7 @@ func (a *nodeSliceArena) clone(src []*Node) []*Node {
 		if size < len(src) {
 			size = len(src)
 		}
-		a.chunk = make([]*Node, 0, size)
+		a.chunk = make([]*parseNode, 0, size)
 		if size < sliceArenaMaxChunk {
 			a.next = size * 2
 		}

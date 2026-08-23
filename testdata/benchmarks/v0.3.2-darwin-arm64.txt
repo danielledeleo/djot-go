@@ -1,0 +1,55 @@
+djot-go AST refactor baseline
+commit: c5c4ead6b243ed2b0a4aa3a83fa08123a08398b7
+tag: v0.3.2
+goos: darwin
+goarch: arm64
+go: go1.27.0
+cpu: Apple M5 Pro
+
+Parse command:
+go test -run '^$' -bench '^BenchmarkParse$/(Small|Medium|Huge_1MB|Attributes_100KB)$' -benchmem -benchtime=1s -count=3 .
+
+Median parse results:
+BenchmarkParse/Small-18                   3020 ns/op       14392 B/op      47 allocs/op
+BenchmarkParse/Medium-18                 10243 ns/op       38752 B/op     154 allocs/op
+BenchmarkParse/Huge_1MB-18            19422977 ns/op    54860160 B/op  189848 allocs/op
+BenchmarkParse/Attributes_100KB-18      1224359 ns/op     3422099 B/op   28512 allocs/op
+
+Render and traversal command:
+go test -run '^$' -bench '^Benchmark(RenderHTML|Walk)$/(Huge_1MB)$' -benchmem -benchtime=1s -count=3 .
+
+Median render and traversal results:
+BenchmarkRenderHTML/Huge_1MB-18         6491576 ns/op    11480843 B/op   39917 allocs/op
+BenchmarkWalk/Huge_1MB-18                665936 ns/op           0 B/op       0 allocs/op
+
+Shape command:
+go test -run '^$' -bench '^BenchmarkASTShape$' -benchtime=5x -count=1 .
+
+BenchmarkASTShape/Huge_1MB-18
+  nodes/doc: 137095
+  attributed-nodes/doc: 1752
+  attributes/doc: 1752
+
+BenchmarkASTShape/Attributes_100KB-18
+  nodes/doc: 4591
+  attributed-nodes/doc: 1836
+  attributes/doc: 5508
+
+Retained heap command:
+go test -run '^$' -bench '^BenchmarkRetainedAST$' -benchmem -benchtime=5x -count=3 .
+
+Median retained results:
+BenchmarkRetainedAST/Medium-18               34651 retained-B/doc
+BenchmarkRetainedAST/Huge_1MB-18          48694248 retained-B/doc
+BenchmarkRetainedAST/Attributes_100KB-18   2620704 retained-B/doc
+
+Shallow universal node size:
+BenchmarkNodeSize-18                           264 shallow-B/node
+
+Largest Huge_1MB node populations:
+Text 67890; Strong 15768; Paragraph 11826; TableCell 7884; ListItem 6570;
+Link 5256. These six kinds account for about 84% of the 137095 nodes.
+
+Retained heap is measured after a full GC with the input string already live.
+It is noisier than ordinary benchmark allocation data and should be compared
+across several runs on an otherwise idle machine.

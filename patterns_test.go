@@ -115,7 +115,7 @@ func TestPatternDivAdmonition(t *testing.T) {
 func TestPatternWalkCollectHeadings(t *testing.T) {
 	doc := djot.Parse("# Intro\n\ntext\n\n## Methods\n\ntext\n\n## Results\n\ntext")
 	var headings []string
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Heading {
 			var text string
 			for _, c := range n.Children {
@@ -139,7 +139,7 @@ func TestPatternWalkCollectHeadings(t *testing.T) {
 func TestPatternWalkRewriteImageURLs(t *testing.T) {
 	doc := djot.Parse("![photo](images/cat.png)")
 	base := "https://cdn.example.com/"
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Image && !strings.HasPrefix(n.Target, "http") {
 			n.Target = base + n.Target
 		}
@@ -161,8 +161,8 @@ func TestPatternASTInclude(t *testing.T) {
 
 	// Splice the child's content into the parent AST.
 	// Wrap in a Div to replace a placeholder, simulating :include:.
-	parentRoot := parent.Root
-	wrapper := &djot.Node{Kind: djot.Div, Children: child.Root.Children}
+	parentRoot := parent.Root()
+	wrapper := &djot.Node{Kind: djot.Div, Children: child.Root().Children}
 	parentRoot.Children = append(parentRoot.Children, wrapper)
 
 	// Render — footnotes should be derived from the combined AST.
@@ -187,11 +187,11 @@ func TestPatternASTIncludeViaWalk(t *testing.T) {
 
 	included := djot.Parse("Included paragraph[^x].\n\n[^x]: Included note.")
 
-	djot.Walk(doc.Root, func(n *djot.Node) any {
+	djot.Walk(doc.Root(), func(n *djot.Node) any {
 		if n.Kind == djot.Symbol && n.Name == "include" {
 			return djot.Replace(&djot.Node{
 				Kind:     djot.Div,
-				Children: included.Root.Children,
+				Children: included.Root().Children,
 			})
 		}
 		return djot.Continue

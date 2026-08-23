@@ -1,10 +1,13 @@
 package djot
 
 import (
+	"errors"
 	"io"
 	"strconv"
 	"strings"
 )
+
+var errNilHTMLWriter = errors.New("djot: RenderHTMLTo called with a nil writer")
 
 // RenderOption configures HTML rendering. Pass to [RenderHTML] or [RenderHTMLTo].
 type RenderOption func(*renderConfig)
@@ -150,9 +153,15 @@ func WithRenderFunc(kind NodeKind, fn func(n *Node) string) RenderOption {
 // RenderHTML renders a parsed document to an HTML string. Optional
 // [RenderOption] values can customize rendering via [WithNodeRenderer].
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
+	if len(opts) == 0 {
+		tape, root, direct := doc.semanticRenderSnapshot()
+		if tape != nil && (direct || tape.matchesAST(root)) {
+			return renderSemanticHTML(tape)
+		}
+	}
 	var b strings.Builder
 	r := newHTMLRenderer(&b, doc, opts...)
-	r.renderChildren(doc.Root)
+	r.renderChildren(doc.Root())
 	r.renderFootnotesSection()
 	return b.String()
 }
@@ -160,8 +169,17 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 // RenderHTMLTo renders a parsed document as HTML to the given writer.
 // It returns the first write error encountered, if any.
 func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
+	if w == nil {
+		return errNilHTMLWriter
+	}
+	if len(opts) == 0 {
+		tape, root, direct := doc.semanticRenderSnapshot()
+		if tape != nil && (direct || tape.matchesAST(root)) {
+			return renderSemanticHTMLTo(w, tape)
+		}
+	}
 	r := newHTMLRenderer(w, doc, opts...)
-	r.renderChildren(doc.Root)
+	r.renderChildren(doc.Root())
 	r.renderFootnotesSection()
 	return r.err
 }
@@ -248,8 +266,8 @@ func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 	// First pass: walk the main document tree (skipping Footnote definition nodes)
 	// to find all FootnoteReference nodes in order.
 	// Collect footnote definitions from the AST so the renderer is
-	// independent of Doc.Footnotes (which may be stale after AST mutations).
-	Walk(doc.Root, func(n *Node) any {
+	// independent of Doc.Footnotes() (which may be stale after AST mutations).
+	Walk(doc.Root(), func(n *Node) any {
 		if n.Kind == Footnote {
 			r.footnotes[n.Label] = n
 		}
@@ -269,7 +287,7 @@ func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 			walkForRefs(child)
 		}
 	}
-	walkForRefs(doc.Root)
+	walkForRefs(doc.Root())
 
 	// Now process footnote contents in number order, which may introduce
 	// more footnote references (and thus more footnotes to process).
@@ -884,6 +902,24 @@ func escapeAttrSlow(s string, first int) string {
 		default:
 			b.WriteByte(s[i])
 		}
+	}
+	return b.String()
+}
+
+// collectText extracts visible text from a materialized public node tree.
+func collectText(n *Node) string {
+	switch n.Kind {
+	case Text:
+		return n.Text
+	case SoftBreak, HardBreak, NonBreakingSpace:
+		return " "
+	}
+	var b strings.Builder
+	for _, child := range n.Children {
+		b.WriteString(collectText(child))
+	}
+	if b.Len() == 0 && n.Text != "" {
+		return n.Text
 	}
 	return b.String()
 }

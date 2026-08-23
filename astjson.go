@@ -26,7 +26,7 @@ func RenderASTJSON(doc *Doc, positions bool) string {
 
 // RenderASTJSONTo writes the JSON AST (see [RenderASTJSON]) to w.
 func RenderASTJSONTo(w io.Writer, doc *Doc, positions bool) error {
-	root := astJSONNode(doc, doc.Root, positions)
+	root := astJSONNode(doc, doc.Root(), positions)
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
