@@ -116,6 +116,26 @@ func ExampleWithDivRenderer() {
 	// </aside>
 }
 
+func ExampleWithSubtreeRenderer() {
+	doc := djot.Parse("::: example\n``` go\nfmt.Println()\n```\n:::\n")
+	html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv,
+		func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+			if subtree.Contains(djot.KindCodeBlock) {
+				r.Write(`<section class="contains-code">`)
+				r.Children()
+				r.Write("</section>")
+				return
+			}
+			r.Default()
+		},
+	))
+	fmt.Println(html)
+	// Output:
+	// <section class="contains-code"><pre><code class="language-go">fmt.Println()
+	// </code></pre>
+	// </section>
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

@@ -104,6 +104,30 @@ rendering children suppresses the Div and its contents. Parsed, unmodified
 documents stay on the compact rendering path; mutated and externally built
 trees receive the same callback through the tree renderer.
 
+`WithDivRenderer` can inspect the Div itself but deliberately cannot inspect
+its children before rendering. When the wrapper depends on descendant content,
+use a bounded, read-only subtree view:
+
+```go
+html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv,
+    func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+        if subtree.Contains(djot.KindCodeBlock) {
+            r.Write(`<section class="contains-code">`)
+            r.Children()
+            r.Write(`</section>`)
+            return
+        }
+        r.Default()
+    },
+))
+```
+
+Subtree inspection scans only that element's contiguous tape range. It remains
+read-only and does not construct Nodes. `Preorder` and `Descendants` provide
+full traversal when `Contains` is not sufficient. Since every inspection is a
+scan, avoid repeatedly scanning heavily nested overlapping subtrees when one
+document-level pass would answer the same question.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 

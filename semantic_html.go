@@ -18,7 +18,7 @@ type semanticHTMLRenderer struct {
 	writer io.Writer
 	err    error
 
-	elements *elementHooks
+	hooks *semanticRenderHooks
 
 	tight         bool
 	footnotes     map[string]int
@@ -38,21 +38,26 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 	return r.err
 }
 
-func renderSemanticHTMLWithElements(tape *semanticTape, hooks elementHooks) string {
+type semanticRenderHooks struct {
+	elements elementHooks
+	subtrees map[Kind]SubtreeRenderFunc
+}
+
+func renderSemanticHTMLWithHooks(tape *semanticTape, hooks semanticRenderHooks) string {
 	r := renderSemanticHTMLInto(tape, nil, &hooks)
 	return r.out.String()
 }
 
-func renderSemanticHTMLToWithElements(w io.Writer, tape *semanticTape, hooks elementHooks) error {
+func renderSemanticHTMLToWithHooks(w io.Writer, tape *semanticTape, hooks semanticRenderHooks) error {
 	r := renderSemanticHTMLInto(tape, w, &hooks)
 	return r.err
 }
 
-func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *elementHooks) *semanticHTMLRenderer {
+func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanticRenderHooks) *semanticHTMLRenderer {
 	r := &semanticHTMLRenderer{
 		tape:         tape,
 		writer:       writer,
-		elements:     hooks,
+		hooks:        hooks,
 		footnotes:    make(map[string]int),
 		footnoteNums: make(map[string]int),
 		fnrefTotal:   make(map[string]int),
@@ -229,18 +234,18 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 	}
 	switch r.kind(i) {
 	case KindSymbol:
-		if r.elements != nil && r.elements.symbol != nil {
-			r.elements.symbol(
+		if r.hooks != nil && r.hooks.elements.symbol != nil {
+			r.hooks.elements.symbol(
 				SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
 				ElementRenderer{semantic: r, record: i},
 			)
 			return
 		}
 	case KindDiv:
-		if r.elements != nil && r.elements.div != nil {
+		if r.hooks != nil && r.hooks.elements.div != nil {
 			record := r.tape.records[i]
 			position := r.tape.positions[i]
-			r.elements.div(
+			r.hooks.elements.div(
 				DivView{
 					attributes: AttributeView{
 						tape: r.tape, start: record.attrStart, end: r.tape.records[i+1].attrStart,
@@ -250,6 +255,15 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 						End:   Pos{Offset: int(position.end)},
 					},
 				},
+				ElementRenderer{semantic: r, record: i},
+			)
+			return
+		}
+	}
+	if r.hooks != nil {
+		if fn, ok := r.hooks.subtrees[r.kind(i)]; ok {
+			fn(
+				SubtreeView{root: ElementView{tape: r.tape, record: i}},
 				ElementRenderer{semantic: r, record: i},
 			)
 			return

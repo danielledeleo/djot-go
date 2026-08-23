@@ -36,7 +36,9 @@
 //	}))
 //
 // Lightweight symbol and Div customizations can use [WithSymbolRenderer] and
-// [WithDivRenderer] without materializing the AST.
+// [WithDivRenderer] without materializing the AST. [WithSubtreeRenderer] adds
+// bounded, read-only descendant inspection when a rendering decision depends
+// on an element's contents.
 //
 // # Security
 //
