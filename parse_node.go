@@ -1,9 +1,5 @@
 package djot
 
-// parseNode is the parser's private mutable workspace. Common tree and text
-// state stays inline; fields used only by a minority of kinds are promoted from
-// an arena-backed payload. Public Nodes are materialized from the final semantic
-// tape and are never used while parsing.
 type parseNode struct {
 	Kind      Kind
 	Children  []*parseNode
@@ -36,8 +32,6 @@ type parsePayload struct {
 	Label     string
 }
 
-// parseNodeSpec is a short-lived constructor value. It preserves readable
-// parser literals without forcing every live node to carry every payload field.
 type parseNodeSpec struct {
 	Kind      Kind
 	Children  []*parseNode
@@ -134,8 +128,6 @@ type parseNodeArena struct {
 	payloads parseSlab[parsePayload]
 }
 
-// new accepts the old Node-shaped constructor value to keep parser creation
-// sites concise while storing the result in the private compact shape.
 func (a *parseNodeArena) new(src parseNodeSpec) *parseNode {
 	dst := a.nodes.alloc()
 	dst.Kind = src.Kind

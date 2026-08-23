@@ -46,6 +46,49 @@ func TestAttributesOrderedValue(t *testing.T) {
 	}
 }
 
+func TestAttributesRangeAndClasses(t *testing.T) {
+	var attributes djot.Attributes
+	if !attributes.AddClass("one") || !attributes.AddClass("two") {
+		t.Fatal("AddClass rejected valid classes")
+	}
+	attributes.Set("id", "target")
+
+	var visited []djot.Attribute
+	attributes.Range(func(attribute djot.Attribute) bool {
+		visited = append(visited, attribute)
+		return false
+	})
+	if got, want := visited, []djot.Attribute{{Key: "class", Value: "one two"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Range() = %#v, want %#v", got, want)
+	}
+
+	var nilAttributes *djot.Attributes
+	called := false
+	nilAttributes.Range(func(djot.Attribute) bool {
+		called = true
+		return true
+	})
+	if called || nilAttributes.Len() != 0 || nilAttributes.Entries() != nil {
+		t.Fatal("nil Attributes did not behave as an empty collection")
+	}
+}
+
+func TestKindString(t *testing.T) {
+	for _, test := range []struct {
+		kind djot.Kind
+		want string
+	}{
+		{djot.KindDocument, "document"},
+		{djot.KindEnDash, "en_dash"},
+		{djot.Kind(-1), "unknown"},
+		{djot.KindEnDash + 1, "unknown"},
+	} {
+		if got := test.kind.String(); got != test.want {
+			t.Errorf("Kind(%d).String() = %q, want %q", test.kind, got, test.want)
+		}
+	}
+}
+
 func TestPreorderVisitsRootAndStops(t *testing.T) {
 	doc := djot.Parse("one *two* three")
 	var kinds []djot.Kind
@@ -55,6 +98,21 @@ func TestPreorderVisitsRootAndStops(t *testing.T) {
 	})
 	if len(kinds) != 3 || kinds[0] != djot.KindDocument {
 		t.Fatalf("Preorder kinds = %v", kinds)
+	}
+}
+
+func TestNilAndRemovedRootTraversal(t *testing.T) {
+	visited := false
+	djot.Preorder(nil, func(djot.Node) bool {
+		visited = true
+		return true
+	})
+	djot.WalkBottomUp(nil, func(djot.Node) { visited = true })
+	if got := djot.Walk(nil, nil); got != nil || visited {
+		t.Fatal("nil traversal invoked a callback or returned a node")
+	}
+	if got := djot.Walk(&djot.Text{}, func(djot.Node) djot.Action { return djot.Remove }); got != nil {
+		t.Fatalf("removed root = %#v, want nil", got)
 	}
 }
 

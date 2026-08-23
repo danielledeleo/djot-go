@@ -1,8 +1,5 @@
 package djot
 
-// typedNodeArena uses small, independently growing slabs for the six dominant
-// materialized node shapes. Rare shapes use ordinary allocation; giving every
-// concrete type a slab retained more empty capacity without reducing tree size.
 type typedNodeArena struct {
 	texts      typedSlab[Text]
 	strongs    typedSlab[Strong]

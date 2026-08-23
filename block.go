@@ -27,11 +27,6 @@ func newBlockParser(input string) *blockParser {
 	return bp
 }
 
-// contentLines collects reconstructed content lines alongside their original
-// source positions. Text and origin travel in the same element rather than in
-// two parallel slices, so a line cannot exist without its span and the two can
-// never fall out of step. Growing the buffer also costs one allocation
-// per step instead of two.
 type contentLines []contentLine
 
 type contentLine struct {
@@ -40,23 +35,15 @@ type contentLine struct {
 	end   int // byte offset in original source where the line ends
 }
 
-// add appends a content line with its original source span.
 func (cl *contentLines) add(text string, srcStart, srcEnd int) {
 	*cl = append(*cl, contentLine{text: text, start: srcStart, end: srcEnd})
 }
 
-// addBlank appends an empty line (for blank continuation lines).
 func (cl *contentLines) addBlank(srcStart, srcEnd int) {
 	cl.add("", srcStart, srcEnd)
 }
 
-// subParser creates a block parser from the collected content lines,
-// with source positions mapped back to the original input. The refs map
-// is shared with the parent parser so reference definitions are globally visible.
 func (cl contentLines) subParser(refs map[string]*parseNode, arena *parseNodeArena) *blockParser {
-	// blockLines are built straight from the already-split content lines, so
-	// the sub-parser never needs the joined text: input stays empty, and
-	// splitLines (its only reader) is never called on a sub-parser.
 	lines := make([]blockLine, len(cl))
 	for i, line := range cl {
 		lines[i] = blockLine{
@@ -70,7 +57,6 @@ func (cl contentLines) subParser(refs map[string]*parseNode, arena *parseNodeAre
 }
 
 func (bp *blockParser) splitLines() {
-	// Pre-count lines to avoid repeated slice growth.
 	n := strings.Count(bp.input, "\n") + 1
 	bp.lines = make([]blockLine, 0, n)
 	offset := 0
@@ -126,16 +112,13 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 
 	line := bp.currentLine()
 
-	// Blank line.
 	if isBlankLine(line.text) {
-		// Discard pending block attributes — they can't attach across blank lines.
 		bp.pendingAttrs = nil
 		bp.pendingAttrOrder = nil
 		bp.pos++
 		return true
 	}
 
-	// Strip prefix (for blockquote continuation).
 	text := line.text
 	if prefix != "" {
 		if strings.HasPrefix(text, prefix) {
@@ -148,8 +131,6 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 	stripped := strings.TrimLeft(text, " \t")
 	indent := len(text) - len(stripped)
 
-	// Block-level attributes.
-	//
 	// literalLines carries a failed attempt down to parseParagraph: djot.js
 	// re-emits the text it consumed as literal inline content, so a "{" line
 	// that isn't a valid attribute block never gets a second reading as an
@@ -182,33 +163,27 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 		return true
 	}
 
-	// Heading: # followed by space (or end of line).
 	if level := headingLevel(stripped); level > 0 {
 		bp.parseHeading(parent, level, stripped, prefix)
 		return true
 	}
 
-	// Code block: ``` or ~~~
 	if isCodeFenceOpen(stripped) {
 		bp.parseCodeBlock(parent, stripped, indent, prefix)
 		return true
 	}
 
-	// Block quote: > followed by space.
 	if len(stripped) > 0 && stripped[0] == '>' && (len(stripped) == 1 || stripped[1] == ' ') {
 		bp.parseBlockQuote(parent, indent, prefix)
 		return true
 	}
 
-	// Fenced div: ::: followed by optional class.
 	if isDivFenceOpen(stripped) {
 		bp.parseFencedDiv(parent, stripped, indent, prefix)
 		return true
 	}
 
-	// Bullet list (or task list).
 	if marker, after, ok := bulletListMarker(stripped); ok {
-		// Check for task list: "- [ ] " or "- [x] "
 		if isTaskListItem(after) {
 			bp.parseTaskList(parent, marker, indent, prefix)
 			return true
@@ -217,37 +192,31 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 		return true
 	}
 
-	// Ordered list.
 	if start, style, after, ok := orderedListMarker(stripped); ok {
 		bp.parseOrderedList(parent, start, style, after, indent, prefix)
 		return true
 	}
 
-	// Reference definition: [label]: url
 	if isReferenceDefinition(stripped) {
 		bp.parseReferenceDefinition(parent, stripped, indent, prefix)
 		return true
 	}
 
-	// Footnote definition: [^label]:
 	if isFootnoteDefinition(stripped) {
 		bp.parseFootnoteDefinition(parent, stripped, indent, prefix)
 		return true
 	}
 
-	// Definition list.
 	if isDefinitionListMarker(stripped) {
 		bp.parseDefinitionList(parent, indent, prefix)
 		return true
 	}
 
-	// Table.
 	if isTableRow(stripped) && bp.isPrecededByBlank(parent) {
 		bp.parseTable(parent, stripped, indent, prefix)
 		return true
 	}
 
-	// Paragraph (default).
 	bp.parseParagraph(parent, prefix, literalLines)
 	return true
 }
@@ -257,7 +226,6 @@ func (bp *blockParser) currentLine() blockLine {
 }
 
 func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, prefix string) {
-	// Content starts after the # markers and any whitespace.
 	content := strings.TrimSpace(stripped[level:])
 
 	startLine := bp.currentLine()
@@ -268,7 +236,6 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 	lastEnd := startLine.end
 	bp.pos++
 
-	// Continuation lines: any line that doesn't start a new block.
 	var textBuf strings.Builder
 	textBuf.WriteString(content)
 
@@ -2040,7 +2007,7 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 
 		// Parse collected content as blocks.
 		subBP := content.subParser(bp.references, bp.arena)
-		itemNode := bp.arena.new(parseNodeSpec{Kind: KindDocument}) // temporary container
+		itemNode := bp.arena.new(parseNodeSpec{Kind: KindDocument})
 		subBP.parseBlocks(itemNode, 0, "")
 
 		// Split: first paragraph is the term, rest is the definition.

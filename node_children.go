@@ -8,7 +8,6 @@ func requireNode(node Node) {
 	}
 }
 
-// walkRead visits node and all descendants in preorder without allocating.
 func walkRead(node Node, visit func(Node)) {
 	requireNode(node)
 	visit(node)

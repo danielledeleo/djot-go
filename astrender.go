@@ -11,7 +11,6 @@ import (
 // source positions are included in the output.
 func RenderAST(doc *Doc, positions bool) string {
 	var b strings.Builder
-	// The only error source is the io.Writer; strings.Builder never fails.
 	_ = RenderASTTo(&b, doc, positions)
 	return b.String()
 }
@@ -60,16 +59,10 @@ func (r *astRenderer) renderPos(n Node) {
 	span := n.Span()
 	fi := &r.doc.Files[span.Start.File]
 	sLine, sCol := fi.Position(span.Start.Offset)
-	eLine, eCol := r.endPosition(fi, span.End.Offset)
+	eLine, eCol := astEndPosition(fi, span.End.Offset)
 	r.write(fmt.Sprintf(" (%d:%d:%d-%d:%d:%d)",
 		sLine, sCol, span.Start.Offset,
 		eLine, eCol, span.End.Offset))
-}
-
-// endPosition resolves an end offset to line:col using the djot.js convention:
-// newline characters and end-of-input map to the next line at column 0.
-func (r *astRenderer) endPosition(fi *FileInfo, offset int) (line, col int) {
-	return astEndPosition(fi, offset)
 }
 
 // astEndPosition resolves an end offset to line:col using the djot.js
@@ -78,7 +71,6 @@ func (r *astRenderer) endPosition(fi *FileInfo, offset int) (line, col int) {
 func astEndPosition(fi *FileInfo, offset int) (line, col int) {
 	src := fi.Source
 	if offset >= len(src) || (offset < len(src) && src[offset] == '\n') {
-		// Position is at a newline or past the end — report as next line, col 0.
 		line, _ = fi.Position(offset)
 		return line + 1, 0
 	}

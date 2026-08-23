@@ -7,9 +7,6 @@ import (
 // parseAllInlines walks the AST and parses inline content for all blocks
 // that contain raw text (paragraphs, headings).
 func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
-	// One reusable inline parser for the whole document. Its scratch maps
-	// (openers, openerIdx) are cleared between blocks rather than reallocated,
-	// which previously dominated parse-time allocation.
 	p := &inlineParser{
 		openers:   make(map[byte][]opener, 4),
 		openerIdx: make(map[int]bool, 8),
@@ -19,14 +16,10 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 		switch n.Kind {
 		case KindParagraph, KindHeading, KindTerm, KindTableCell, KindCaption:
 			if n.Text != "" {
-				// Compute the source offset for the inline text content.
-				// For headings, text starts after "# " markers.
-				// For other blocks, text starts at the block's content area.
 				baseOffset := n.Start.Offset
 				if n.Kind == KindHeading && doc != nil && len(doc.Files) > 0 {
 					src := doc.Files[0].Source
 					off := n.Start.Offset
-					// Skip leading whitespace, then skip '#' markers and space.
 					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
 						off++
 					}
@@ -40,7 +33,6 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 				} else if n.Kind == KindParagraph && doc != nil && len(doc.Files) > 0 {
 					src := doc.Files[0].Source
 					off := n.Start.Offset
-					// Skip leading whitespace on first line.
 					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
 						off++
 					}
@@ -57,12 +49,7 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 // parseInline parses a djot inline string into a list of inline nodes.
 // baseOffset is the source byte offset corresponding to input[0].
 // plainBracesUntil is an offset before which braces are ordinary characters.
-// It resets the parser's scratch state, so a single inlineParser can be reused
-// across every block in a document.
 func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBracesUntil int) []*parseNode {
-	// Nodes are collected into a scratch buffer reused across blocks, and the
-	// result is copied into a right-sized run at the end. The scratch maps are
-	// cleared rather than reallocated for the same reason.
 	p.input = input
 	p.pos = 0
 	p.nodes = p.scratch[:0]
@@ -72,8 +59,6 @@ func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBrac
 	p.baseOffset = baseOffset
 	p.plainBracesUntil = plainBracesUntil
 	out := p.parse()
-	// Keep the grown buffer for the next block, and hand back a right-sized
-	// copy so the block's Children do not pin the scratch buffer.
 	p.scratch = out[:0]
 	return p.slices.clone(out)
 }
@@ -97,8 +82,6 @@ type inlineParser struct {
 	slices     nodeSliceArena  // shared allocator for child slices
 	scratch    []*parseNode    // reused node buffer across blocks
 
-	// plainBracesUntil is an offset in input before which braces are ordinary
-	// characters rather than attribute syntax; see Node.plainBracesUntil.
 	plainBracesUntil int
 }
 
@@ -164,7 +147,6 @@ func (p *inlineParser) parse() []*parseNode {
 			p.parseText()
 		}
 
-		// Set positions on newly created nodes.
 		endPos := p.pos
 		for i := nodesBefore; i < len(p.nodes); i++ {
 			n := p.nodes[i]
@@ -177,7 +159,6 @@ func (p *inlineParser) parse() []*parseNode {
 		}
 	}
 
-	// Close any unclosed openers — they become literal text.
 	p.resolveUnclosedOpeners()
 
 	return p.nodes
@@ -482,11 +463,9 @@ func (p *inlineParser) parseDelimiter(char byte) {
 	canClose := p.canCloseDelimiter(start)
 	canOpen := p.canOpenDelimiter(start)
 
-	// Try to close first. Like djot.js, only check the most recent
-	// non-marked opener — don't loop back to older ones if it can't match.
+	// Like djot.js, only the most recent non-marked opener may close.
 	if canClose {
 		if openers, ok := p.openers[char]; ok && len(openers) > 0 {
-			// Find the last non-marked opener.
 			var op opener
 			opIdx := -1
 			for i := len(openers) - 1; i >= 0; i-- {
@@ -498,16 +477,12 @@ func (p *inlineParser) parseDelimiter(char byte) {
 			}
 			if opIdx >= 0 {
 				children := p.nodes[op.nodeIdx+1:]
-				// Reject empty emphasis (opener adjacent to closer with no content).
 				if len(children) > 0 {
 					p.openers[char] = append(openers[:opIdx], openers[opIdx+1:]...)
 
 					childCopy := p.slices.clone(children)
 
-					// Invalidate any openers whose nodeIdx >= op.nodeIdx.
 					p.invalidateOpenersFrom(op.nodeIdx)
-
-					// Remove opener placeholder and children from nodes.
 					p.nodes = p.nodes[:op.nodeIdx]
 
 					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
@@ -520,7 +495,6 @@ func (p *inlineParser) parseDelimiter(char byte) {
 		}
 	}
 
-	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
 		p.add(parseNodeSpec{Kind: KindText, Text: string(char)})
@@ -558,11 +532,7 @@ func (p *inlineParser) canCloseDelimiter(start int) bool {
 
 // invalidateOpenersFrom removes any openers (for any char) whose nodeIdx >= fromIdx.
 //
-// Openers are appended in ascending nodeIdx order, and every caller truncates
-// p.nodes to fromIdx immediately after calling, so surviving openers are always
-// a prefix of each slice. Binary searching for the cut keeps this off the hot
-// path: rescanning every open opener on each call made inputs that pile up
-// openers without closing them — a long run of "[^", say — quadratic.
+// Openers are ordered by nodeIdx, so every surviving set is a prefix.
 func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 	for ch, openers := range p.openers {
 		// Find the first opener with nodeIdx >= fromIdx.
@@ -608,15 +578,11 @@ func (p *inlineParser) parseBracketClose() {
 	op := openers[len(openers)-1]
 	p.openers['['] = openers[:len(openers)-1]
 
-	// Safety check: if op.nodeIdx is beyond current nodes, the opener was invalidated.
 	if op.nodeIdx >= len(p.nodes) {
 		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
 		return
 	}
 
-	// Footnote reference: [^label]. Matched here rather than at the opening
-	// bracket so that finding the closing bracket costs nothing extra; scanning
-	// ahead for it from every "[^" made parsing quadratic in the input length.
 	if op.char == '[' && op.pos+1 < len(p.input) && p.input[op.pos+1] == '^' {
 		// References are normalized like reference-link labels, collapsing runs
 		// of whitespace so a label broken across lines still matches its
@@ -634,11 +600,6 @@ func (p *inlineParser) parseBracketClose() {
 		}
 	}
 
-	// Nothing that could consume the brackets follows, so this is literal text.
-	// The opener placeholder is already the "[" (or "![") node and the content
-	// is already sitting behind it, so closing costs one appended "]" — no
-	// copying the children out and back. Deeply nested brackets close O(n)
-	// times, and copying on each was quadratic.
 	if p.pos >= len(p.input) || (p.input[p.pos] != '(' && p.input[p.pos] != '[' && p.input[p.pos] != '{') {
 		p.invalidateOpenersFrom(op.nodeIdx)
 		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
@@ -647,18 +608,14 @@ func (p *inlineParser) parseBracketClose() {
 
 	isImage := op.char == '!'
 
-	// Gather children between [ (or ![) and ].
 	children := p.nodes[op.nodeIdx+1:]
 	childCopy := p.slices.clone(children)
 	p.invalidateOpenersFrom(op.nodeIdx)
 	p.nodes = p.nodes[:op.nodeIdx]
 
-	// Collect inline text for reference lookup.
 	linkText := collectNodesText(childCopy)
 
-	// Check what follows: (url), [ref], {attrs}, or nothing.
 	if p.pos < len(p.input) && p.input[p.pos] == '(' {
-		// Inline link/image — find closing ) with balanced parentheses.
 		end := findBalancedParen(p.input, p.pos)
 		if end != -1 {
 			target := p.input[p.pos+1 : end]
@@ -684,11 +641,9 @@ func (p *inlineParser) parseBracketClose() {
 	}
 
 	if p.pos < len(p.input) && p.input[p.pos] == '[' {
-		// Reference link: [text][ref] or [text][]
 		refEnd := strings.IndexByte(p.input[p.pos:], ']')
 		if refEnd != -1 {
 			refLabel := p.input[p.pos+1 : p.pos+refEnd]
-			// Collapse newlines and surrounding whitespace in reference labels
 			refLabel = collapseWhitespace(refLabel)
 			if refLabel == "" {
 				refLabel = linkText
@@ -697,7 +652,6 @@ func (p *inlineParser) parseBracketClose() {
 			if p.resolveReference(refLabel, childCopy, isImage) {
 				return
 			}
-			// Reference not found - emit empty link/image
 			if isImage {
 				p.add(parseNodeSpec{Kind: KindImage, Children: childCopy})
 			} else {
@@ -708,7 +662,6 @@ func (p *inlineParser) parseBracketClose() {
 	}
 
 	if p.pos < len(p.input) && p.input[p.pos] == '{' {
-		// Span with attributes.
 		end := findClosingBrace(p.input, p.pos)
 		if end != -1 {
 			inner := p.input[p.pos+1 : end]
@@ -722,7 +675,6 @@ func (p *inlineParser) parseBracketClose() {
 		}
 	}
 
-	// No special syntax follows — just emit literal brackets with content.
 	if isImage {
 		p.add(parseNodeSpec{Kind: KindText, Text: "!["})
 	} else {
@@ -744,7 +696,6 @@ func (p *inlineParser) resolveReference(label string, children []*parseNode, isI
 	target := ref.Target
 	if isImage {
 		node := p.arena.new(parseNodeSpec{Kind: KindImage, Target: target, HasTarget: true, Children: children})
-		// Copy ref attrs
 		if ref.Attrs != nil {
 			for k, v := range ref.Attrs {
 				if k == "class" {

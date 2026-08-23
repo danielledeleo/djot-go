@@ -9,7 +9,7 @@ import (
 	"unsafe"
 )
 
-func renderLegacyHTMLForTest(doc *Doc, opts ...RenderOption) string {
+func renderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
 	doc.Root()
 	tape := doc.semantic
 	doc.semantic = nil
@@ -45,8 +45,8 @@ func TestSemanticTapeDefaultRendering(t *testing.T) {
 		if !doc.semantic.matchesAST(doc.Root()) {
 			t.Fatal("freshly parsed AST does not match its semantic tape")
 		}
-		if got, want := renderSemanticHTML(doc.semantic), renderLegacyHTMLForTest(doc); got != want {
-			t.Fatalf("tape output differs from legacy renderer\nwant: %q\n got: %q", want, got)
+		if got, want := renderSemanticHTML(doc.semantic), renderTreeHTMLForTest(doc); got != want {
+			t.Fatalf("tape output differs from tree renderer\nwant: %q\n got: %q", want, got)
 		}
 	}
 }
@@ -353,7 +353,7 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 			if doc.semantic.matchesAST(doc.Root()) {
 				t.Fatal("mutated AST still matches immutable tape")
 			}
-			want := renderLegacyHTMLForTest(doc)
+			want := renderTreeHTMLForTest(doc)
 			got := RenderHTML(doc)
 			if got != want {
 				t.Fatalf("fallback output differs\nwant: %q\n got: %q", want, got)
@@ -362,9 +362,9 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 	}
 }
 
-func TestSemanticTapeOptionsUseLegacyRenderer(t *testing.T) {
+func TestSemanticTapeOptionsUseTreeRenderer(t *testing.T) {
 	doc := Parse("reference[^a]\n\n[^a]: note\n")
-	want := renderLegacyHTMLForTest(doc, WithMultiBacklinks())
+	want := renderTreeHTMLForTest(doc, WithMultiBacklinks())
 	got := RenderHTML(doc, WithMultiBacklinks())
 	if got != want {
 		t.Fatalf("option fallback differs\nwant: %q\n got: %q", want, got)
@@ -377,7 +377,7 @@ func TestSemanticTapeSourceTextAndStoredText(t *testing.T) {
 	if spans == 0 || values == 0 {
 		t.Fatalf("expected source-backed and stored text, got spans=%d values=%d", spans, values)
 	}
-	if got, want := RenderHTML(doc), renderLegacyHTMLForTest(doc); got != want {
+	if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
 		t.Fatalf("mixed text storage differs\nwant: %q\n got: %q", want, got)
 	}
 }
@@ -394,7 +394,7 @@ func FuzzSemanticTapeHTMLParity(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := Parse(input)
 		got := RenderHTML(doc)
-		want := renderLegacyHTMLForTest(doc)
+		want := renderTreeHTMLForTest(doc)
 		if got != want {
 			t.Fatalf("tape output differs from AST renderer\ninput: %q\nwant: %q\n got: %q", input, want, got)
 		}
@@ -410,10 +410,10 @@ func BenchmarkProductionSemanticFastPath(b *testing.B) {
 			_ = RenderHTML(doc)
 		}
 	})
-	b.Run("LegacyAST", func(b *testing.B) {
+	b.Run("TreeAST", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = renderLegacyHTMLForTest(doc)
+			_ = renderTreeHTMLForTest(doc)
 		}
 	})
 	b.Run("TapeToDiscard", func(b *testing.B) {

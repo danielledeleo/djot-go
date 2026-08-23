@@ -5,7 +5,6 @@ import "strings"
 // Parse parses a djot document with resolved references, footnotes, and
 // auto-generated section IDs. The mutable AST is materialized lazily by Root.
 func Parse(input string) *Doc {
-	// Normalize line endings.
 	input = strings.ReplaceAll(input, "\r\n", "\n")
 	input = strings.ReplaceAll(input, "\r", "\n")
 
@@ -19,25 +18,12 @@ func Parse(input string) *Doc {
 		parseReferences: bp.references,
 	}
 
-	// Phase 2: parse inline content in all blocks that contain it.
 	parseAllInlines(root, doc, bp.arena)
-
-	// Phase 3: wrap headings in sections and assign IDs.
 	wrapSections(root, bp.arena)
-
-	// Phase 4: create implicit heading references.
 	registerHeadingRefs(doc)
-
-	// Phase 5: resolve any references that were unresolved during inline parsing
-	// (e.g., implicit heading references that weren't available yet).
 	resolveUnresolvedRefs(doc)
-
-	// Finalize the parser's private mutable workspace into the compact immutable
-	// document representation used by the default renderer.
 	doc.semantic = newSemanticTape(doc.parseRoot, input)
 	doc.semantic.captureReferences(doc.parseReferences)
-	// The exported document view is lazy. Release the parser's mutable tree and
-	// indexes; Root, Footnotes, and References rebuild them on demand.
 	doc.parseRoot = nil
 	doc.parseReferences = nil
 
@@ -53,7 +39,6 @@ func registerHeadingRefs(doc *Doc) {
 			if id == "" {
 				return
 			}
-			// Find the heading child.
 			for _, child := range n.Children {
 				if child.Kind == KindHeading {
 					label := collectParseText(child)

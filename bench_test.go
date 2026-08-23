@@ -55,9 +55,7 @@ func largeDoc() string {
 const hugeDocSize = 1 << 20
 
 // hugeDoc generates a document of about hugeDocSize with diverse block and
-// inline content. It adds chapters until it reaches the target rather than a
-// fixed number of them, so the size stays right when a chapter's content
-// changes: the previous count of 100 was documented as ~1 MB but gave 239 KB.
+// inline content, adding only whole chapters.
 func hugeDoc() string {
 	var b strings.Builder
 	b.Grow(hugeDocSize + 4096)
@@ -251,7 +249,7 @@ func BenchmarkASTShape(b *testing.B) {
 
 // BenchmarkASTKindDistribution records which variants dominate the large
 // representative tree. Run it explicitly; its intentionally wide output is
-// useful when choosing which concrete node families to prototype first.
+// useful when evaluating concrete node representation costs.
 func BenchmarkASTKindDistribution(b *testing.B) {
 	doc := djot.Parse(hugeDoc())
 	counts := make([]int, int(djot.KindEnDash)+1)

@@ -19,7 +19,6 @@ import (
 // not byte-for-byte identical to djot.js's "ast" JSON.
 func RenderASTJSON(doc *Doc, positions bool) string {
 	var b strings.Builder
-	// The only error source is the io.Writer; strings.Builder never fails.
 	_ = RenderASTJSONTo(&b, doc, positions)
 	return b.String()
 }

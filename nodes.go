@@ -642,7 +642,6 @@ func (d *Doc) References() map[string]*Reference {
 	return d.references
 }
 
-// Compile-time closure checks for every concrete node type.
 var (
 	_ Node   = (*Document)(nil)
 	_ Block  = (*Section)(nil)

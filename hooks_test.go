@@ -230,3 +230,12 @@ func TestRenderHooks(t *testing.T) {
 		}
 	})
 }
+
+func TestWithRendererRejectsInterfaceType(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("WithRenderer accepted Node as its inferred type")
+		}
+	}()
+	djot.WithRenderer(func(djot.Node, djot.NodeRenderer) {})
+}

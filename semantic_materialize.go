@@ -210,7 +210,6 @@ func (t *semanticTape) materializeReferences() map[string]*Reference {
 	return result
 }
 
-// matchesAST compares all state that can affect default HTML rendering.
 func (t *semanticTape) matchesAST(root *Document) bool {
 	if t == nil || root == nil || len(t.records) < 2 {
 		return false
