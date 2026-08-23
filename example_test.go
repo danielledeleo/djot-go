@@ -184,6 +184,18 @@ func ExampleDocumentView_Footnotes() {
 	// Output: 1 2
 }
 
+func ExampleDocumentView_References() {
+	doc := djot.Parse("[project]: https://djot.net\n\n[Djot][project]\n")
+	var destination string
+	djot.RenderHTML(doc, djot.WithDocumentRenderer(
+		func(document djot.DocumentView, _ djot.DocumentRenderer) {
+			destination = document.References()[0].Destination()
+		},
+	))
+	fmt.Println(destination)
+	// Output: https://djot.net
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

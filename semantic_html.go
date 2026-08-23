@@ -42,6 +42,7 @@ type semanticRenderHooks struct {
 	elements elementHooks
 	subtrees map[Kind]SubtreeRenderFunc
 	document DocumentRenderFunc
+	doc      *Doc
 }
 
 func renderSemanticHTMLWithHooks(tape *semanticTape, hooks semanticRenderHooks) string {
@@ -84,7 +85,7 @@ func (r *semanticHTMLRenderer) renderDocument() {
 		r.renderDocumentDefault()
 		return
 	}
-	state := documentViewState{root: ElementView{tape: r.tape, record: 0}, semantic: r}
+	state := documentViewState{root: ElementView{tape: r.tape, record: 0}, semantic: r, doc: r.hooks.doc}
 	r.hooks.document(
 		DocumentView{state: &state},
 		DocumentRenderer{semantic: r},

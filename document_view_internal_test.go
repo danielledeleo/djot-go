@@ -72,6 +72,51 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		}
 	})
 
+	t.Run("reference index remains compact", func(t *testing.T) {
+		doc := Parse("[label]: /target\n\n[label][]\n")
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			references := document.References()
+			if len(references) != 1 || references[0].Label() != "label" || references[0].Destination() != "/target" {
+				t.Fatalf("reference index = %#v", references)
+			}
+			if document.state.references == nil || !document.state.referencesReady {
+				t.Fatal("reference index was not cached")
+			}
+		}))
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("reference index materialized the typed AST")
+		}
+	})
+
+	t.Run("mutated references remain authoritative", func(t *testing.T) {
+		doc := Parse("[label]: /target\n\n[label][]\n")
+		reference := doc.References()["label"]
+		reference.Destination = "/changed"
+		reference.Attributes.Set("class", "external")
+		var got []ReferenceView
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			got = document.References()
+		}))
+		if len(got) != 1 || got[0].Destination() != "/changed" || got[0].Attributes().Get("class") != "external" {
+			t.Fatalf("mutated reference index = %#v", got)
+		}
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("reference mutation materialized the typed AST")
+		}
+	})
+
+	t.Run("externally supplied references", func(t *testing.T) {
+		doc := NewDoc(&Document{})
+		doc.References()["custom"] = &Reference{Destination: "/custom", DestinationSet: true}
+		var got []ReferenceView
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			got = document.References()
+		}))
+		if len(got) != 1 || got[0].Label() != "custom" || got[0].Destination() != "/custom" {
+			t.Fatalf("external reference index = %#v", got)
+		}
+	})
+
 	t.Run("mutated tree remains authoritative", func(t *testing.T) {
 		doc := Parse("# Original\n")
 		heading := findTypedNode[*Heading](doc.Root())
@@ -217,6 +262,31 @@ func TestDocumentViewAllocations(t *testing.T) {
 	if slope := (manyFootnoteDelta - oneFootnoteDelta) / 999; slope > maxIndexAllocationsPerAdditionalFootnote {
 		t.Fatalf("footnote index allocations grew by %.2f per footnote, want at most %d", slope, maxIndexAllocationsPerAdditionalFootnote)
 	}
+
+	measureReferences := func(references int) float64 {
+		var input strings.Builder
+		for i := 0; i < references; i++ {
+			input.WriteString("[r")
+			input.WriteString(itoa(i))
+			input.WriteString("]: /target\n\n")
+		}
+		doc := Parse(input.String())
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			_ = document.References()
+		})
+		return testing.AllocsPerRun(20, func() {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	oneReference := measureReferences(1)
+	manyReferences := measureReferences(1000)
+	const maxAllocationsPerAdditionalReference = 1
+	if slope := (manyReferences - oneReference) / 999; slope > maxAllocationsPerAdditionalReference {
+		t.Fatalf("reference index allocations grew by %.2f per reference, want at most %d", slope, maxAllocationsPerAdditionalReference)
+	}
 }
 
 func BenchmarkDocumentKindCountsDelta(b *testing.B) {
@@ -291,6 +361,41 @@ func BenchmarkDocumentFootnotesDelta(b *testing.B) {
 		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
 			if footnotes := document.Footnotes(); len(footnotes) != 1024 {
 				b.Fatal(len(footnotes))
+			}
+		})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func BenchmarkDocumentReferencesDelta(b *testing.B) {
+	var source strings.Builder
+	for i := 0; i < 1024; i++ {
+		source.WriteString("[r")
+		source.WriteString(itoa(i))
+		source.WriteString("]: /target\n\n")
+	}
+	input := source.String()
+
+	b.Run("TypedReferenceIndex", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			if references := doc.References(); len(references) != 1024 {
+				b.Fatal(len(references))
+			}
+		}
+	})
+
+	b.Run("CompactReferenceIndex", func(b *testing.B) {
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if references := document.References(); len(references) != 1024 {
+				b.Fatal(len(references))
 			}
 		})
 		b.ReportAllocs()

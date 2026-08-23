@@ -1,6 +1,9 @@
 package djot
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // HeadingView is a read-only heading entry produced by [DocumentView.Headings].
 type HeadingView struct {
@@ -19,6 +22,27 @@ type FootnoteView struct {
 	referenceCount int
 	defined        bool
 }
+
+// ReferenceView is compact, read-only metadata for one resolved reference
+// definition. Reference definitions are document metadata rather than Nodes.
+type ReferenceView struct {
+	label          string
+	destination    string
+	destinationSet bool
+	attributes     AttributeView
+}
+
+// Label returns the normalized reference label.
+func (r ReferenceView) Label() string { return r.label }
+
+// Destination returns the resolved reference destination.
+func (r ReferenceView) Destination() string { return r.destination }
+
+// DestinationSet reports whether the reference explicitly has a destination.
+func (r ReferenceView) DestinationSet() bool { return r.destinationSet }
+
+// Attributes returns the reference definition's read-only ordered attributes.
+func (r ReferenceView) Attributes() AttributeView { return r.attributes }
 
 // Label returns the normalized footnote label.
 func (f FootnoteView) Label() string { return f.label }
@@ -62,14 +86,17 @@ func (h HeadingView) Span() SourceSpan { return h.element.Span() }
 func (h HeadingView) Attributes() AttributeView { return h.element.Attributes() }
 
 type documentViewState struct {
-	root           ElementView
-	headings       []HeadingView
-	headingsReady  bool
-	kindCounts     *[int(KindEnDash) + 1]int
-	footnotes      []FootnoteView
-	footnotesReady bool
-	semantic       *semanticHTMLRenderer
-	tree           *htmlRenderer
+	root            ElementView
+	headings        []HeadingView
+	headingsReady   bool
+	kindCounts      *[int(KindEnDash) + 1]int
+	footnotes       []FootnoteView
+	footnotesReady  bool
+	references      []ReferenceView
+	referencesReady bool
+	semantic        *semanticHTMLRenderer
+	tree            *htmlRenderer
+	doc             *Doc
 }
 
 // DocumentView provides focused, read-only indexes over a complete parsed
@@ -125,6 +152,20 @@ func (d DocumentView) Footnotes() []FootnoteView {
 		d.state.footnotesReady = true
 	}
 	return d.state.footnotes
+}
+
+// References returns resolved reference definitions in normalized-label order,
+// including implicit heading references. The index is built lazily and reused
+// for the duration of the callback.
+func (d DocumentView) References() []ReferenceView {
+	if d.state == nil {
+		return nil
+	}
+	if !d.state.referencesReady {
+		d.state.references = buildDocumentReferences(d.state)
+		d.state.referencesReady = true
+	}
+	return d.state.references
 }
 
 // DocumentRenderFunc controls rendering after inspecting the complete
@@ -313,6 +354,50 @@ func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
 		return footnotes
 	}
 	return nil
+}
+
+func buildDocumentReferences(state *documentViewState) []ReferenceView {
+	if state.doc == nil {
+		return nil
+	}
+	state.doc.mu.RLock()
+	defer state.doc.mu.RUnlock()
+
+	if state.doc.references != nil {
+		labels := make([]string, 0, len(state.doc.references))
+		for label := range state.doc.references {
+			labels = append(labels, label)
+		}
+		sort.Strings(labels)
+		references := make([]ReferenceView, 0, len(labels))
+		for _, label := range labels {
+			reference := state.doc.references[label]
+			if reference == nil {
+				continue
+			}
+			references = append(references, ReferenceView{
+				label: label, destination: reference.Destination,
+				destinationSet: reference.DestinationSet,
+				attributes:     AttributeView{attributes: &reference.Attributes},
+			})
+		}
+		return references
+	}
+
+	tape := state.doc.semantic
+	if tape == nil || len(tape.references) == 0 {
+		return nil
+	}
+	references := make([]ReferenceView, 0, len(tape.referenceLabels))
+	for _, label := range tape.referenceLabels {
+		reference := tape.references[label]
+		references = append(references, ReferenceView{
+			label: label, destination: reference.target,
+			destinationSet: reference.hasTarget,
+			attributes:     AttributeView{referenceAttributes: reference.attrs},
+		})
+	}
+	return references
 }
 
 func collectDocumentText(element ElementView) string {

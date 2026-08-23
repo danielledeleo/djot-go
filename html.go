@@ -48,19 +48,24 @@ type SymbolView struct {
 // :name: rendering. Returning without doing either suppresses the symbol.
 type SymbolRenderFunc func(symbol SymbolView, renderer ElementRenderer)
 
-// AttributeView is a read-only, allocation-free view of an element's ordered
-// attributes. The view is valid only for the duration of its render callback.
+// AttributeView is a read-only, allocation-free view of ordered attributes on
+// an element or compact index entry. The view is valid only for the duration of
+// its render callback.
 type AttributeView struct {
-	tape       *semanticTape
-	attributes *Attributes
-	start      uint32
-	end        uint32
+	tape                *semanticTape
+	referenceAttributes []semanticAttribute
+	attributes          *Attributes
+	start               uint32
+	end                 uint32
 }
 
 // Len returns the number of attributes.
 func (a AttributeView) Len() int {
 	if a.tape != nil {
 		return int(a.end - a.start)
+	}
+	if a.referenceAttributes != nil {
+		return len(a.referenceAttributes)
 	}
 	return a.attributes.Len()
 }
@@ -82,6 +87,11 @@ func (a AttributeView) Lookup(key string) (string, bool) {
 		}
 		return "", false
 	}
+	for _, attribute := range a.referenceAttributes {
+		if attribute.key == key {
+			return attribute.value, true
+		}
+	}
 	return a.attributes.Lookup(key)
 }
 
@@ -95,6 +105,14 @@ func (a AttributeView) Range(fn func(Attribute) bool) {
 				return
 			}
 		}
+		return
+	}
+	for _, attribute := range a.referenceAttributes {
+		if !fn(Attribute{Key: attribute.key, Value: attribute.value}) {
+			return
+		}
+	}
+	if a.referenceAttributes != nil {
 		return
 	}
 	a.attributes.Range(fn)
@@ -538,7 +556,7 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLWithHooks(tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document,
+				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
 			})
 		}
 	}
@@ -565,7 +583,7 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLToWithHooks(w, tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document,
+				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
 			})
 		}
 	}
@@ -783,7 +801,7 @@ func (r *htmlRenderer) renderDocument() {
 		r.renderDocumentDefault()
 		return
 	}
-	state := documentViewState{root: ElementView{node: r.doc.Root()}, tree: r}
+	state := documentViewState{root: ElementView{node: r.doc.Root()}, tree: r, doc: r.doc}
 	r.document(
 		DocumentView{state: &state},
 		DocumentRenderer{tree: r},

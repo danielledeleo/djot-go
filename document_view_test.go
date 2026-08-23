@@ -188,6 +188,57 @@ func TestDocumentViewFootnoteParityAndOrdering(t *testing.T) {
 	}
 }
 
+func TestDocumentViewReferenceParityAndOrdering(t *testing.T) {
+	const input = "[z]: /z\n\n[a]: /a\n\n# heading\n\n[z][]\n"
+	type snapshot struct {
+		label          string
+		destination    string
+		destinationSet bool
+		attributes     string
+	}
+	var want []snapshot
+	for _, backend := range []string{"tape", "tree"} {
+		t.Run(backend, func(t *testing.T) {
+			doc := djot.Parse(input)
+			options := []djot.RenderOption{djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+				first := document.References()
+				second := document.References()
+				if len(first) > 0 && &first[0] != &second[0] {
+					t.Fatal("reference index was rebuilt within one render")
+				}
+				var got []snapshot
+				for _, reference := range first {
+					entry := snapshot{
+						label: reference.Label(), destination: reference.Destination(),
+						destinationSet: reference.DestinationSet(),
+					}
+					reference.Attributes().Range(func(attribute djot.Attribute) bool {
+						entry.attributes += attribute.Key + "=" + attribute.Value + ";"
+						return true
+					})
+					got = append(got, entry)
+				}
+				if backend == "tape" {
+					want = got
+				} else if !equalDocumentSummary(got, want) {
+					t.Fatalf("tree references differ\nwant: %#v\n got: %#v", want, got)
+				}
+				r.Default()
+			})}
+			if backend == "tree" {
+				options = append(options, djot.WithMultiBacklinks())
+			}
+			djot.RenderHTML(doc, options...)
+		})
+	}
+	if labels := []string{want[0].label, want[1].label, want[2].label}; !equalDocumentSummary(labels, []string{"a", "heading", "z"}) {
+		t.Fatalf("reference labels = %v", labels)
+	}
+	if want[0].destination != "/a" || want[1].destination != "#heading" || want[2].destination != "/z" {
+		t.Fatalf("reference destinations = %#v", want)
+	}
+}
+
 func TestDocumentRendererWrapsEndnotes(t *testing.T) {
 	const input = "reference[^a]\n\n[^a]: note\n"
 	for _, backend := range []string{"tape", "tree", "configured tree"} {

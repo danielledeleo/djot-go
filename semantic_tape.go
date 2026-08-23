@@ -1,20 +1,23 @@
 package djot
 
+import "sort"
+
 // semanticTape is the compact, immutable rendering representation attached to
 // parser-produced documents. It is deliberately private: the public mutable
 // AST remains authoritative whenever its render-visible semantics differ.
 type semanticTape struct {
-	source     string
-	records    []semanticRecord
-	attributes []semanticAttribute
-	textSpans  []semanticSourceSpan
-	textValues []string
-	targets    []string
-	labels     []string
-	listStarts []int
-	textExtras []semanticTextExtra
-	positions  []semanticPosition
-	references map[string]semanticReference
+	source          string
+	records         []semanticRecord
+	attributes      []semanticAttribute
+	textSpans       []semanticSourceSpan
+	textValues      []string
+	targets         []string
+	labels          []string
+	listStarts      []int
+	textExtras      []semanticTextExtra
+	positions       []semanticPosition
+	references      map[string]semanticReference
+	referenceLabels []string
 }
 
 // semanticRecord is a 16-byte preorder record. payload is a semantic union:
@@ -202,6 +205,7 @@ func (t *semanticTape) captureReferences(references map[string]*parseNode) {
 		return
 	}
 	t.references = make(map[string]semanticReference, len(references))
+	t.referenceLabels = make([]string, 0, len(references))
 	for name, node := range references {
 		ref := semanticReference{
 			target: node.Target, hasTarget: node.HasTarget, label: node.Label,
@@ -212,7 +216,9 @@ func (t *semanticTape) captureReferences(references map[string]*parseNode) {
 			}
 		}
 		t.references[name] = ref
+		t.referenceLabels = append(t.referenceLabels, name)
 	}
+	sort.Strings(t.referenceLabels)
 }
 
 func (t *semanticTape) addText(node *parseNode, value string) uint32 {

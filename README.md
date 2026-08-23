@@ -166,6 +166,10 @@ labels, assigned numbers, reference counts, and whether a definition exists.
 Referenced footnotes appear in render order, followed by unused definitions in
 source order. Footnote block contents remain part of the full Node API.
 
+`References()` lists resolved reference definitions in normalized-label order,
+including the implicit references generated for headings. Each entry exposes
+its destination and ordered attributes without materializing Nodes.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 
