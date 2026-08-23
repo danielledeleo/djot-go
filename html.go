@@ -464,7 +464,8 @@ func WithSubtreeRenderer(kind Kind, fn SubtreeRenderFunc) RenderOption {
 }
 
 // WithDocumentRenderer registers a whole-document rendering hook. The callback
-// can inspect focused indexes such as [DocumentView.Headings] before writing.
+// can inspect focused indexes and summaries such as [DocumentView.Headings] and
+// [DocumentView.Contains] before writing.
 // Call [DocumentRenderer.Default] to emit the normal document, including
 // endnotes, through the remaining hooks. Returning without writing or calling
 // Default suppresses all output.

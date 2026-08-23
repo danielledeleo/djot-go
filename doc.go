@@ -43,8 +43,8 @@
 // Lightweight symbol and Div customizations can use [WithSymbolRenderer] and
 // [WithDivRenderer]. [WithSubtreeRenderer] adds bounded, read-only structural
 // inspection when a rendering decision depends on an element's descendants.
-// [WithDocumentRenderer] provides focused indexes such as
-// [DocumentView.Headings].
+// [WithDocumentRenderer] provides focused indexes and summaries such as
+// [DocumentView.Headings], [DocumentView.Contains], and [DocumentView.Count].
 //
 // # Security
 //

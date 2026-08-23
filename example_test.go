@@ -156,6 +156,20 @@ func ExampleWithDocumentRenderer() {
 	// </section>
 }
 
+func ExampleDocumentView_Count() {
+	doc := djot.Parse("# One\n\n## Two\n")
+	var headings int
+	var hasCode bool
+	djot.RenderHTML(doc, djot.WithDocumentRenderer(
+		func(document djot.DocumentView, _ djot.DocumentRenderer) {
+			headings = document.Count(djot.KindHeading)
+			hasCode = document.Contains(djot.KindCodeBlock)
+		},
+	))
+	fmt.Println(headings, hasCode)
+	// Output: 2 false
+}
+
 func ExampleRenderAST() {
 	doc := djot.Parse("Hello *world*!")
 	fmt.Println(djot.RenderAST(doc, false))

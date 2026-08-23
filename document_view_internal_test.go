@@ -24,6 +24,23 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		}
 	})
 
+	t.Run("kind summary remains compact", func(t *testing.T) {
+		doc := Parse("# Heading\n\nparagraph\n")
+		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if document.Count(KindHeading) != 1 || !document.Contains(KindParagraph) {
+				t.Fatal("kind summary did not inspect the semantic tape")
+			}
+			counts := document.state.kindCounts
+			_ = document.Count(KindText)
+			if document.state.kindCounts != counts {
+				t.Fatal("kind summary was rebuilt within one callback")
+			}
+		}))
+		if doc.root != nil || doc.rootRequested {
+			t.Fatal("kind summary materialized the typed AST")
+		}
+	})
+
 	t.Run("mutated tree remains authoritative", func(t *testing.T) {
 		doc := Parse("# Original\n")
 		heading := findTypedNode[*Heading](doc.Root())
@@ -94,6 +111,29 @@ func TestDocumentViewAllocations(t *testing.T) {
 		t.Fatalf("document hook allocations scale with records: short=%.0f long=%.0f", short, long)
 	}
 
+	measureKindSummary := func(paragraphs int) float64 {
+		var input strings.Builder
+		for i := 0; i < paragraphs; i++ {
+			input.WriteString("paragraph\n\n")
+		}
+		doc := Parse(input.String())
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			_ = document.Count(KindParagraph)
+			_ = document.Contains(KindText)
+		})
+		return testing.AllocsPerRun(20, func() {
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	shortSummary := measureKindSummary(1)
+	longSummary := measureKindSummary(1000)
+	if longSummary > shortSummary+1 {
+		t.Fatalf("kind summary allocations scale with records: short=%.0f long=%.0f", shortSummary, longSummary)
+	}
+
 	measureHeadings := func(headings int) float64 {
 		var input strings.Builder
 		for i := 0; i < headings; i++ {
@@ -117,6 +157,46 @@ func TestDocumentViewAllocations(t *testing.T) {
 		t.Fatalf("heading index allocations grew by %.2f per heading, want at most %d (one=%.0f many=%.0f)",
 			slope, maxAllocationsPerAdditionalHeading, one, many)
 	}
+}
+
+func BenchmarkDocumentKindCountsDelta(b *testing.B) {
+	var source strings.Builder
+	for i := 0; i < 4096; i++ {
+		source.WriteString("paragraph :star:\n\n")
+	}
+	input := source.String()
+
+	b.Run("RawNodeCrawl", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			count := 0
+			Preorder(doc.Root(), func(node Node) bool {
+				if node.Kind() == KindSymbol {
+					count++
+				}
+				return true
+			})
+			if count != 4096 {
+				b.Fatal(count)
+			}
+		}
+	})
+
+	b.Run("TapeKindIndex", func(b *testing.B) {
+		option := WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
+			if count := document.Count(KindSymbol); count != 4096 {
+				b.Fatal(count)
+			}
+		})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			doc := Parse(input)
+			if err := RenderHTMLTo(io.Discard, doc, option); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func BenchmarkDocumentViewDelta(b *testing.B) {

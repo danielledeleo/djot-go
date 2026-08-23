@@ -87,6 +87,52 @@ func TestDocumentViewHeadingParity(t *testing.T) {
 	}
 }
 
+func TestDocumentViewKindCounts(t *testing.T) {
+	const input = "# Heading\n\n::: note\n:star:\n:::\n"
+	var want []int
+	for _, backend := range []string{"tape", "tree"} {
+		t.Run(backend, func(t *testing.T) {
+			doc := djot.Parse(input)
+			if backend == "tree" {
+				doc = djot.NewDoc(doc.Root())
+			}
+			var counts []int
+			djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+				for kind := djot.KindDocument; kind <= djot.KindEnDash; kind++ {
+					count := document.Count(kind)
+					if document.Contains(kind) != (count != 0) {
+						t.Fatalf("Contains(%v) disagrees with Count=%d", kind, count)
+					}
+					counts = append(counts, count)
+				}
+				if document.Count(djot.Kind(-1)) != 0 || document.Count(djot.KindEnDash+1) != 0 {
+					t.Fatal("out-of-range kind count was nonzero")
+				}
+				r.Default()
+			}))
+			if backend == "tape" {
+				want = counts
+				return
+			}
+			if !equalDocumentSummary(counts, want) {
+				t.Fatalf("tree counts differ\nwant: %v\n got: %v", want, counts)
+			}
+		})
+	}
+	for kind, count := range map[djot.Kind]int{
+		djot.KindDocument:  1,
+		djot.KindSection:   1,
+		djot.KindHeading:   1,
+		djot.KindDiv:       1,
+		djot.KindParagraph: 1,
+		djot.KindSymbol:    1,
+	} {
+		if got := want[int(kind)]; got != count {
+			t.Fatalf("Count(%v) = %d, want %d", kind, got, count)
+		}
+	}
+}
+
 func TestDocumentRendererWrapsEndnotes(t *testing.T) {
 	const input = "reference[^a]\n\n[^a]: note\n"
 	for _, backend := range []string{"tape", "tree", "configured tree"} {

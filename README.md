@@ -156,6 +156,11 @@ prior mutation requires the tree.
 `DocumentRenderer.Write` writes raw HTML, so derived text and attribute values
 must be escaped as shown above.
 
+`Contains(kind)` and `Count(kind)` share a lazy document-kind index. They are
+useful for inexpensive feature detection—for example, wrapping documents that
+contain math or loading syntax-highlighting assets only when a code block is
+present.
+
 Symbols have a compact rendering hook that does not materialize the AST for an
 ordinary parsed document:
 

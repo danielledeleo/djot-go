@@ -33,6 +33,7 @@ type documentViewState struct {
 	root          ElementView
 	headings      []HeadingView
 	headingsReady bool
+	kindCounts    *[int(KindEnDash) + 1]int
 }
 
 // DocumentView provides focused, read-only indexes over a complete parsed
@@ -55,6 +56,25 @@ func (d DocumentView) Headings() []HeadingView {
 		d.state.headingsReady = true
 	}
 	return d.state.headings
+}
+
+// Contains reports whether the document contains an element of kind. It shares
+// a lazily built kind index with [DocumentView.Count].
+func (d DocumentView) Contains(kind Kind) bool {
+	return d.Count(kind) != 0
+}
+
+// Count returns the number of elements of kind in the document. The document
+// root is included, so Count(KindDocument) returns one for a valid document.
+// The kind index is built lazily and reused for the duration of the callback.
+func (d DocumentView) Count(kind Kind) int {
+	if d.state == nil || kind < 0 || kind > KindEnDash {
+		return 0
+	}
+	if d.state.kindCounts == nil {
+		d.state.kindCounts = buildDocumentKindCounts(d.state.root)
+	}
+	return d.state.kindCounts[kind]
 }
 
 // DocumentRenderFunc controls rendering after inspecting the complete
@@ -155,6 +175,28 @@ func buildHeadingViews(root ElementView) []HeadingView {
 	}
 	walk(root.node)
 	return headings
+}
+
+func buildDocumentKindCounts(root ElementView) *[int(KindEnDash) + 1]int {
+	counts := new([int(KindEnDash) + 1]int)
+	if root.tape != nil {
+		end := int(root.tape.records[root.record].subtreeEnd)
+		for i := root.record; i < end; i++ {
+			kind := Kind(root.tape.records[i].kind)
+			if kind >= 0 && kind <= KindEnDash {
+				counts[kind]++
+			}
+		}
+	} else if root.node != nil {
+		Preorder(root.node, func(node Node) bool {
+			kind := node.Kind()
+			if kind >= 0 && kind <= KindEnDash {
+				counts[kind]++
+			}
+			return true
+		})
+	}
+	return counts
 }
 
 func collectDocumentText(element ElementView) string {
