@@ -452,31 +452,59 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 		"# heading\n\ntext\n",
 		"# :symbol: `code`\n\n## second\n",
 		"reference[^a]\n\n[^a]: note\n",
+		"[label]: /target\n\n[label][]\n",
+		"{#same}\n# first\n\n{#same}\n# second\n",
 	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		type summary struct {
-			levels []int
-			texts  []string
+			counts     []int
+			headings   []string
+			footnotes  []string
+			references []string
+			anchors    []string
 		}
-		render := func(doc *djot.Doc) (string, summary) {
+		render := func(doc *djot.Doc, forceTree bool) (string, summary) {
 			var result summary
-			output := djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+			options := []djot.RenderOption{djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+				for kind := djot.KindDocument; kind <= djot.KindEnDash; kind++ {
+					result.counts = append(result.counts, document.Count(kind))
+				}
 				for _, heading := range document.Headings() {
-					result.levels = append(result.levels, heading.Level())
-					result.texts = append(result.texts, heading.Text())
+					result.headings = append(result.headings,
+						strconv.Itoa(heading.Level())+"|"+strconv.Quote(heading.Text())+"|"+strconv.Quote(heading.ID()))
+				}
+				for _, footnote := range document.Footnotes() {
+					result.footnotes = append(result.footnotes,
+						strconv.Quote(footnote.Label())+"|"+strconv.Itoa(footnote.Number())+"|"+
+							strconv.Itoa(footnote.ReferenceCount())+"|"+strconv.FormatBool(footnote.Defined()))
+				}
+				for _, reference := range document.References() {
+					result.references = append(result.references,
+						strconv.Quote(reference.Label())+"|"+strconv.Quote(reference.Destination())+"|"+
+							strconv.FormatBool(reference.DestinationSet())+"|"+strconv.Itoa(reference.Attributes().Len()))
+				}
+				for _, anchor := range document.Anchors() {
+					result.anchors = append(result.anchors,
+						strconv.Quote(anchor.ID())+"|"+strconv.Itoa(int(anchor.Kind())))
 				}
 				r.Default()
-			}))
+			})}
+			if forceTree {
+				options = append(options, djot.WithNodeRenderer(djot.KindDocument, func(djot.Node, djot.NodeRenderer) {}))
+			}
+			output := djot.RenderHTML(doc, options...)
 			return output, result
 		}
 
-		tapeOutput, tapeSummary := render(djot.Parse(input))
-		treeParsed := djot.Parse(input)
-		treeOutput, treeSummary := render(djot.NewDoc(treeParsed.Root()))
-		if tapeOutput != treeOutput || !equalDocumentSummary(tapeSummary.levels, treeSummary.levels) ||
-			!equalDocumentSummary(tapeSummary.texts, treeSummary.texts) {
+		tapeOutput, tapeSummary := render(djot.Parse(input), false)
+		treeOutput, treeSummary := render(djot.Parse(input), true)
+		if tapeOutput != treeOutput || !equalDocumentSummary(tapeSummary.counts, treeSummary.counts) ||
+			!equalDocumentSummary(tapeSummary.headings, treeSummary.headings) ||
+			!equalDocumentSummary(tapeSummary.footnotes, treeSummary.footnotes) ||
+			!equalDocumentSummary(tapeSummary.references, treeSummary.references) ||
+			!equalDocumentSummary(tapeSummary.anchors, treeSummary.anchors) {
 			t.Fatalf("document view differs\ninput: %q\ntape output: %q\ntree output: %q\ntape: %#v\ntree: %#v", input, tapeOutput, treeOutput, tapeSummary, treeSummary)
 		}
 	})

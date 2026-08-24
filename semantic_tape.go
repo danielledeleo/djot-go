@@ -6,18 +6,17 @@ import "sort"
 // parser-produced documents. It is deliberately private: the public mutable
 // AST remains authoritative whenever its render-visible semantics differ.
 type semanticTape struct {
-	source          string
-	records         []semanticRecord
-	attributes      []semanticAttribute
-	textSpans       []semanticSourceSpan
-	textValues      []string
-	targets         []string
-	labels          []string
-	listStarts      []int
-	textExtras      []semanticTextExtra
-	positions       []semanticPosition
-	references      map[string]semanticReference
-	referenceLabels []string
+	source     string
+	records    []semanticRecord
+	attributes []semanticAttribute
+	textSpans  []semanticSourceSpan
+	textValues []string
+	targets    []string
+	labels     []string
+	listStarts []int
+	textExtras []semanticTextExtra
+	positions  []semanticPosition
+	references []semanticNamedReference
 }
 
 // semanticRecord is a 16-byte preorder record. payload is a semantic union:
@@ -54,8 +53,12 @@ type semanticPosition struct {
 type semanticReference struct {
 	target    string
 	hasTarget bool
-	label     string
 	attrs     []semanticAttribute
+}
+
+type semanticNamedReference struct {
+	name string
+	semanticReference
 }
 
 const (
@@ -204,21 +207,21 @@ func (t *semanticTape) captureReferences(references map[string]*parseNode) {
 	if len(references) == 0 {
 		return
 	}
-	t.references = make(map[string]semanticReference, len(references))
-	t.referenceLabels = make([]string, 0, len(references))
+	t.references = make([]semanticNamedReference, 0, len(references))
 	for name, node := range references {
 		ref := semanticReference{
-			target: node.Target, hasTarget: node.HasTarget, label: node.Label,
+			target: node.Target, hasTarget: node.HasTarget,
 		}
 		for _, key := range node.attrOrder {
 			if value, ok := node.Attrs[key]; ok {
 				ref.attrs = append(ref.attrs, semanticAttribute{key: key, value: value})
 			}
 		}
-		t.references[name] = ref
-		t.referenceLabels = append(t.referenceLabels, name)
+		t.references = append(t.references, semanticNamedReference{name: name, semanticReference: ref})
 	}
-	sort.Strings(t.referenceLabels)
+	sort.Slice(t.references, func(i, j int) bool {
+		return t.references[i].name < t.references[j].name
+	})
 }
 
 func (t *semanticTape) addText(node *parseNode, value string) uint32 {

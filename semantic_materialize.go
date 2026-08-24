@@ -196,7 +196,8 @@ func allocateTypedNode(kind Kind, arena *typedNodeArena) Node {
 
 func (t *semanticTape) materializeReferences() map[string]*Reference {
 	result := make(map[string]*Reference, len(t.references))
-	for name, source := range t.references {
+	for _, named := range t.references {
+		source := named.semanticReference
 		reference := &Reference{
 			Destination: source.target, DestinationSet: source.hasTarget,
 		}
@@ -205,7 +206,7 @@ func (t *semanticTape) materializeReferences() map[string]*Reference {
 				Key: attribute.key, Value: attribute.value,
 			})
 		}
-		result[name] = reference
+		result[named.name] = reference
 	}
 	return result
 }

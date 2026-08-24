@@ -33,7 +33,7 @@ type ReferenceView struct {
 }
 
 // AnchorView is compact, read-only metadata for an element with a non-empty id
-// attribute. Renderer-generated footnote ids are not document anchors.
+// attribute. Renderer-generated footnote IDs are not document anchors.
 type AnchorView struct {
 	element ElementView
 	id      string
@@ -329,7 +329,7 @@ func buildDocumentKindCounts(root ElementView) *[int(KindEnDash) + 1]int {
 func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
 	if state.semantic != nil {
 		renderer := state.semantic
-		footnotes := make([]FootnoteView, 0, len(renderer.footnotes))
+		footnotes := make([]FootnoteView, 0, len(renderer.footnoteOrder)+len(renderer.footnotes))
 		seen := make(map[string]struct{}, len(renderer.footnotes))
 		for _, item := range renderer.footnoteOrder {
 			view := FootnoteView{
@@ -360,7 +360,7 @@ func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
 	}
 	if state.tree != nil {
 		renderer := state.tree
-		footnotes := make([]FootnoteView, 0, len(renderer.footnotes))
+		footnotes := make([]FootnoteView, 0, len(renderer.footnoteOrder)+len(renderer.footnotes))
 		seen := make(map[string]struct{}, len(renderer.footnotes))
 		for _, item := range renderer.footnoteOrder {
 			view := FootnoteView{
@@ -424,11 +424,11 @@ func buildDocumentReferences(state *documentViewState) []ReferenceView {
 	if tape == nil || len(tape.references) == 0 {
 		return nil
 	}
-	references := make([]ReferenceView, 0, len(tape.referenceLabels))
-	for _, label := range tape.referenceLabels {
-		reference := tape.references[label]
+	references := make([]ReferenceView, 0, len(tape.references))
+	for _, named := range tape.references {
+		reference := named.semanticReference
 		references = append(references, ReferenceView{
-			label: label, destination: reference.target,
+			label: named.name, destination: reference.target,
 			destinationSet: reference.hasTarget,
 			attributes:     AttributeView{referenceAttributes: reference.attrs},
 		})
