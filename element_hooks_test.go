@@ -220,6 +220,30 @@ func TestDivRenderer(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("mutated span is authoritative", func(t *testing.T) {
+		doc := djot.Parse("::: note\ntext\n:::\n")
+		want := djot.SourceSpan{
+			Start: djot.Pos{File: 1, Offset: 7},
+			End:   djot.Pos{File: 1, Offset: 19},
+		}
+		djot.Preorder(doc.Root(), func(node djot.Node) bool {
+			if _, ok := node.(*djot.Div); ok {
+				djot.SetSpan(node, want)
+				return false
+			}
+			return true
+		})
+
+		var got djot.SourceSpan
+		djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
+			got = div.Span()
+			r.Default()
+		}))
+		if got != want {
+			t.Fatalf("Div view span = %+v, want mutated span %+v", got, want)
+		}
+	})
 }
 
 func FuzzDivRendererMatchesNodeRenderer(f *testing.F) {

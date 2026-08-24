@@ -7,7 +7,8 @@
 // and open-ended analysis.
 //
 // The parser is spec-compliant with the [djot syntax reference] and passes the
-// full official test suite. Parsed documents retain a compact semantic
+// official syntax and rendering tests; the Lua-only filter tests do not apply
+// to this Go implementation. Parsed documents retain a compact semantic
 // representation for rendering and materialize a mutable AST only when
 // [Doc.Root] is requested.
 //

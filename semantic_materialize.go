@@ -227,6 +227,12 @@ func (t *semanticTape) matchNode(node Node, index int) (int, bool) {
 	if Kind(record.kind) != node.Kind() || !t.matchAttributes(node, index) {
 		return index, false
 	}
+	position := t.positions[index]
+	span := node.Span()
+	if span.Start.File != 0 || span.End.File != 0 ||
+		span.Start.Offset != int(position.start) || span.End.Offset != int(position.end) {
+		return index, false
+	}
 
 	var flags uint8
 	switch node := node.(type) {

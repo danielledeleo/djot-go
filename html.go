@@ -349,8 +349,10 @@ func defaultFootnoteBacklinkLabel(_, k, total int) string {
 // reference to that footnote. num is the footnote's 1-based number. The default
 // is fmt.Sprintf("fn%d", num). Use this (with [WithFootnoteRefID]) to namespace
 // footnote ids when embedding rendered output in a larger page; see also the
-// [WithFootnotePrefix] convenience.
+// [WithFootnotePrefix] convenience. The returned value is HTML-attribute
+// escaped.
 func WithFootnoteID(fn func(num int) string) RenderOption {
+	requireRenderCallback(fn != nil, "WithFootnoteID")
 	return func(cfg *renderConfig) { cfg.footnoteID = fn }
 }
 
@@ -358,8 +360,9 @@ func WithFootnoteID(fn func(num int) string) RenderOption {
 // to footnote num — the id on the reference's <a> and the "#…" target of the
 // matching backlink. The default is "fnrefN" for the first reference and
 // "fnrefN-k" for later ones. Both ends of the link use this function, so they
-// always agree.
+// always agree. The returned value is HTML-attribute escaped.
 func WithFootnoteRefID(fn func(num, k int) string) RenderOption {
+	requireRenderCallback(fn != nil, "WithFootnoteRefID")
 	return func(cfg *renderConfig) { cfg.footnoteRefID = fn }
 }
 
@@ -367,7 +370,9 @@ func WithFootnoteRefID(fn func(num, k int) string) RenderOption {
 // a footnote, where total is the number of backlinks that footnote has (1 unless
 // [WithMultiBacklinks] is set). The default is "↩︎" when total is 1 and the
 // letters a, b, c, … otherwise. Use this for numeric or other label schemes.
+// The returned value is escaped as HTML text.
 func WithFootnoteBacklinkLabel(fn func(num, k, total int) string) RenderOption {
+	requireRenderCallback(fn != nil, "WithFootnoteBacklinkLabel")
 	return func(cfg *renderConfig) { cfg.footnoteBacklinkLabel = fn }
 }
 
@@ -403,9 +408,15 @@ func WithMultiBacklinks() RenderOption {
 // The hook receives the [Node] and a [NodeRenderer] for full control over output.
 // If called multiple times for the same kind, the last one wins.
 //
+// KindDocument and KindFootnote are not directly rendered elements; use
+// [WithDocumentRenderer] for the document and render hooks for a footnote's
+// block children. WithNodeRenderer panics for either synthetic root kind, an
+// invalid kind, or a nil callback.
+//
 // Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
 // For a symbol hook that can avoid AST materialization, see [WithSymbolRenderer].
 func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
+	requireElementHook(kind, fn != nil, "WithNodeRenderer")
 	return func(cfg *renderConfig) {
 		if cfg.hooks == nil {
 			cfg.hooks = make(map[Kind]NodeRenderFunc)
@@ -430,6 +441,7 @@ func WithNodeRenderer(kind Kind, fn NodeRenderFunc) RenderOption {
 // rendering for a symbol. If multiple symbol or Node hooks for [KindSymbol] are
 // registered, the last one wins.
 func WithSymbolRenderer(fn SymbolRenderFunc) RenderOption {
+	requireRenderCallback(fn != nil, "WithSymbolRenderer")
 	return func(cfg *renderConfig) {
 		cfg.elements.symbol = fn
 		delete(cfg.hooks, KindSymbol)
@@ -449,6 +461,7 @@ func WithSymbolRenderer(fn SymbolRenderFunc) RenderOption {
 // use the same hook through the tree renderer. If multiple Div, subtree, or
 // Node hooks for [KindDiv] are registered, the last one wins.
 func WithDivRenderer(fn DivRenderFunc) RenderOption {
+	requireRenderCallback(fn != nil, "WithDivRenderer")
 	return func(cfg *renderConfig) {
 		cfg.elements.div = fn
 		delete(cfg.hooks, KindDiv)
@@ -465,7 +478,11 @@ func WithDivRenderer(fn DivRenderFunc) RenderOption {
 // [ElementRenderer.Children] to stream the existing children without their
 // root wrapper. Returning without either suppresses the complete subtree. A
 // later subtree, specialized element, or Node hook for the same kind wins.
+// WithSubtreeRenderer panics for KindDocument, KindFootnote, an invalid kind,
+// or a nil callback; those kinds are synthetic rendering roots rather than
+// ordinary bounded elements.
 func WithSubtreeRenderer(kind Kind, fn SubtreeRenderFunc) RenderOption {
+	requireElementHook(kind, fn != nil, "WithSubtreeRenderer")
 	return func(cfg *renderConfig) {
 		if cfg.subtrees == nil {
 			cfg.subtrees = make(map[Kind]SubtreeRenderFunc)
@@ -481,6 +498,22 @@ func WithSubtreeRenderer(kind Kind, fn SubtreeRenderFunc) RenderOption {
 	}
 }
 
+func requireElementHook(kind Kind, callbackPresent bool, option string) {
+	requireRenderCallback(callbackPresent, option)
+	if kind < 0 || kind > KindEnDash {
+		panic("djot: " + option + " requires a valid node kind")
+	}
+	if kind == KindDocument || kind == KindFootnote {
+		panic("djot: " + option + " cannot target a synthetic rendering root")
+	}
+}
+
+func requireRenderCallback(present bool, option string) {
+	if !present {
+		panic("djot: " + option + " requires a non-nil callback")
+	}
+}
+
 // WithDocumentRenderer registers a whole-document rendering hook. The callback
 // can inspect focused indexes and summaries such as [DocumentView.Headings] and
 // [DocumentView.Contains] before writing.
@@ -492,6 +525,7 @@ func WithSubtreeRenderer(kind Kind, fn SubtreeRenderFunc) RenderOption {
 // or externally constructed trees provide the same view through the tree
 // backend. If registered more than once, the last document hook wins.
 func WithDocumentRenderer(fn DocumentRenderFunc) RenderOption {
+	requireRenderCallback(fn != nil, "WithDocumentRenderer")
 	return func(cfg *renderConfig) {
 		cfg.document = fn
 	}
@@ -504,6 +538,7 @@ func WithDocumentRenderer(fn DocumentRenderFunc) RenderOption {
 //	    r.Write(symbol.Name)
 //	})
 func WithRenderer[T Node](fn func(T, NodeRenderer)) RenderOption {
+	requireRenderCallback(fn != nil, "WithRenderer")
 	var zero T
 	if reflect.TypeOf(zero) == nil {
 		panic("djot: WithRenderer requires a concrete node pointer type")
@@ -532,6 +567,7 @@ func WithRenderer[T Node](fn func(T, NodeRenderer)) RenderOption {
 //	    return "" // fall through to default
 //	}))
 func WithRenderFunc(kind Kind, fn func(n Node) string) RenderOption {
+	requireRenderCallback(fn != nil, "WithRenderFunc")
 	return WithNodeRenderer(kind, func(n Node, r NodeRenderer) {
 		if s := fn(n); s != "" {
 			r.Write(s)
@@ -557,6 +593,8 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLWithHooks(tape, semanticRenderHooks{
 				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
+				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
+				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
 			})
 		}
 	}
@@ -584,6 +622,8 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLToWithHooks(w, tape, semanticRenderHooks{
 				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
+				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
+				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
 			})
 		}
 	}
@@ -601,8 +641,7 @@ func makeRenderConfig(opts []RenderOption) renderConfig {
 }
 
 func (cfg *renderConfig) canRenderSemantic() bool {
-	return len(cfg.hooks) == 0 && !cfg.multiBacklinks && cfg.footnoteID == nil &&
-		cfg.footnoteRefID == nil && cfg.footnoteBacklinkLabel == nil
+	return len(cfg.hooks) == 0
 }
 
 type footnoteInfo struct {
@@ -645,6 +684,8 @@ type htmlRenderer struct {
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
 	footnoteBacklinkLabel func(num, k, total int) string
+	footnoteParagraph     Node
+	footnoteParagraphInfo *footnoteInfo
 }
 
 func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer {
@@ -692,8 +733,8 @@ func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRen
 func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 	// First pass: walk the main document tree (skipping footnote definition nodes)
 	// to find all footnote-reference nodes in order.
-	// Collect footnote definitions from the AST so the renderer is
-	// independent of Doc.Footnotes() (which may be stale after AST mutations).
+	// Collect footnote definitions from the AST so rendering reflects mutations
+	// without allocating a separate public index.
 	walkRead(doc.Root(), func(n Node) {
 		if footnote, ok := n.(*Footnote); ok {
 			r.footnotes[footnote.Label] = footnote
@@ -828,11 +869,18 @@ func (r *htmlRenderer) renderDefault(n Node) {
 		r.write("</section>\n")
 
 	case KindParagraph:
-		// In tight lists, paragraphs are unwrapped.
+		if r.tight {
+			r.renderInlineChildren(n)
+			r.write("\n")
+			return
+		}
 		r.write("<p")
 		r.renderAttrs(n)
 		r.write(">")
 		r.renderInlineChildren(n)
+		if n == r.footnoteParagraph && r.footnoteParagraphInfo != nil {
+			r.write(r.footnoteBackref(r.footnoteParagraphInfo))
+		}
 		r.write("</p>\n")
 
 	case KindHeading:
@@ -1153,9 +1201,9 @@ func (r *htmlRenderer) renderDefault(n Node) {
 		// Multi mode gives every reference a unique id; the default emits the id
 		// only on the first reference, so the HTML has no duplicate ids.
 		if r.multiBacklinks || k == 1 {
-			idAttr = ` id="` + r.footnoteRefID(num, k) + `"`
+			idAttr = ` id="` + escapeAttr(r.footnoteRefID(num, k)) + `"`
 		}
-		r.write(`<a` + idAttr + ` href="#` + r.footnoteID(num) + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
+		r.write(`<a` + idAttr + ` href="` + escapeAttr("#"+r.footnoteID(num)) + `" role="doc-noteref"><sup>` + ns + `</sup></a>`)
 
 	case KindDoubleQuoted:
 		r.write("\u201c")
@@ -1198,14 +1246,7 @@ func (r *htmlRenderer) withTight(t bool, fn func()) {
 // unwrapping paragraph content when r.tight is set.
 func (r *htmlRenderer) renderListItemChildren(n Node) {
 	if r.tight {
-		forEachChild(n, func(child Node) {
-			if child.Kind() == KindParagraph {
-				r.renderInlineChildren(child)
-				r.write("\n")
-			} else {
-				r.renderNode(child)
-			}
-		})
+		r.renderChildren(n)
 		return
 	}
 	r.renderChildren(n)
@@ -1217,7 +1258,7 @@ func (r *htmlRenderer) renderFootnotesSection() {
 	}
 	r.write("<section role=\"doc-endnotes\">\n<hr>\n<ol>\n")
 	for _, fi := range r.footnoteOrder {
-		r.write("<li id=\"" + r.footnoteID(fi.num) + "\">\n")
+		r.write("<li id=\"" + escapeAttr(r.footnoteID(fi.num)) + "\">\n")
 		if fi.node != nil && len(fi.node.Children) > 0 {
 			// Render all children. Append back-reference to the last paragraph.
 			children := fi.node.Children
@@ -1227,23 +1268,19 @@ func (r *htmlRenderer) renderFootnotesSection() {
 					lastParagraphIdx = i
 				}
 			}
-			backref := r.footnoteBackref(fi)
 			for i, child := range children {
 				if i == lastParagraphIdx {
-					// Render paragraph with backref appended inside <p>.
-					r.write("<p")
-					r.renderAttrs(child)
-					r.write(">")
-					r.renderInlineChildren(child)
-					r.write(backref)
-					r.write("</p>\n")
+					previousParagraph, previousInfo := r.footnoteParagraph, r.footnoteParagraphInfo
+					r.footnoteParagraph, r.footnoteParagraphInfo = child, fi
+					r.renderNode(child)
+					r.footnoteParagraph, r.footnoteParagraphInfo = previousParagraph, previousInfo
 				} else {
 					r.renderNode(child)
 				}
 			}
 			if lastParagraphIdx == -1 {
 				// No paragraph found; add backref in its own paragraph.
-				r.write("<p>" + backref + "</p>\n")
+				r.write("<p>" + r.footnoteBackref(fi) + "</p>\n")
 			}
 		} else {
 			// Empty or undefined footnote: just the back-reference(s).
@@ -1281,8 +1318,8 @@ func (r *htmlRenderer) footnoteBackref(fi *footnoteInfo) string {
 		if k > 1 {
 			b.WriteByte(' ')
 		}
-		b.WriteString(`<a href="#` + r.footnoteRefID(fi.num, k) + `" role="doc-backlink">` +
-			r.footnoteBacklinkLabel(fi.num, k, total) + `</a>`)
+		b.WriteString(`<a href="` + escapeAttr("#"+r.footnoteRefID(fi.num, k)) + `" role="doc-backlink">` +
+			escapeHTML(r.footnoteBacklinkLabel(fi.num, k, total)) + `</a>`)
 	}
 	return b.String()
 }
@@ -1378,13 +1415,19 @@ func escapeAttrSlow(s string, first int) string {
 
 // collectText extracts visible text from a materialized public node tree.
 func collectText(n Node) string {
+	var b strings.Builder
+	appendNodeText(&b, n)
+	return b.String()
+}
+
+func appendNodeText(b *strings.Builder, n Node) {
 	switch n.Kind() {
 	case KindText:
-		return n.(*Text).Value
+		b.WriteString(n.(*Text).Value)
+		return
 	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
-		return " "
+		b.WriteByte(' ')
+		return
 	}
-	var b strings.Builder
-	forEachChild(n, func(child Node) { b.WriteString(collectText(child)) })
-	return b.String()
+	forEachChild(n, func(child Node) { appendNodeText(b, child) })
 }

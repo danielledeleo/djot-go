@@ -199,6 +199,10 @@ returning without writing suppresses the symbol. If the typed AST has been
 modified, the same hook runs through the tree renderer and sees those changes.
 
 `WithRenderFunc` remains available as a concise Node-based hook for other kinds.
+Registering any Node-based hook selects the typed-tree renderer for that entire
+render, even when the requested kind does not occur. Compact symbol, Div,
+subtree, document, and footnote options can be freely combined without doing
+so.
 
 ### Footnote backlinks
 
@@ -226,6 +230,15 @@ html := djot.RenderHTML(doc,
 
 `WithFootnoteID`, `WithFootnoteRefID`, and `WithFootnoteBacklinkLabel` set the
 pieces individually; `WithFootnotePrefix` is shorthand for namespacing the ids.
+These options stay on the compact rendering path for an unmodified parsed
+document. Their returned values are escaped as HTML attribute values or visible
+text as appropriate.
+
+Footnote numbering and endnotes describe the logical parsed document and are
+computed before render hooks run. Suppressing a subtree does not remove its
+footnotes, while replaying children containing footnote references can repeat
+reference anchors. Use the mutable Node tree when an extension needs to change
+the document's footnote structure rather than only its presentation.
 
 ### Inspect the AST
 

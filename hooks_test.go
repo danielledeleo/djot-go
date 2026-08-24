@@ -229,6 +229,66 @@ func TestRenderHooks(t *testing.T) {
 			t.Errorf("expected KindDefinition hook to fire, got:\n%s", html)
 		}
 	})
+
+	t.Run("paragraph hook covers final footnote paragraph", func(t *testing.T) {
+		doc := djot.Parse("note[^a]\n\n[^a]: first\n\n    last\n")
+		calls := 0
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindParagraph, func(_ djot.Node, r djot.NodeRenderer) {
+			calls++
+			r.Default()
+		}))
+		if calls != 3 {
+			t.Fatalf("paragraph hook calls = %d, want 3", calls)
+		}
+		if !strings.Contains(html, `last<a href="#fnref1" role="doc-backlink">`) {
+			t.Fatalf("Default did not retain the footnote backlink:\n%s", html)
+		}
+	})
+
+	t.Run("paragraph hook covers tight list paragraphs", func(t *testing.T) {
+		doc := djot.Parse("- one\n- two\n")
+		calls := 0
+		got := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindParagraph, func(_ djot.Node, r djot.NodeRenderer) {
+			calls++
+			r.Default()
+		}))
+		if calls != 2 {
+			t.Fatalf("paragraph hook calls = %d, want 2", calls)
+		}
+		if strings.Contains(got, "<p>") {
+			t.Fatalf("Default wrapped a tight-list paragraph:\n%s", got)
+		}
+	})
+}
+
+func TestElementHooksRejectSyntheticRoots(t *testing.T) {
+	tests := []struct {
+		name string
+		make func()
+	}{
+		{"node document", func() { djot.WithNodeRenderer(djot.KindDocument, func(djot.Node, djot.NodeRenderer) {}) }},
+		{"node footnote", func() { djot.WithNodeRenderer(djot.KindFootnote, func(djot.Node, djot.NodeRenderer) {}) }},
+		{"subtree document", func() { djot.WithSubtreeRenderer(djot.KindDocument, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
+		{"subtree footnote", func() { djot.WithSubtreeRenderer(djot.KindFootnote, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
+		{"nil node", func() { djot.WithNodeRenderer(djot.KindParagraph, nil) }},
+		{"nil subtree", func() { djot.WithSubtreeRenderer(djot.KindParagraph, nil) }},
+		{"nil symbol", func() { djot.WithSymbolRenderer(nil) }},
+		{"nil div", func() { djot.WithDivRenderer(nil) }},
+		{"nil document", func() { djot.WithDocumentRenderer(nil) }},
+		{"nil footnote id", func() { djot.WithFootnoteID(nil) }},
+		{"nil footnote ref id", func() { djot.WithFootnoteRefID(nil) }},
+		{"nil backlink label", func() { djot.WithFootnoteBacklinkLabel(nil) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("hook registration did not panic")
+				}
+			}()
+			test.make()
+		})
+	}
 }
 
 func TestWithRendererRejectsInterfaceType(t *testing.T) {

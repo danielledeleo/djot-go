@@ -174,22 +174,30 @@ func autoID(heading *parseNode) string {
 
 // collectText extracts all text content from a node and its children.
 func collectParseText(n *parseNode) string {
+	var b strings.Builder
+	appendParseText(&b, n)
+	return b.String()
+}
+
+func appendParseText(b *strings.Builder, n *parseNode) {
 	switch n.Kind {
 	case KindText:
-		return n.Text
+		b.WriteString(n.Text)
+		return
 	case KindSoftBreak, KindHardBreak:
-		return " "
+		b.WriteByte(' ')
+		return
 	case KindNonBreakingSpace:
-		return " "
+		b.WriteByte(' ')
+		return
 	}
-	var b strings.Builder
+	start := b.Len()
 	for _, child := range n.Children {
-		b.WriteString(collectParseText(child))
+		appendParseText(b, child)
 	}
-	if b.Len() == 0 && n.Text != "" {
-		return n.Text
+	if b.Len() == start && n.Text != "" {
+		b.WriteString(n.Text)
 	}
-	return b.String()
 }
 
 // uniqueID deduplicates an ID by appending -1, -2, etc.

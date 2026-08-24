@@ -260,6 +260,28 @@ func TestFootnoteCustomIDs(t *testing.T) {
 	assertAnchorIntegrity(t, got, true)
 }
 
+func TestFootnoteCustomizationEscapesHTML(t *testing.T) {
+	got := djot.RenderHTML(djot.Parse("note[^a]\n\n[^a]: body\n"),
+		djot.WithFootnoteID(func(int) string { return `note"<&` }),
+		djot.WithFootnoteRefID(func(int, int) string { return `ref"<&` }),
+		djot.WithFootnoteBacklinkLabel(func(int, int, int) string { return `<back&>` }),
+	)
+	for _, want := range []string{
+		`id="ref&quot;&lt;&amp;"`,
+		`href="#note&quot;&lt;&amp;"`,
+		`id="note&quot;&lt;&amp;"`,
+		`href="#ref&quot;&lt;&amp;"`,
+		`&lt;back&amp;&gt;`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("escaped output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `<back&>`) {
+		t.Fatalf("custom backlink label was emitted as raw HTML:\n%s", got)
+	}
+}
+
 // Default output is unchanged when no footnote options are supplied.
 func TestFootnoteDefaultsUnchanged(t *testing.T) {
 	plain := djot.RenderHTML(djot.Parse(multiRefInput))

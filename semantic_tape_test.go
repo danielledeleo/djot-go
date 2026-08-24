@@ -81,6 +81,24 @@ func TestDocumentMaterializesLazily(t *testing.T) {
 	}
 }
 
+func TestFootnotesReindexesMutatedTree(t *testing.T) {
+	doc := Parse("note[^a]\n\n[^a]: body\n")
+	first := doc.Footnotes()
+	first["injected"] = &Footnote{Label: "injected"}
+	first["a"].Label = "renamed"
+
+	second := doc.Footnotes()
+	if second["renamed"] != first["a"] {
+		t.Fatalf("mutated definition missing from rebuilt index: %#v", second)
+	}
+	if _, ok := second["a"]; ok {
+		t.Fatalf("old label remained in rebuilt index: %#v", second)
+	}
+	if _, ok := second["injected"]; ok {
+		t.Fatalf("map-only mutation leaked into rebuilt index: %#v", second)
+	}
+}
+
 func TestDocumentMaterializesReferences(t *testing.T) {
 	doc := Parse("[label]: /target\n\n[label][]\n")
 	ref := doc.References()["label"]
@@ -362,12 +380,21 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 	}
 }
 
-func TestSemanticTapeOptionsUseTreeRenderer(t *testing.T) {
-	doc := Parse("reference[^a]\n\n[^a]: note\n")
-	want := renderTreeHTMLForTest(doc, WithMultiBacklinks())
-	got := RenderHTML(doc, WithMultiBacklinks())
+func TestSemanticTapeFootnoteOptionsStayCompact(t *testing.T) {
+	const input = "reference[^a] again[^a]\n\n[^a]: note\n"
+	options := []RenderOption{
+		WithMultiBacklinks(),
+		WithFootnotePrefix(`p"<&`),
+		WithFootnoteBacklinkLabel(func(_, k, _ int) string { return "<" + strconv.Itoa(k) + ">" }),
+	}
+	want := renderTreeHTMLForTest(Parse(input), options...)
+	doc := Parse(input)
+	got := RenderHTML(doc, options...)
 	if got != want {
-		t.Fatalf("option fallback differs\nwant: %q\n got: %q", want, got)
+		t.Fatalf("compact option output differs\nwant: %q\n got: %q", want, got)
+	}
+	if doc.root != nil || doc.rootRequested {
+		t.Fatal("footnote options materialized the typed AST")
 	}
 }
 
@@ -401,25 +428,81 @@ func FuzzSemanticTapeHTMLParity(f *testing.F) {
 	})
 }
 
+func FuzzSemanticTapeFootnoteOptionParity(f *testing.F) {
+	for _, seed := range []string{
+		"plain text\n",
+		"reference[^a] again[^a]\n\n[^a]: note\n",
+		"outer[^a]\n\n[^a]: nested[^b]\n\n[^b]: second\n",
+	} {
+		f.Add(seed)
+	}
+	options := []RenderOption{
+		WithMultiBacklinks(),
+		WithFootnotePrefix(`p"<&`),
+		WithFootnoteBacklinkLabel(func(_, k, _ int) string { return "<" + strconv.Itoa(k) + ">" }),
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		got := RenderHTML(Parse(input), options...)
+		want := renderTreeHTMLForTest(Parse(input), options...)
+		if got != want {
+			t.Fatalf("compact footnote options differ from tree renderer\ninput: %q\nwant: %q\n got: %q", input, want, got)
+		}
+	})
+}
+
 func BenchmarkProductionSemanticFastPath(b *testing.B) {
 	input := strings.Repeat("A paragraph with *emphasis*, **strong**, and [a link](https://example.com).\n\n", 2048)
-	doc := Parse(input)
+	compactDoc := Parse(input)
+	treeDoc := Parse(input)
+	_ = treeDoc.Root()
+	discardDoc := Parse(input)
+	inspectedDoc := Parse(input)
+	_ = inspectedDoc.Root()
+	footnoteOptionDoc := Parse(input)
+	footnoteOption := WithFootnotePrefix("post-")
+	nodeHookDoc := Parse(input)
+	_ = nodeHookDoc.Root()
+	nodeHook := WithNodeRenderer(KindCodeBlock, func(_ Node, r NodeRenderer) { r.Default() })
 	b.Run("CompactTape", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = RenderHTML(doc)
+			_ = RenderHTML(compactDoc)
 		}
 	})
 	b.Run("TreeAST", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = renderTreeHTMLForTest(doc)
+			_ = renderTreeHTMLForTest(treeDoc)
 		}
 	})
 	b.Run("TapeToDiscard", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			if err := RenderHTMLTo(io.Discard, doc); err != nil {
+			if err := RenderHTMLTo(io.Discard, discardDoc); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("RootThenTapeToDiscard", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if err := RenderHTMLTo(io.Discard, inspectedDoc); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("FootnoteOptionToDiscard", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if err := RenderHTMLTo(io.Discard, footnoteOptionDoc, footnoteOption); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("AbsentNodeHookToDiscard", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if err := RenderHTMLTo(io.Discard, nodeHookDoc, nodeHook); err != nil {
 				b.Fatal(err)
 			}
 		}

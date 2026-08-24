@@ -20,12 +20,18 @@ type semanticHTMLRenderer struct {
 
 	hooks *semanticRenderHooks
 
-	tight         bool
-	footnotes     map[string]int
-	footnoteNums  map[string]int
-	footnoteOrder []semanticFootnote
-	fnrefTotal    map[string]int
-	fnrefSeen     map[string]int
+	tight                 bool
+	footnotes             map[string]int
+	footnoteNums          map[string]int
+	footnoteOrder         []semanticFootnote
+	fnrefTotal            map[string]int
+	fnrefSeen             map[string]int
+	footnoteParagraph     int
+	footnoteParagraphInfo *semanticFootnote
+	multiBacklinks        bool
+	footnoteID            func(int) string
+	footnoteRefID         func(int, int) string
+	footnoteBacklinkLabel func(int, int, int) string
 }
 
 func renderSemanticHTML(tape *semanticTape) string {
@@ -39,10 +45,14 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 }
 
 type semanticRenderHooks struct {
-	elements elementHooks
-	subtrees map[Kind]SubtreeRenderFunc
-	document DocumentRenderFunc
-	doc      *Doc
+	elements              elementHooks
+	subtrees              map[Kind]SubtreeRenderFunc
+	document              DocumentRenderFunc
+	doc                   *Doc
+	multiBacklinks        bool
+	footnoteID            func(int) string
+	footnoteRefID         func(int, int) string
+	footnoteBacklinkLabel func(int, int, int) string
 }
 
 func renderSemanticHTMLWithHooks(tape *semanticTape, hooks semanticRenderHooks) string {
@@ -57,13 +67,29 @@ func renderSemanticHTMLToWithHooks(w io.Writer, tape *semanticTape, hooks semant
 
 func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanticRenderHooks) *semanticHTMLRenderer {
 	r := &semanticHTMLRenderer{
-		tape:         tape,
-		writer:       writer,
-		hooks:        hooks,
-		footnotes:    make(map[string]int),
-		footnoteNums: make(map[string]int),
-		fnrefTotal:   make(map[string]int),
-		fnrefSeen:    make(map[string]int),
+		tape:              tape,
+		writer:            writer,
+		hooks:             hooks,
+		footnotes:         make(map[string]int),
+		footnoteNums:      make(map[string]int),
+		fnrefTotal:        make(map[string]int),
+		fnrefSeen:         make(map[string]int),
+		footnoteParagraph: -1,
+	}
+	if hooks != nil {
+		r.multiBacklinks = hooks.multiBacklinks
+		r.footnoteID = hooks.footnoteID
+		r.footnoteRefID = hooks.footnoteRefID
+		r.footnoteBacklinkLabel = hooks.footnoteBacklinkLabel
+	}
+	if r.footnoteID == nil {
+		r.footnoteID = defaultFootnoteID
+	}
+	if r.footnoteRefID == nil {
+		r.footnoteRefID = defaultFootnoteRefID
+	}
+	if r.footnoteBacklinkLabel == nil {
+		r.footnoteBacklinkLabel = defaultFootnoteBacklinkLabel
 	}
 	for i := 0; i+1 < len(tape.records); i++ {
 		if r.kind(i) == KindFootnote {
@@ -227,14 +253,7 @@ func (r *semanticHTMLRenderer) renderListItemChildren(i int) {
 		r.renderChildren(i)
 		return
 	}
-	r.children(i, func(child int) {
-		if r.kind(child) == KindParagraph {
-			r.renderChildren(child)
-			r.writeByte('\n')
-		} else {
-			r.renderNode(child)
-		}
-	})
+	r.renderChildren(i)
 }
 
 func (r *semanticHTMLRenderer) renderContainer(i int, tag string) {
@@ -304,10 +323,18 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.renderChildren(i)
 		r.write("</section>\n")
 	case KindParagraph:
+		if r.tight {
+			r.renderChildren(i)
+			r.writeByte('\n')
+			return
+		}
 		r.write("<p")
 		r.renderAttrs(i)
 		r.writeByte('>')
 		r.renderChildren(i)
+		if i == r.footnoteParagraph && r.footnoteParagraphInfo != nil {
+			r.renderBackref(*r.footnoteParagraphInfo)
+		}
 		r.write("</p>\n")
 	case KindHeading:
 		level := int(record.small)
@@ -545,14 +572,15 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		label := r.label(i)
 		num := r.footnoteNums[label]
 		r.fnrefSeen[label]++
+		k := r.fnrefSeen[label]
 		r.write(`<a`)
-		if r.fnrefSeen[label] == 1 {
-			r.write(` id="fnref`)
-			r.write(strconv.Itoa(num))
+		if r.multiBacklinks || k == 1 {
+			r.write(` id="`)
+			r.write(escapeAttr(r.footnoteRefID(num, k)))
 			r.write(`"`)
 		}
-		r.write(` href="#fn`)
-		r.write(strconv.Itoa(num))
+		r.write(` href="`)
+		r.write(escapeAttr("#" + r.footnoteID(num)))
 		r.write(`" role="doc-noteref"><sup>`)
 		r.write(strconv.Itoa(num))
 		r.write(`</sup></a>`)
@@ -574,15 +602,21 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 }
 
 func (r *semanticHTMLRenderer) collectText(i int) string {
+	var out strings.Builder
+	r.appendText(&out, i)
+	return out.String()
+}
+
+func (r *semanticHTMLRenderer) appendText(out *strings.Builder, i int) {
 	switch r.kind(i) {
 	case KindText:
-		return r.tape.text(r.tape.records[i].payload)
+		out.WriteString(r.tape.text(r.tape.records[i].payload))
+		return
 	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
-		return " "
+		out.WriteByte(' ')
+		return
 	}
-	var out strings.Builder
-	r.children(i, func(child int) { out.WriteString(r.collectText(child)) })
-	return out.String()
+	r.children(i, func(child int) { r.appendText(out, child) })
 }
 
 func (r *semanticHTMLRenderer) renderFootnotes() {
@@ -591,8 +625,8 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 	}
 	r.write("<section role=\"doc-endnotes\">\n<hr>\n<ol>\n")
 	for _, footnote := range r.footnoteOrder {
-		r.write(`<li id="fn`)
-		r.write(strconv.Itoa(footnote.num))
+		r.write(`<li id="`)
+		r.write(escapeAttr(r.footnoteID(footnote.num)))
 		r.write(`">` + "\n")
 		if footnote.node >= 0 && int(r.tape.records[footnote.node].subtreeEnd) > footnote.node+1 {
 			lastParagraph := -1
@@ -603,12 +637,10 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 			})
 			r.children(footnote.node, func(child int) {
 				if child == lastParagraph {
-					r.write("<p")
-					r.renderAttrs(child)
-					r.writeByte('>')
-					r.renderChildren(child)
-					r.renderBackref(footnote)
-					r.write("</p>\n")
+					previousParagraph, previousInfo := r.footnoteParagraph, r.footnoteParagraphInfo
+					r.footnoteParagraph, r.footnoteParagraphInfo = child, &footnote
+					r.renderNode(child)
+					r.footnoteParagraph, r.footnoteParagraphInfo = previousParagraph, previousInfo
 				} else {
 					r.renderNode(child)
 				}
@@ -629,7 +661,18 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 }
 
 func (r *semanticHTMLRenderer) renderBackref(footnote semanticFootnote) {
-	r.write(`<a href="#fnref`)
-	r.write(strconv.Itoa(footnote.num))
-	r.write(`" role="doc-backlink">↩︎</a>`)
+	total := 1
+	if r.multiBacklinks && r.fnrefTotal[footnote.label] > 1 {
+		total = r.fnrefTotal[footnote.label]
+	}
+	for k := 1; k <= total; k++ {
+		if k > 1 {
+			r.writeByte(' ')
+		}
+		r.write(`<a href="`)
+		r.write(escapeAttr("#" + r.footnoteRefID(footnote.num, k)))
+		r.write(`" role="doc-backlink">`)
+		r.write(escapeHTML(r.footnoteBacklinkLabel(footnote.num, k, total)))
+		r.write(`</a>`)
+	}
 }

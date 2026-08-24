@@ -461,53 +461,70 @@ func buildDocumentAnchors(root ElementView) []AnchorView {
 }
 
 func collectDocumentText(element ElementView) string {
+	var text strings.Builder
+	appendDocumentText(&text, element)
+	return text.String()
+}
+
+func appendDocumentText(text *strings.Builder, element ElementView) {
 	prefix, suffix := "", ""
 	switch element.Kind() {
 	case KindText:
 		if element.tape != nil {
-			return element.tape.text(element.tape.records[element.record].payload)
+			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
+			return
 		}
-		return element.node.(*Text).Value
+		text.WriteString(element.node.(*Text).Value)
+		return
 	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
-		return " "
+		text.WriteByte(' ')
+		return
 	case KindVerbatim, KindInlineMath, KindDisplayMath:
 		if element.tape != nil {
-			return element.tape.text(element.tape.records[element.record].payload)
+			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
+			return
 		}
 		switch node := element.node.(type) {
 		case *Verbatim:
-			return node.Text
+			text.WriteString(node.Text)
 		case *InlineMath:
-			return node.Text
+			text.WriteString(node.Text)
 		case *DisplayMath:
-			return node.Text
+			text.WriteString(node.Text)
 		}
+		return
 	case KindSymbol:
 		symbol, _ := element.Symbol()
-		return ":" + symbol.Name + ":"
+		text.WriteByte(':')
+		text.WriteString(symbol.Name)
+		text.WriteByte(':')
+		return
 	case KindEllipsis:
-		return "…"
+		text.WriteString("…")
+		return
 	case KindEmDash:
-		return "—"
+		text.WriteString("—")
+		return
 	case KindEnDash:
-		return "–"
+		text.WriteString("–")
+		return
 	case KindDoubleQuoted:
 		prefix, suffix = "“", "”"
 	case KindSingleQuoted:
 		prefix, suffix = "‘", "’"
 	}
 
-	var text strings.Builder
+	text.WriteString(prefix)
 	if element.tape != nil {
 		tape := element.tape
 		for child, end := element.record+1, int(tape.records[element.record].subtreeEnd); child < end; {
-			text.WriteString(collectDocumentText(ElementView{tape: tape, record: child}))
+			appendDocumentText(text, ElementView{tape: tape, record: child})
 			child = int(tape.records[child].subtreeEnd)
 		}
 	} else if element.node != nil {
 		forEachChild(element.node, func(child Node) {
-			text.WriteString(collectDocumentText(ElementView{node: child}))
+			appendDocumentText(text, ElementView{node: child})
 		})
 	}
-	return prefix + text.String() + suffix
+	text.WriteString(suffix)
 }

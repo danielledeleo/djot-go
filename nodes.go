@@ -562,7 +562,6 @@ type Doc struct {
 	mu            sync.RWMutex
 	root          *Document
 	rootRequested bool
-	footnotes     map[string]*Footnote
 	references    map[string]*Reference
 	semantic      *semanticTape
 
@@ -575,7 +574,10 @@ func NewDoc(root *Document) *Doc {
 	return &Doc{root: root, rootRequested: true}
 }
 
-// Root returns the mutable typed tree, materializing it on first use.
+// Root returns the shared mutable typed tree, materializing it on first use.
+// Repeated calls return the same root. Concurrent read-only materialization is
+// safe; callers must synchronize subsequent tree mutations with other users of
+// the document.
 func (d *Doc) Root() *Document {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -597,7 +599,6 @@ func (d *Doc) SetRoot(root *Document) {
 	d.root = root
 	d.rootRequested = true
 	d.semantic = nil
-	d.footnotes = nil
 	d.references = nil
 }
 
@@ -610,25 +611,27 @@ func (d *Doc) semanticRenderSnapshot() (tape *semanticTape, root *Document, dire
 	return d.semantic, d.root, false
 }
 
-// Footnotes returns the footnote-definition index.
+// Footnotes returns a newly built footnote-definition index for the current
+// typed tree. Mutating the returned map does not modify the tree; changing a
+// Footnote through Root is reflected the next time Footnotes is called.
 func (d *Doc) Footnotes() map[string]*Footnote {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.footnotes == nil {
-		d.footnotes = make(map[string]*Footnote)
-		d.rootRequested = true
-		if root := d.materializeRootLocked(); root != nil {
-			walkRead(root, func(node Node) {
-				if footnote, ok := node.(*Footnote); ok {
-					d.footnotes[footnote.Label] = footnote
-				}
-			})
-		}
+	d.rootRequested = true
+	footnotes := make(map[string]*Footnote)
+	if root := d.materializeRootLocked(); root != nil {
+		walkRead(root, func(node Node) {
+			if footnote, ok := node.(*Footnote); ok {
+				footnotes[footnote.Label] = footnote
+			}
+		})
 	}
-	return d.footnotes
+	return footnotes
 }
 
-// References returns the resolved reference-definition index.
+// References returns the shared mutable resolved-reference index,
+// materializing it on first use. Reference definitions are document metadata;
+// links and images already contain their resolved destinations.
 func (d *Doc) References() map[string]*Reference {
 	d.mu.Lock()
 	defer d.mu.Unlock()

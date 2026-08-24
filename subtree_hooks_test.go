@@ -293,6 +293,36 @@ func TestSubtreeRendererDefaultReplayAndSuppression(t *testing.T) {
 	}
 }
 
+func TestSubtreeRendererCoversFinalFootnoteParagraph(t *testing.T) {
+	doc := djot.Parse("note[^a]\n\n[^a]: first\n\n    last\n")
+	calls := 0
+	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+		calls++
+		r.Default()
+	}))
+	if calls != 3 {
+		t.Fatalf("paragraph subtree hook calls = %d, want 3", calls)
+	}
+	if !strings.Contains(got, `last<a href="#fnref1" role="doc-backlink">`) {
+		t.Fatalf("Default did not retain the footnote backlink:\n%s", got)
+	}
+}
+
+func TestSubtreeRendererCoversTightListParagraphs(t *testing.T) {
+	doc := djot.Parse("- one\n- two\n")
+	calls := 0
+	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+		calls++
+		r.Default()
+	}))
+	if calls != 2 {
+		t.Fatalf("paragraph subtree hook calls = %d, want 2", calls)
+	}
+	if strings.Contains(got, "<p>") {
+		t.Fatalf("Default wrapped a tight-list paragraph:\n%s", got)
+	}
+}
+
 func TestSubtreeRendererConcurrentRendering(t *testing.T) {
 	doc := djot.Parse("::: note\n```\ncode\n```\n:::\n")
 	option := djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {

@@ -283,6 +283,39 @@ func TestDocumentViewAnchorParityAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestDocumentViewUsesMutatedSpans(t *testing.T) {
+	doc := djot.Parse("# heading\n\n{#box}\n::: note\ntext\n:::\n\nreference[^a]\n\n[^a]: body\n")
+	wantHeading := djot.SourceSpan{Start: djot.Pos{File: 1, Offset: 10}, End: djot.Pos{File: 1, Offset: 20}}
+	wantDiv := djot.SourceSpan{Start: djot.Pos{File: 2, Offset: 30}, End: djot.Pos{File: 2, Offset: 40}}
+	wantFootnote := djot.SourceSpan{Start: djot.Pos{File: 3, Offset: 50}, End: djot.Pos{File: 3, Offset: 60}}
+	djot.Preorder(doc.Root(), func(node djot.Node) bool {
+		switch node.(type) {
+		case *djot.Heading:
+			djot.SetSpan(node, wantHeading)
+		case *djot.Div:
+			djot.SetSpan(node, wantDiv)
+		case *djot.Footnote:
+			djot.SetSpan(node, wantFootnote)
+		}
+		return true
+	})
+
+	var headingSpan, divSpan, footnoteSpan djot.SourceSpan
+	djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
+		headingSpan = document.Headings()[0].Span()
+		footnoteSpan = document.Footnotes()[0].Span()
+		for _, anchor := range document.Anchors() {
+			if anchor.ID() == "box" {
+				divSpan = anchor.Span()
+			}
+		}
+		r.Default()
+	}))
+	if headingSpan != wantHeading || divSpan != wantDiv || footnoteSpan != wantFootnote {
+		t.Fatalf("mutated spans not authoritative: heading=%+v div=%+v footnote=%+v", headingSpan, divSpan, footnoteSpan)
+	}
+}
+
 func TestDocumentRendererWrapsEndnotes(t *testing.T) {
 	const input = "reference[^a]\n\n[^a]: note\n"
 	for _, backend := range []string{"tape", "tree", "configured tree"} {
@@ -467,6 +500,9 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 		}
 		render := func(doc *djot.Doc, forceTree bool) (string, summary) {
 			var result summary
+			if forceTree {
+				djot.SetSpan(doc.Root(), djot.SourceSpan{Start: djot.Pos{File: 1}})
+			}
 			options := []djot.RenderOption{djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
 				for kind := djot.KindDocument; kind <= djot.KindEnDash; kind++ {
 					result.counts = append(result.counts, document.Count(kind))
@@ -491,9 +527,6 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 				}
 				r.Default()
 			})}
-			if forceTree {
-				options = append(options, djot.WithNodeRenderer(djot.KindDocument, func(djot.Node, djot.NodeRenderer) {}))
-			}
 			output := djot.RenderHTML(doc, options...)
 			return output, result
 		}

@@ -16,9 +16,12 @@ type Action struct {
 }
 
 var (
-	Continue     = Action{kind: actionContinue}
+	// Continue keeps the node and visits its children.
+	Continue = Action{kind: actionContinue}
+	// SkipChildren keeps the node without visiting its children.
 	SkipChildren = Action{kind: actionSkipChildren}
-	Remove       = Action{kind: actionRemove}
+	// Remove deletes the node from its occupied tree slot.
+	Remove = Action{kind: actionRemove}
 )
 
 // Replace returns an action that substitutes node in its occupied tree slot.
