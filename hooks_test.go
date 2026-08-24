@@ -18,7 +18,7 @@ func TestRenderHooks(t *testing.T) {
 		}
 	})
 
-	t.Run("replace KindCodeBlock rendering", func(t *testing.T) {
+	t.Run("replace code block rendering", func(t *testing.T) {
 		doc := djot.Parse("```go\nfmt.Println()\n```")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
 			r.Write("<custom-code>" + n.(*djot.CodeBlock).Text + "</custom-code>")
@@ -31,7 +31,7 @@ func TestRenderHooks(t *testing.T) {
 		}
 	})
 
-	t.Run("augment KindHeading with Default", func(t *testing.T) {
+	t.Run("augment heading with Default", func(t *testing.T) {
 		doc := djot.Parse("# Hello")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindHeading, func(n djot.Node, r djot.NodeRenderer) {
 			r.Default()
@@ -42,7 +42,7 @@ func TestRenderHooks(t *testing.T) {
 		}
 	})
 
-	t.Run("KindDiv with Children for admonition", func(t *testing.T) {
+	t.Run("Div with Children for admonition", func(t *testing.T) {
 		doc := djot.Parse("::: warning\nBe careful!\n:::")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindDiv, func(n djot.Node, r djot.NodeRenderer) {
 			if n.Attributes().Get("class") == "warning" {
@@ -156,14 +156,14 @@ func TestRenderHooks(t *testing.T) {
 			}),
 		)
 		if !strings.Contains(html, "STAR") {
-			t.Errorf("KindSymbol hook should fire inside heading wrapped in Default(), got:\n%s", html)
+			t.Errorf("Symbol hook should fire inside heading wrapped in Default(), got:\n%s", html)
 		}
 		if strings.Contains(html, ":star:") {
-			t.Errorf("KindSymbol shortcode should have been replaced, got:\n%s", html)
+			t.Errorf("Symbol shortcode should have been replaced, got:\n%s", html)
 		}
 	})
 
-	t.Run("KindListItem hook fires for bullet list", func(t *testing.T) {
+	t.Run("ListItem hook fires for bullet list", func(t *testing.T) {
 		doc := djot.Parse("- one\n- two\n")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindListItem, func(n djot.Node, r djot.NodeRenderer) {
 			r.Write(`<li class="custom">`)
@@ -171,11 +171,11 @@ func TestRenderHooks(t *testing.T) {
 			r.Write("</li>\n")
 		}))
 		if !strings.Contains(html, `<li class="custom">`) {
-			t.Errorf("expected KindListItem hook to fire, got:\n%s", html)
+			t.Errorf("expected ListItem hook to fire, got:\n%s", html)
 		}
 	})
 
-	t.Run("KindListItem hook fires for ordered list", func(t *testing.T) {
+	t.Run("ListItem hook fires for ordered list", func(t *testing.T) {
 		doc := djot.Parse("1. one\n2. two\n")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindListItem, func(n djot.Node, r djot.NodeRenderer) {
 			r.Write(`<li class="custom">`)
@@ -183,11 +183,11 @@ func TestRenderHooks(t *testing.T) {
 			r.Write("</li>\n")
 		}))
 		if !strings.Contains(html, `<li class="custom">`) {
-			t.Errorf("expected KindListItem hook to fire for ordered list, got:\n%s", html)
+			t.Errorf("expected ListItem hook to fire for ordered list, got:\n%s", html)
 		}
 	})
 
-	t.Run("KindTaskListItem hook fires", func(t *testing.T) {
+	t.Run("TaskListItem hook fires", func(t *testing.T) {
 		doc := djot.Parse("- [ ] todo\n- [x] done\n")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindTaskListItem, func(n djot.Node, r djot.NodeRenderer) {
 			if n.(*djot.TaskListItem).Checked {
@@ -199,14 +199,14 @@ func TestRenderHooks(t *testing.T) {
 			r.Write("</li>\n")
 		}))
 		if !strings.Contains(html, "TODO ") {
-			t.Errorf("expected KindTaskListItem hook to fire for unchecked, got:\n%s", html)
+			t.Errorf("expected TaskListItem hook to fire for unchecked, got:\n%s", html)
 		}
 		if !strings.Contains(html, "DONE ") {
-			t.Errorf("expected KindTaskListItem hook to fire for checked, got:\n%s", html)
+			t.Errorf("expected TaskListItem hook to fire for checked, got:\n%s", html)
 		}
 	})
 
-	t.Run("KindTerm hook fires", func(t *testing.T) {
+	t.Run("Term hook fires", func(t *testing.T) {
 		doc := djot.Parse(": apple\n\n  red fruit\n")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindTerm, func(n djot.Node, r djot.NodeRenderer) {
 			r.Write(`<dt class="custom">`)
@@ -214,11 +214,11 @@ func TestRenderHooks(t *testing.T) {
 			r.Write("</dt>\n")
 		}))
 		if !strings.Contains(html, `<dt class="custom">`) {
-			t.Errorf("expected KindTerm hook to fire, got:\n%s", html)
+			t.Errorf("expected Term hook to fire, got:\n%s", html)
 		}
 	})
 
-	t.Run("KindDefinition hook fires", func(t *testing.T) {
+	t.Run("Definition hook fires", func(t *testing.T) {
 		doc := djot.Parse(": apple\n\n  red fruit\n")
 		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindDefinition, func(n djot.Node, r djot.NodeRenderer) {
 			r.Write(`<dd class="custom">`)
@@ -226,7 +226,7 @@ func TestRenderHooks(t *testing.T) {
 			r.Write("</dd>\n")
 		}))
 		if !strings.Contains(html, `<dd class="custom">`) {
-			t.Errorf("expected KindDefinition hook to fire, got:\n%s", html)
+			t.Errorf("expected Definition hook to fire, got:\n%s", html)
 		}
 	})
 

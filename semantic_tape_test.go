@@ -18,6 +18,11 @@ func renderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
 	return result
 }
 
+// RenderTreeHTMLForTest bypasses the compact tape for external tests.
+func RenderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
+	return renderTreeHTMLForTest(doc, opts...)
+}
+
 func findTypedNode[T Node](root Node) T {
 	var found T
 	have := false

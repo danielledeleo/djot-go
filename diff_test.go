@@ -70,7 +70,7 @@ func TestDifferential(t *testing.T) {
 		"- tight\n- list",
 		"- loose\n\n- list",
 
-		// KindDefinition lists
+		// Definition lists
 		": term\n\n  definition",
 		": term 1\n  def 1\n: term 2\n  def 2",
 

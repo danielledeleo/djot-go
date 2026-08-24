@@ -8,7 +8,7 @@ import (
 )
 
 // flattenInlines walks the first paragraph's inline children and returns a
-// compact []"Kind:value" representation, merging adjacent KindText nodes the way
+// compact "kind:value" representation, merging adjacent text nodes the way
 // the reference djot.js coalesces str runs. Used to compare djot-go symbol
 // parsing against the canonical implementation.
 func flattenInlines(t *testing.T, doc *djot.Document) []string {
@@ -56,8 +56,8 @@ func flattenInlines(t *testing.T, doc *djot.Document) []string {
 //
 // Notably the reference DOES extract symb"30" from the timestamp 10:30:00 and
 // symb"b" from a:b:c. This greedy behavior is spec-conformant, not a bug, so a
-// downstream consumer cannot treat a leftover KindSymbol as necessarily intentional
-// — incidental digits:digits:digits prose produces real KindSymbol nodes.
+// downstream consumer cannot treat a leftover symbol as necessarily intentional
+// — incidental digits:digits:digits prose produces real symbol nodes.
 func TestSymbolConformance(t *testing.T) {
 	cases := []struct {
 		name string

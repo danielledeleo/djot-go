@@ -10,10 +10,10 @@ func TestPositionTracking(t *testing.T) {
 	input := "# Hello\n\nworld"
 	doc := djot.Parse(input)
 
-	// The AST should be: KindDocument > KindSection > [KindHeading, KindParagraph]
+	// The AST should be: Document > Section > [Heading, Paragraph].
 	root := doc.Root()
 	if root.Kind() != djot.KindDocument {
-		t.Fatalf("expected KindDocument, got %v", root.Kind())
+		t.Fatalf("expected Document, got %v", root.Kind())
 	}
 	if root.Span().Start.Offset != 0 {
 		t.Errorf("document Start.Offset = %d, want 0", root.Span().Start.Offset)
@@ -41,25 +41,25 @@ func TestPositionTracking(t *testing.T) {
 		t.Fatalf("expected *Paragraph, got %T", section.Children[1])
 	}
 
-	// KindHeading "# Hello" starts at offset 0.
+	// The heading "# Hello" starts at offset 0.
 	if heading.Span().Start.Offset != 0 {
 		t.Errorf("heading Start.Offset = %d, want 0", heading.Span().Start.Offset)
 	}
-	// KindHeading ends at offset 7 (exclusive end of "# Hello" line).
+	// The heading ends at offset 7 (exclusive end of the "# Hello" line).
 	if heading.Span().End.Offset != 7 {
 		t.Errorf("heading End.Offset = %d, want 7", heading.Span().End.Offset)
 	}
 
-	// KindParagraph "world" starts at offset 9 (after "# Hello\n\n").
+	// The paragraph "world" starts at offset 9 (after "# Hello\n\n").
 	if para.Span().Start.Offset != 9 {
 		t.Errorf("paragraph Start.Offset = %d, want 9", para.Span().Start.Offset)
 	}
-	// KindParagraph ends at offset 14 (exclusive end of "world").
+	// The paragraph ends at offset 14 (exclusive end of "world").
 	if para.Span().End.Offset != 14 {
 		t.Errorf("paragraph End.Offset = %d, want 14", para.Span().End.Offset)
 	}
 
-	// KindSection should inherit heading start and paragraph end.
+	// The section should inherit the heading start and paragraph end.
 	if section.Span().Start.Offset != heading.Span().Start.Offset {
 		t.Errorf("section Start.Offset = %d, want %d (heading start)",
 			section.Span().Start.Offset, heading.Span().Start.Offset)
@@ -75,7 +75,7 @@ func TestPositionTracking(t *testing.T) {
 	}
 	textNode := heading.Children[0]
 	if textNode.Kind() != djot.KindText {
-		t.Fatalf("expected KindText child, got %v", textNode.Kind())
+		t.Fatalf("expected Text child, got %v", textNode.Kind())
 	}
 	if textNode.Span().Start.Offset == 0 && textNode.Span().End.Offset == 0 {
 		t.Error("heading text node should have non-zero positions")
@@ -93,7 +93,7 @@ func TestPositionCodeBlock(t *testing.T) {
 
 	cb := root.Children[0]
 	if cb.Kind() != djot.KindCodeBlock {
-		t.Fatalf("expected KindCodeBlock, got %v", cb.Kind())
+		t.Fatalf("expected CodeBlock, got %v", cb.Kind())
 	}
 
 	if cb.Span().Start.Offset != 0 {
@@ -110,14 +110,14 @@ func TestPositionThematicBreak(t *testing.T) {
 	doc := djot.Parse(input)
 
 	root := doc.Root()
-	// Should have: KindParagraph("hello"), KindThematicBreak, KindParagraph("world")
+	// Should have: Paragraph("hello"), ThematicBreak, Paragraph("world").
 	if len(root.Children) < 3 {
 		t.Fatalf("expected >= 3 children, got %d", len(root.Children))
 	}
 
 	tb := root.Children[1]
 	if tb.Kind() != djot.KindThematicBreak {
-		t.Fatalf("expected KindThematicBreak, got %v", tb.Kind())
+		t.Fatalf("expected ThematicBreak, got %v", tb.Kind())
 	}
 
 	// "* * *" starts at offset 7 (after "hello\n\n").
@@ -179,7 +179,7 @@ func TestPositionBlockQuote(t *testing.T) {
 
 	bq := root.Children[0]
 	if bq.Kind() != djot.KindBlockQuote {
-		t.Fatalf("expected KindBlockQuote, got %v", bq.Kind())
+		t.Fatalf("expected BlockQuote, got %v", bq.Kind())
 	}
 
 	if bq.Span().Start.Offset != 0 {
@@ -202,13 +202,13 @@ func TestPositionDiv(t *testing.T) {
 
 	div := root.Children[0]
 	if div.Kind() != djot.KindDiv {
-		t.Fatalf("expected KindDiv, got %v", div.Kind())
+		t.Fatalf("expected Div, got %v", div.Kind())
 	}
 
 	if div.Span().Start.Offset != 0 {
 		t.Errorf("div Start.Offset = %d, want 0", div.Span().Start.Offset)
 	}
-	// KindDiv ends at closing ":::" which ends at offset 21.
+	// The Div ends at the closing ":::" at offset 21.
 	if div.Span().End.Offset != 21 {
 		t.Errorf("div End.Offset = %d, want 21", div.Span().End.Offset)
 	}

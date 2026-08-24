@@ -13,11 +13,11 @@ func TestWalkContinue(t *testing.T) {
 		kinds = append(kinds, n.Kind())
 		return djot.Continue
 	})
-	// Should visit all nodes: KindSection, KindParagraph, KindText, KindStrong, KindText, KindText, KindEmphasis, KindText
+	// The walk should visit every node.
 	if len(kinds) == 0 {
 		t.Fatal("Walk visited no nodes")
 	}
-	// First child of root should be KindSection (from heading wrapping) or KindParagraph
+	// The root should contain a paragraph, possibly inside a section.
 	found := false
 	for _, k := range kinds {
 		if k == djot.KindParagraph {
@@ -25,7 +25,7 @@ func TestWalkContinue(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected KindParagraph in visited nodes, got %v", kinds)
+		t.Errorf("expected a paragraph in visited nodes, got %v", kinds)
 	}
 }
 
@@ -39,7 +39,7 @@ func TestWalkSkipChildren(t *testing.T) {
 		}
 		return djot.Continue
 	})
-	// Should visit KindStrong but NOT its KindText child
+	// The Strong node should be visited, but not its Text child.
 	hasStrong := false
 	for _, k := range visited {
 		if k == djot.KindStrong {
@@ -47,9 +47,9 @@ func TestWalkSkipChildren(t *testing.T) {
 		}
 	}
 	if !hasStrong {
-		t.Fatal("expected KindStrong to be visited")
+		t.Fatal("expected Strong to be visited")
 	}
-	// Count KindText nodes — should only see the "Hello " text, not "world" inside KindStrong
+	// Only the "Hello " text should be seen, not "world" inside Strong.
 	textCount := 0
 	for _, k := range visited {
 		if k == djot.KindText {
@@ -57,7 +57,7 @@ func TestWalkSkipChildren(t *testing.T) {
 		}
 	}
 	if textCount != 1 {
-		t.Errorf("expected 1 KindText node (skipped KindStrong's child), got %d", textCount)
+		t.Errorf("expected 1 Text node after skipping Strong's child, got %d", textCount)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestWalkRemove(t *testing.T) {
 	})
 	html := djot.RenderHTML(doc)
 	if got := html; contains(got, "<strong>") {
-		t.Errorf("KindStrong should have been removed, got: %s", got)
+		t.Errorf("Strong should have been removed, got: %s", got)
 	}
 	if !contains(html, "Hello") || !contains(html, "goodbye") {
 		t.Errorf("non-removed text should remain, got: %s", html)
@@ -93,7 +93,7 @@ func TestWalkReplace(t *testing.T) {
 		t.Errorf("expected replaced emphasis, got: %s", html)
 	}
 	if contains(html, "<strong>") {
-		t.Errorf("KindStrong should have been replaced, got: %s", html)
+		t.Errorf("Strong should have been replaced, got: %s", html)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 		}
 		return djot.Continue
 	})
-	// Walker should visit the replacement's children (KindText "inner")
+	// The walker should visit the replacement's Text child.
 	found := false
 	for _, k := range visitedAfterReplace {
 		if k == djot.KindText {
@@ -121,7 +121,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected walker to visit replacement's KindText child")
+		t.Error("expected walker to visit the replacement's Text child")
 	}
 }
 
@@ -149,7 +149,7 @@ func TestWalkRemoveMultiple(t *testing.T) {
 	})
 	html := djot.RenderHTML(doc)
 	if contains(html, "<strong>") {
-		t.Errorf("all KindStrong nodes should have been removed, got: %s", html)
+		t.Errorf("all Strong nodes should have been removed, got: %s", html)
 	}
 }
 
@@ -163,11 +163,11 @@ func TestWalkBottomUp(t *testing.T) {
 		t.Fatal("WalkBottomUp visited no nodes")
 	}
 	// Bottom-up: leaf nodes should appear before their parents.
-	// Last node visited should be KindDocument (root).
+	// The root Document should be visited last.
 	if kinds[len(kinds)-1] != djot.KindDocument {
-		t.Errorf("expected KindDocument visited last, got %s", kinds[len(kinds)-1])
+		t.Errorf("expected Document to be visited last, got %s", kinds[len(kinds)-1])
 	}
-	// KindText nodes should appear before KindParagraph.
+	// Text nodes should appear before their Paragraph.
 	textIdx, paraIdx := -1, -1
 	for i, k := range kinds {
 		if k == djot.KindText && textIdx == -1 {
@@ -178,7 +178,7 @@ func TestWalkBottomUp(t *testing.T) {
 		}
 	}
 	if textIdx >= paraIdx {
-		t.Errorf("expected KindText before KindParagraph in bottom-up order, text=%d para=%d", textIdx, paraIdx)
+		t.Errorf("expected Text before Paragraph in bottom-up order, text=%d para=%d", textIdx, paraIdx)
 	}
 }
 

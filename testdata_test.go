@@ -22,7 +22,7 @@ type TestCase struct {
 
 // parseTestFile reads a djot .test file and returns its test cases.
 // Format: triple-backtick blocks with "." separating input from expected output.
-// KindText between blocks is used as the test name.
+// Text between blocks is used as the test name.
 func parseTestFile(path string) ([]TestCase, error) {
 	f, err := os.Open(path)
 	if err != nil {

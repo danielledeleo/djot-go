@@ -30,6 +30,15 @@ func TestOfficial(t *testing.T) {
 						t.Errorf("file: %s line: %d\ninput:\n%s\n\nexpected:\n%s\n\ngot:\n%s",
 							tc.File, tc.Line, tc.Input, expected, got)
 					}
+
+					if !tc.IsAST {
+						tree := djot.RenderTreeHTMLForTest(doc)
+						tree = trimTrailingNewline(tree)
+						if tree != expected {
+							t.Errorf("tree renderer: file: %s line: %d\ninput:\n%s\n\nexpected:\n%s\n\ngot:\n%s",
+								tc.File, tc.Line, tc.Input, expected, tree)
+						}
+					}
 				})
 			}
 		})

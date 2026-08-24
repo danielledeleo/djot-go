@@ -8,7 +8,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// KindSymbol shortcodes via WithRenderFunc
+// Symbol shortcodes via WithRenderFunc
 // ---------------------------------------------------------------------------
 
 func TestPatternSymbolIcons(t *testing.T) {
@@ -82,7 +82,7 @@ func TestPatternSymbolDataWidget(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// KindDiv shortcodes via WithNodeRenderer (needs Children())
+// Div shortcodes via WithNodeRenderer (needs Children())
 // ---------------------------------------------------------------------------
 
 func TestPatternDivAdmonition(t *testing.T) {
@@ -160,7 +160,7 @@ func TestPatternASTInclude(t *testing.T) {
 	child := djot.Parse("Included text[^b].\n\n[^b]: Child footnote.")
 
 	// Splice the child's content into the parent AST.
-	// Wrap in a KindDiv to replace a placeholder, simulating :include:.
+	// Wrap in a Div to replace a placeholder, simulating :include:.
 	parentRoot := parent.Root()
 	wrapper := &djot.Div{Children: child.Root().Children}
 	parentRoot.Children = append(parentRoot.Children, wrapper)

@@ -194,7 +194,7 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 				}
 			}
 			if sect == nil {
-				t.Fatal("expected KindSection child")
+				t.Fatal("expected Section child")
 			}
 
 			if ok := sect.Attributes().Set(tc.key, "v"); ok {
@@ -235,7 +235,7 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 				}
 			}
 			if sect == nil {
-				t.Fatal("expected KindSection child")
+				t.Fatal("expected Section child")
 			}
 			if ok := sect.Attributes().Set(k, "v"); !ok {
 				t.Errorf("SetAttr(%q, _) returned false, want true", k)
@@ -262,7 +262,7 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 		}
 	}
 	if sect == nil {
-		t.Fatal("expected KindSection child")
+		t.Fatal("expected Section child")
 	}
 	sect.Attributes().Set("data-good", "v1")
 	if ok := sect.Attributes().Set("evil key", "v2"); ok {
