@@ -11,7 +11,7 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		doc := Parse("# First\n\n## Second\n")
 		err := RenderHTMLTo(io.Discard, doc, WithDocumentRenderer(func(document DocumentView, r DocumentRenderer) {
 			headings := document.Headings()
-			if len(headings) != 2 || headings[0].Text() != "First" || headings[1].Text() != "Second" {
+			if len(headings) != 2 || headings[0].Plaintext() != "First" || headings[1].Plaintext() != "Second" {
 				t.Fatalf("heading index = %#v", headings)
 			}
 			r.Default()
@@ -66,8 +66,8 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, _ DocumentRenderer) {
 			got = document.Footnotes()
 		}))
-		if len(got) != 2 || got[0].Label() != "a" || got[0].Defined() ||
-			got[1].Label() != "changed" || !got[1].Defined() || got[1].Attributes().Get("class") != "aside" {
+		if len(got) != 2 || got[0].Label() != "a" || got[0].HasDefinition() ||
+			got[1].Label() != "changed" || !got[1].HasDefinition() || got[1].Attributes().Get("class") != "aside" {
 			t.Fatalf("mutated footnote index = %#v", got)
 		}
 	})
@@ -158,8 +158,8 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 			got = document.Headings()[0]
 			r.Default()
 		}))
-		if got.Level() != 3 || got.Text() != "Changed" {
-			t.Fatalf("tree-backed heading = level %d text %q", got.Level(), got.Text())
+		if got.Level() != 3 || got.Plaintext() != "Changed" {
+			t.Fatalf("tree-backed heading = level %d text %q", got.Level(), got.Plaintext())
 		}
 	})
 
@@ -169,7 +169,7 @@ func TestDocumentViewMaterializationBoundary(t *testing.T) {
 		}})
 		got := RenderHTML(doc, WithDocumentRenderer(func(document DocumentView, r DocumentRenderer) {
 			headings := document.Headings()
-			if len(headings) != 1 || headings[0].Text() != "External" {
+			if len(headings) != 1 || headings[0].Plaintext() != "External" {
 				t.Fatalf("external heading index = %#v", headings)
 			}
 			r.Default()

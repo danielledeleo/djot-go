@@ -17,7 +17,7 @@ func TestDocumentRendererBuildsTOCBeforeOutput(t *testing.T) {
 		for _, heading := range headings {
 			r.Write(`<li data-level="` + strconv.Itoa(heading.Level()) + `"><a href="#`)
 			r.Write(heading.ID())
-			r.Write(`">` + heading.Text() + `</a></li>`)
+			r.Write(`">` + heading.Plaintext() + `</a></li>`)
 		}
 		r.Write("</ol></nav>\n")
 		r.Default()
@@ -59,7 +59,7 @@ func TestDocumentViewHeadingParity(t *testing.T) {
 				}
 				for _, heading := range first {
 					headings = append(headings, headingSnapshot{
-						level: heading.Level(), text: heading.Text(),
+						level: heading.Level(), text: heading.Plaintext(),
 						id: heading.ID(), span: heading.Span(),
 					})
 				}
@@ -159,10 +159,10 @@ func TestDocumentViewFootnoteParityAndOrdering(t *testing.T) {
 				for _, footnote := range first {
 					got = append(got, snapshot{
 						label: footnote.Label(), number: footnote.Number(),
-						references: footnote.ReferenceCount(), defined: footnote.Defined(),
+						references: footnote.ReferenceCount(), defined: footnote.HasDefinition(),
 						span: footnote.Span(),
 					})
-					if !footnote.Defined() && footnote.Attributes().Len() != 0 {
+					if !footnote.HasDefinition() && footnote.Attributes().Len() != 0 {
 						t.Fatalf("undefined footnote %q has attributes", footnote.Label())
 					}
 				}
@@ -210,7 +210,7 @@ func TestDocumentViewReferenceParityAndOrdering(t *testing.T) {
 				for _, reference := range first {
 					entry := snapshot{
 						label: reference.Label(), destination: reference.Destination(),
-						destinationSet: reference.DestinationSet(),
+						destinationSet: reference.HasDestination(),
 					}
 					reference.Attributes().Range(func(attribute djot.Attribute) bool {
 						entry.attributes += attribute.Key + "=" + attribute.Value + ";"
@@ -473,17 +473,17 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 				}
 				for _, heading := range document.Headings() {
 					result.headings = append(result.headings,
-						strconv.Itoa(heading.Level())+"|"+strconv.Quote(heading.Text())+"|"+strconv.Quote(heading.ID()))
+						strconv.Itoa(heading.Level())+"|"+strconv.Quote(heading.Plaintext())+"|"+strconv.Quote(heading.ID()))
 				}
 				for _, footnote := range document.Footnotes() {
 					result.footnotes = append(result.footnotes,
 						strconv.Quote(footnote.Label())+"|"+strconv.Itoa(footnote.Number())+"|"+
-							strconv.Itoa(footnote.ReferenceCount())+"|"+strconv.FormatBool(footnote.Defined()))
+							strconv.Itoa(footnote.ReferenceCount())+"|"+strconv.FormatBool(footnote.HasDefinition()))
 				}
 				for _, reference := range document.References() {
 					result.references = append(result.references,
 						strconv.Quote(reference.Label())+"|"+strconv.Quote(reference.Destination())+"|"+
-							strconv.FormatBool(reference.DestinationSet())+"|"+strconv.Itoa(reference.Attributes().Len()))
+							strconv.FormatBool(reference.HasDestination())+"|"+strconv.Itoa(reference.Attributes().Len()))
 				}
 				for _, anchor := range document.Anchors() {
 					result.anchors = append(result.anchors,

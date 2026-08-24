@@ -10,10 +10,16 @@
 A Go parser and HTML renderer for [djot](https://djot.net), a light markup
 language designed by John MacFarlane as a successor to Markdown.
 
+Designed for Go applications that embed Djot in publishing systems,
+documentation services, wikis, and developer tools: ordinary HTML rendering
+stays compact, while a typed mutable AST remains available for transformations
+and open-ended analysis.
+
 - Passes the official djot spec test suite (the Lua-only `filters` tests excepted)
 - Zero dependencies
-- Typed AST with source positions
-- Custom rendering via hooks
+- Compact direct-to-HTML rendering
+- Typed mutable AST with source positions
+- Streaming, subtree, document-index, and full-Node render hooks
 - `djot` command-line tool (HTML, AST, and JSON output)
 
 ## Install
@@ -71,10 +77,10 @@ their mutable AST only when `doc.Root()` is requested.
 Override the HTML output for specific node kinds:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
+rendered := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
     code := n.(*djot.CodeBlock)
     r.Write(`<pre class="highlight"><code>`)
-    r.Write(code.Text)
+    r.Write(html.EscapeString(code.Text))
     r.Write("</code></pre>")
 }))
 ```
@@ -133,12 +139,12 @@ For decisions that require a focused index over the entire document,
 builds a table of contents before emitting the normal document:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithDocumentRenderer(
+rendered := djot.RenderHTML(doc, djot.WithDocumentRenderer(
     func(document djot.DocumentView, r djot.DocumentRenderer) {
         r.Write(`<nav><ol>`)
         for _, heading := range document.Headings() {
             r.Write(`<li><a href="#` + html.EscapeString(heading.ID()) + `">`)
-            r.Write(html.EscapeString(heading.Text()))
+            r.Write(html.EscapeString(heading.Plaintext()))
             r.Write(`</a></li>`)
         }
         r.Write(`</ol></nav>`)

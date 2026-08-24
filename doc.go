@@ -1,6 +1,11 @@
 // Package djot parses and renders [djot] markup, a light markup language
 // designed by John MacFarlane as a successor to Markdown.
 //
+// The package is designed for Go applications embedding Djot in publishing
+// systems, documentation services, wikis, and developer tools. Ordinary HTML
+// rendering stays compact, while a typed mutable AST supports transformations
+// and open-ended analysis.
+//
 // The parser is spec-compliant with the [djot syntax reference] and passes the
 // full official test suite. Parsed documents retain a compact semantic
 // representation for rendering and materialize a mutable AST only when

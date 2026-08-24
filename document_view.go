@@ -57,8 +57,8 @@ func (r ReferenceView) Label() string { return r.label }
 // Destination returns the resolved reference destination.
 func (r ReferenceView) Destination() string { return r.destination }
 
-// DestinationSet reports whether the reference explicitly has a destination.
-func (r ReferenceView) DestinationSet() bool { return r.destinationSet }
+// HasDestination reports whether the reference explicitly has a destination.
+func (r ReferenceView) HasDestination() bool { return r.destinationSet }
 
 // Attributes returns the reference definition's read-only ordered attributes.
 func (r ReferenceView) Attributes() AttributeView { return r.attributes }
@@ -74,8 +74,9 @@ func (f FootnoteView) Number() int { return f.number }
 // references encountered inside other footnote definitions.
 func (f FootnoteView) ReferenceCount() int { return f.referenceCount }
 
-// Defined reports whether the document contains a definition for the label.
-func (f FootnoteView) Defined() bool { return f.defined }
+// HasDefinition reports whether the document contains a definition for the
+// label.
+func (f FootnoteView) HasDefinition() bool { return f.defined }
 
 // Span returns the definition's half-open source range. It is zero when the
 // footnote is referenced but undefined.
@@ -88,10 +89,12 @@ func (f FootnoteView) Attributes() AttributeView { return f.element.Attributes()
 // Level returns the heading level.
 func (h HeadingView) Level() int { return h.level }
 
-// Text returns the heading's unescaped plain-text content with inline markup
-// removed and rendered punctuation and symbols preserved. Escape it before
-// including it in HTML written with [DocumentRenderer.Write].
-func (h HeadingView) Text() string { return h.text }
+// Plaintext returns the heading's unescaped presentation text. Inline wrappers
+// and destinations are omitted; visible text, symbol notation, code and math
+// contents, and rendered punctuation are preserved. Footnote references and
+// raw inline content are omitted. Escape the result before including it in HTML
+// written with [DocumentRenderer.Write].
+func (h HeadingView) Plaintext() string { return h.text }
 
 // ID returns the unescaped anchor id targeted by links to this heading. Escape
 // it before including it in HTML written with [DocumentRenderer.Write].

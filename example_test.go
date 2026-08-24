@@ -139,16 +139,16 @@ func ExampleWithSubtreeRenderer() {
 
 func ExampleWithDocumentRenderer() {
 	doc := djot.Parse("# One\n")
-	html := djot.RenderHTML(doc, djot.WithDocumentRenderer(
+	rendered := djot.RenderHTML(doc, djot.WithDocumentRenderer(
 		func(document djot.DocumentView, r djot.DocumentRenderer) {
 			heading := document.Headings()[0]
 			r.Write(`<nav><a href="#` + html.EscapeString(heading.ID()) + `">`)
-			r.Write(html.EscapeString(heading.Text()) + `</a></nav>`)
+			r.Write(html.EscapeString(heading.Plaintext()) + `</a></nav>`)
 			r.Write("\n")
 			r.Default()
 		},
 	))
-	fmt.Println(html)
+	fmt.Println(rendered)
 	// Output:
 	// <nav><a href="#One">One</a></nav>
 	// <section id="One">
