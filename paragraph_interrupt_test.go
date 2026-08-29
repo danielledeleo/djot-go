@@ -256,8 +256,8 @@ func TestTableRowNeedsTrailingPipe(t *testing.T) {
 		t.Errorf("line without trailing pipe treated as table row:\n%s", html)
 	}
 	html = djot.RenderHTML(djot.Parse("|a|\n|b| x\n"))
-	if strings.Contains(html, "<td>x</td>") || strings.Contains(html, "b| x") && false {
-		t.Errorf("bogus second row absorbed:\n%s", html)
+	if strings.Contains(html, "<td>x</td>") || !strings.Contains(html, "<p>|b| x</p>") {
+		t.Errorf("bogus second row absorbed or lost:\n%s", html)
 	}
 	if !strings.Contains(djot.RenderHTML(djot.Parse("|a|b| \n")), "<table>") {
 		t.Errorf("trailing whitespace after final pipe should stay a row")
