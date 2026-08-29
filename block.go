@@ -152,10 +152,8 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 		}
 	}
 
-	// Thematic break: 3+ break chars with optional spaces. Paragraphs absorb
-	// their continuation lines before this dispatcher runs, so any line seen
-	// here is in fresh block position (matching djot.js, which needs no
-	// preceding blank).
+	// Paragraphs consume continuation lines before dispatch, so a thematic
+	// break reaching here needs no preceding blank.
 	if isThematicBreak(stripped) {
 		node := bp.arena.new(parseNodeSpec{Kind: KindThematicBreak})
 		node.Start = Pos{Offset: line.start}
@@ -269,8 +267,7 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 		if len(s) > 0 && s[0] == '>' && (len(s) == 1 || s[1] == ' ') {
 			break
 		}
-		// List markers, definition terms, and table rows also end a heading
-		// (matching djot.js); only plain text lines continue it.
+		// Recognized block starts end headings, matching djot.js.
 		if _, _, ok := bulletListMarker(s); ok {
 			break
 		}
@@ -283,10 +280,8 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 		if isReferenceDefinition(s) || isFootnoteDefinition(s) {
 			break
 		}
-		// A block attribute ends the heading exactly when the dispatcher
-		// would not read the line as paragraph text: a valid single-line
-		// attribute, or a multi-line attempt (whose lines are re-emitted
-		// literally). Invalid brace lines stay heading text.
+		// Mirror the dispatcher: valid attributes and multiline attempts end
+		// headings; invalid single-line attempts remain heading text.
 		if len(s) > 0 && s[0] == '{' {
 			if attrContent, lines := bp.tryBlockAttr(s, prefix); attrContent != "" {
 				if attrs, _ := parseAttrsOrdered(attrContent[1 : len(attrContent)-1]); attrs != nil {
@@ -295,7 +290,6 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 			} else if lines > 0 {
 				break
 			}
-			// fall through: heading text
 		}
 		// Same-level heading markers continue the heading.
 		var line_content string
@@ -666,8 +660,6 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 			nextIndent := countLeadingSpaces(nextText)
 			if nextIndent > markerIndent {
 				rest := stripIndent(nextText, stripAmount)
-				// Offsets are bytes; the stripped indentation's byte length
-				// can differ from its column count when tabs are present.
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
 				bp.pos++
@@ -952,9 +944,7 @@ func (bp *blockParser) parseParagraph(parent *parseNode, prefix string, literalL
 			break
 		}
 
-		// Nothing interrupts a paragraph in djot: heading, code fence,
-		// thematic break, list marker, and "{.class}" lines are all
-		// paragraph text until a blank line (matching djot.js).
+		// Nothing interrupts a paragraph; only a blank line ends it.
 
 		if textBuf.Len() > 0 {
 			textBuf.WriteByte('\n')
@@ -1017,10 +1007,7 @@ func (bp *blockParser) tryBlockAttr(stripped, prefix string) (string, int) {
 		return trimmed, 1
 	}
 
-	// Multi-line case: { starts an attr block, continuation lines must be
-	// indented. If the opening line already contains a '}', its brace pair
-	// resolves on that line, so there is no multi-line attempt and the line
-	// gets a normal inline reading (matching djot.js).
+	// A closing brace on the opening line rules out a multiline attempt.
 	if strings.ContainsRune(trimmed, '}') {
 		return "", 0
 	}
@@ -1137,9 +1124,7 @@ func isCodeFenceOpen(s string) bool {
 			return false
 		}
 	}
-	// The info string (language or =format) must be a single word for both
-	// fence kinds; a line with whitespace there is not a fence (matching
-	// djot.js).
+	// Language and =format info strings are single tokens.
 	if strings.ContainsAny(rest, " \t") {
 		return false
 	}
@@ -1299,11 +1284,7 @@ func extractOrderedMarkerParts(s string) (enum string, delim orderedDelim, ok bo
 	return "", 0, false
 }
 
-// parseOrderedEnumAs tries to parse an enum string as a specific style.
-// maxOrderedEnum bounds decimal enumerators: anything larger is rejected
-// rather than wrapped to a nonsense (possibly negative) start. It is typed
-// uint64 so the bound compiles on 32-bit architectures; parseDecimalEnum
-// separately rejects values that do not fit the platform int.
+// maxOrderedEnum bounds decimal enumerators independently of int width.
 const maxOrderedEnum uint64 = 100_000_000_000_000_000
 
 // parseDecimalEnum parses an all-digit enumerator, rejecting values past
@@ -1326,6 +1307,7 @@ func parseDecimalEnum(s string) (int, bool) {
 	return int(n), true
 }
 
+// parseOrderedEnumAs tries to parse an enum string as a specific style.
 func parseOrderedEnumAs(s string, style ListStyle) (int, bool) {
 	// No style reads an empty enumerator; without this the decimal case would
 	// fall out of its loop and call it zero.
@@ -1471,6 +1453,8 @@ func parseRoman(s string) (int, bool) {
 	return total, true
 }
 
+// stripIndent removes up to n indentation columns. Callers derive the number
+// of source bytes consumed from the returned suffix because tabs span columns.
 func stripIndent(text string, n int) string {
 	stripped := 0
 	for i := 0; i < len(text) && stripped < n; i++ {
@@ -1650,8 +1634,6 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 		nextIndent := countLeadingSpaces(nextText)
 		if nextIndent >= contentIndent {
 			rest := stripIndent(nextText, contentIndent)
-			// Offsets are bytes; the stripped indentation's byte length
-			// can differ from its column count when tabs are present.
 			content.add(rest,
 				nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
 			bp.pos++
@@ -1782,8 +1764,6 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 			nextIndent := countLeadingSpaces(nextText)
 			if nextIndent >= contentIndent {
 				rest := stripIndent(nextText, contentIndent)
-				// Offsets are bytes; the stripped indentation's byte length
-				// can differ from its column count when tabs are present.
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
 				bp.pos++
@@ -1831,8 +1811,7 @@ func isTableRow(s string) bool {
 	if len(s) == 0 || s[0] != '|' {
 		return false
 	}
-	// A row line must also end with a pipe, ignoring trailing whitespace
-	// (djot.js pattTableRow).
+	// A row line must end with a pipe, ignoring trailing whitespace.
 	if t := strings.TrimRight(s, " \t"); len(t) < 2 || t[len(t)-1] != '|' {
 		return false
 	}
@@ -1978,8 +1957,6 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 			nextIndent := countLeadingSpaces(nextText)
 			if nextIndent >= contentIndent {
 				rest := stripIndent(nextText, contentIndent)
-				// Offsets are bytes; the stripped indentation's byte length
-				// can differ from its column count when tabs are present.
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
 				bp.pos++

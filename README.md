@@ -22,6 +22,13 @@ and open-ended analysis.
 - Streaming, subtree, document-index, and full-Node render hooks
 - `djot` command-line tool (HTML, AST, and JSON output)
 
+## Compatibility
+
+djot-go targets compatibility with djot.js, the reference implementation, and
+passes the official syntax and rendering tests. Where the prose syntax
+reference and djot.js differ, djot-go follows djot.js unless documented
+otherwise.
+
 ## Install
 
 As a library:
@@ -273,8 +280,8 @@ text AST), making it convenient for tooling and diffing.
 
 ## Supported features
 
-Blocks: paragraphs, headings (1-6), code blocks (with language), raw blocks,
-block quotes, divs, bullet/ordered/task/definition lists, tables with
+Blocks: paragraphs, headings (1-6), code blocks (with language), raw blocks
+(`=format`), block quotes, divs, bullet/ordered/task/definition lists, tables with
 alignments and captions, footnotes, thematic breaks, reference link
 definitions.
 

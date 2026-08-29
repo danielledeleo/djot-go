@@ -7,13 +7,10 @@ import (
 	"github.com/danielledeleo/djot-go"
 )
 
-// TestHeadingDoesNotInterruptParagraph pins djot.js behavior: nothing
-// interrupts a paragraph — a "#" line inside one is paragraph text, exactly
-// like ">" and "-" lines already are. (Previously a heading line split the
-// paragraph unless it appeared inside unclosed inline-attribute braces.)
-// TestBlocksInterruptHeading pins djot.js behavior: list markers, definition
-// terms, and table rows end a heading just like fences, divs, breaks, and
-// quotes already do — only plain text lines are absorbed as continuations.
+// These tests pin parser edge cases to djot.js behavior.
+
+// TestBlocksInterruptHeading verifies that recognized block starts terminate
+// headings while plain text remains a continuation.
 func TestBlocksInterruptHeading(t *testing.T) {
 	cases := []struct {
 		name, in, want string
@@ -37,8 +34,7 @@ func TestBlocksInterruptHeading(t *testing.T) {
 	}
 }
 
-// TestRawBlockFormatNoSpaces pins djot.js behavior: a raw-block info string
-// is exactly "=format" with no whitespace; anything else is not a fence.
+// TestRawBlockFormatNoSpaces requires =format to be a single token.
 func TestRawBlockFormatNoSpaces(t *testing.T) {
 	for _, in := range []string{
 		"~~~= 0\n", "~~~=fmt extra\n", "```= x\ny\n```\n",
@@ -58,12 +54,8 @@ func TestRawBlockFormatNoSpaces(t *testing.T) {
 	}
 }
 
-// TestInvalidAttrContinuesHeading: a brace line that the dispatcher would
-// read as paragraph text (a failed attribute attempt with no consumed
-// lines) is heading text (matching djot.js). Note: "{x y}" is a valid
-// attribute to this parser's grammar (bare keys parse as empty-valued
-// attributes, unlike djot.js) and so ends the heading like any attribute;
-// the heading check mirrors the dispatcher either way.
+// TestInvalidAttrContinuesHeading keeps a failed single-line attribute attempt
+// as heading text.
 func TestInvalidAttrContinuesHeading(t *testing.T) {
 	html := djot.RenderHTML(djot.Parse("# h\n{x y\n"))
 	if !strings.Contains(html, "{x y") || !strings.Contains(html, "</h1>") ||
@@ -72,8 +64,7 @@ func TestInvalidAttrContinuesHeading(t *testing.T) {
 	}
 }
 
-// TestSinglePipeContinuesHeading: a line with a lone pipe is not a table
-// row, so it continues the heading as text (matching djot.js).
+// A lone pipe does not start a table row.
 func TestSinglePipeContinuesHeading(t *testing.T) {
 	html := djot.RenderHTML(djot.Parse("# h\n|x\n"))
 	if strings.Contains(html, "<table>") || !strings.Contains(html, "|x</h1>") {
@@ -124,6 +115,8 @@ func TestTableRowBacktickRuns(t *testing.T) {
 	}
 }
 
+// TestHeadingDoesNotInterruptParagraph verifies that a heading marker inside
+// a paragraph remains paragraph text.
 func TestHeadingDoesNotInterruptParagraph(t *testing.T) {
 	cases := []struct {
 		name string
@@ -153,8 +146,7 @@ func TestEscapedTextInSpan(t *testing.T) {
 	}
 }
 
-// TestBreakAfterHeading pins djot.js behavior: a thematic break in fresh
-// block position needs no preceding blank line.
+// A thematic break in fresh block position needs no preceding blank line.
 func TestBreakAfterHeading(t *testing.T) {
 	html := djot.RenderHTML(djot.Parse("# h\n***\n"))
 	if !strings.Contains(html, "<hr>") {
@@ -162,9 +154,7 @@ func TestBreakAfterHeading(t *testing.T) {
 	}
 }
 
-// TestOrderedEnumOverflow: decimal enumerators past maxOrderedEnum are
-// rejected rather than wrapped, on every architecture (values above the
-// platform int maximum are also rejected, so 32-bit builds stay safe).
+// Decimal enumerators beyond parser or platform limits are rejected.
 func TestOrderedEnumOverflow(t *testing.T) {
 	cases := []struct {
 		name string
@@ -248,8 +238,7 @@ func TestTabContinuationAllContainers(t *testing.T) {
 	}
 }
 
-// TestTableRowNeedsTrailingPipe pins djot.js's pattTableRow: a row line must
-// end with a pipe (after trailing whitespace), so "|a| b" is not a row.
+// A table row must end with a pipe after trailing whitespace is removed.
 func TestTableRowNeedsTrailingPipe(t *testing.T) {
 	html := djot.RenderHTML(djot.Parse("# h\n|a| b\n"))
 	if strings.Contains(html, "<table>") {

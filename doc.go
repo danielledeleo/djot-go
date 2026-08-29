@@ -6,11 +6,12 @@
 // rendering stays compact, while a typed mutable AST supports transformations
 // and open-ended analysis.
 //
-// The parser is spec-compliant with the [djot syntax reference] and passes the
-// official syntax and rendering tests; the Lua-only filter tests do not apply
-// to this Go implementation. Parsed documents retain a compact semantic
-// representation for rendering and materialize a mutable AST only when
-// [Doc.Root] is requested.
+// The parser targets compatibility with djot.js, the reference implementation,
+// and passes the official syntax and rendering tests; the Lua-only filter tests
+// do not apply to this Go implementation. Where the prose syntax reference and
+// djot.js differ, this package follows djot.js unless documented otherwise.
+// Parsed documents retain a compact semantic representation for rendering and
+// materialize a mutable AST only when [Doc.Root] is requested.
 //
 // # Quick start
 //
@@ -60,6 +61,7 @@
 // pass the output through an HTML sanitizer such as [bluemonday].
 //
 // [djot]: https://djot.net
-// [djot syntax reference]: https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/main/doc/syntax.html
 // [bluemonday]: https://github.com/microcosm-cc/bluemonday
+//
+// [djot syntax reference]: https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/main/doc/syntax.html
 package djot
