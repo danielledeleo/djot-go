@@ -389,6 +389,7 @@ func (p *inlineParser) parseImageOpen() {
 		}
 		idx := len(p.nodes)
 		p.add(parseNodeSpec{Kind: KindText, Text: "!["})
+		p.openerIdx[idx] = true
 		p.openers['['] = append(p.openers['['], opener{
 			char:    '!', // special marker for image opener
 			pos:     p.pos,
@@ -558,6 +559,7 @@ func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 func (p *inlineParser) parseBracketOpen() {
 	idx := len(p.nodes)
 	p.add(parseNodeSpec{Kind: KindText, Text: "["})
+	p.openerIdx[idx] = true
 	p.openers['['] = append(p.openers['['], opener{
 		char:    '[',
 		pos:     p.pos,
@@ -577,6 +579,9 @@ func (p *inlineParser) parseBracketClose() {
 
 	op := openers[len(openers)-1]
 	p.openers['['] = openers[:len(openers)-1]
+	// The opener is no longer live: if its "["/"![" ends up as literal text,
+	// following text may merge with it again.
+	delete(p.openerIdx, op.nodeIdx)
 
 	if op.nodeIdx >= len(p.nodes) {
 		p.add(parseNodeSpec{Kind: KindText, Text: "]"})
@@ -969,14 +974,11 @@ func (p *inlineParser) parseSmartQuote(char byte, kind Kind) {
 			for i := len(openers) - 1; i >= 0; i-- {
 				if openers[i].marked {
 					op := openers[i]
+					// The children may legitimately end with a literal quote
+					// character (e.g. an escaped quote in {'\''}); it is part
+					// of the quoted content, not the closing delimiter
+					// (matching djot.js).
 					children := p.nodes[op.nodeIdx+1:]
-					// Remove trailing quote text before }
-					if len(children) > 0 {
-						last := children[len(children)-1]
-						if last.Kind == KindText && last.Text == string(char) {
-							children = children[:len(children)-1]
-						}
-					}
 					childCopy := p.slices.clone(children)
 					p.openers[qchar] = append(openers[:i], openers[i+1:]...)
 					p.invalidateOpenersFrom(op.nodeIdx)
@@ -1257,6 +1259,8 @@ func findBalancedParen(input string, pos int) int {
 	depth := 0
 	for i := pos; i < len(input); i++ {
 		switch input[i] {
+		case '\\':
+			i++ // an escaped paren neither opens nor closes
 		case '(':
 			depth++
 		case ')':
