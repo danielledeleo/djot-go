@@ -1,17 +1,18 @@
-package djot_test
+package ast_test
 
 import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestWalkContinue(t *testing.T) {
 	doc := djot.Parse("Hello *world* and _more_")
-	var kinds []djot.Kind
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+	var kinds []ast.Kind
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 		kinds = append(kinds, n.Kind())
-		return djot.Continue
+		return ast.Continue
 	})
 	// The walk should visit every node.
 	if len(kinds) == 0 {
@@ -20,7 +21,7 @@ func TestWalkContinue(t *testing.T) {
 	// The root should contain a paragraph, possibly inside a section.
 	found := false
 	for _, k := range kinds {
-		if k == djot.KindParagraph {
+		if k == ast.KindParagraph {
 			found = true
 		}
 	}
@@ -31,18 +32,18 @@ func TestWalkContinue(t *testing.T) {
 
 func TestWalkSkipChildren(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
-	var visited []djot.Kind
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+	var visited []ast.Kind
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 		visited = append(visited, n.Kind())
-		if n.Kind() == djot.KindStrong {
-			return djot.SkipChildren
+		if n.Kind() == ast.KindStrong {
+			return ast.SkipChildren
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	// The Strong node should be visited, but not its Text child.
 	hasStrong := false
 	for _, k := range visited {
-		if k == djot.KindStrong {
+		if k == ast.KindStrong {
 			hasStrong = true
 		}
 	}
@@ -52,7 +53,7 @@ func TestWalkSkipChildren(t *testing.T) {
 	// Only the "Hello " text should be seen, not "world" inside Strong.
 	textCount := 0
 	for _, k := range visited {
-		if k == djot.KindText {
+		if k == ast.KindText {
 			textCount++
 		}
 	}
@@ -63,11 +64,11 @@ func TestWalkSkipChildren(t *testing.T) {
 
 func TestWalkRemove(t *testing.T) {
 	doc := djot.Parse("Hello *world* goodbye")
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if n.Kind() == djot.KindStrong {
-			return djot.Remove
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if n.Kind() == ast.KindStrong {
+			return ast.Remove
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	html := djot.RenderHTML(doc)
 	if got := html; contains(got, "<strong>") {
@@ -80,13 +81,13 @@ func TestWalkRemove(t *testing.T) {
 
 func TestWalkReplace(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if n.Kind() == djot.KindStrong {
-			return djot.Replace(&djot.Emphasis{
-				Children: []djot.Inline{&djot.Text{Value: "replaced"}},
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if n.Kind() == ast.KindStrong {
+			return ast.Replace(&ast.Emphasis{
+				Children: []ast.Inline{&ast.Text{Value: "replaced"}},
 			})
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	html := djot.RenderHTML(doc)
 	if !contains(html, "<em>replaced</em>") {
@@ -99,24 +100,24 @@ func TestWalkReplace(t *testing.T) {
 
 func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 	doc := djot.Parse("*bold*")
-	var visitedAfterReplace []djot.Kind
+	var visitedAfterReplace []ast.Kind
 	replaced := false
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if n.Kind() == djot.KindStrong && !replaced {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if n.Kind() == ast.KindStrong && !replaced {
 			replaced = true
-			return djot.Replace(&djot.Emphasis{
-				Children: []djot.Inline{&djot.Text{Value: "inner"}},
+			return ast.Replace(&ast.Emphasis{
+				Children: []ast.Inline{&ast.Text{Value: "inner"}},
 			})
 		}
 		if replaced {
 			visitedAfterReplace = append(visitedAfterReplace, n.Kind())
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	// The walker should visit the replacement's Text child.
 	found := false
 	for _, k := range visitedAfterReplace {
-		if k == djot.KindText {
+		if k == ast.KindText {
 			found = true
 		}
 	}
@@ -128,11 +129,11 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 func TestWalkVisitsRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if n.Kind() == djot.KindDocument {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if n.Kind() == ast.KindDocument {
 			visitedRoot = true
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	if !visitedRoot {
 		t.Error("Walk should visit the root node itself")
@@ -141,11 +142,11 @@ func TestWalkVisitsRoot(t *testing.T) {
 
 func TestWalkRemoveMultiple(t *testing.T) {
 	doc := djot.Parse("*a* *b* *c*")
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if n.Kind() == djot.KindStrong {
-			return djot.Remove
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if n.Kind() == ast.KindStrong {
+			return ast.Remove
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	html := djot.RenderHTML(doc)
 	if contains(html, "<strong>") {
@@ -155,8 +156,8 @@ func TestWalkRemoveMultiple(t *testing.T) {
 
 func TestWalkBottomUp(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
-	var kinds []djot.Kind
-	djot.WalkBottomUp(doc.Root(), func(n djot.Node) {
+	var kinds []ast.Kind
+	ast.WalkBottomUp(doc.Root(), func(n ast.Node) {
 		kinds = append(kinds, n.Kind())
 	})
 	if len(kinds) == 0 {
@@ -164,16 +165,16 @@ func TestWalkBottomUp(t *testing.T) {
 	}
 	// Bottom-up: leaf nodes should appear before their parents.
 	// The root Document should be visited last.
-	if kinds[len(kinds)-1] != djot.KindDocument {
+	if kinds[len(kinds)-1] != ast.KindDocument {
 		t.Errorf("expected Document to be visited last, got %s", kinds[len(kinds)-1])
 	}
 	// Text nodes should appear before their Paragraph.
 	textIdx, paraIdx := -1, -1
 	for i, k := range kinds {
-		if k == djot.KindText && textIdx == -1 {
+		if k == ast.KindText && textIdx == -1 {
 			textIdx = i
 		}
-		if k == djot.KindParagraph {
+		if k == ast.KindParagraph {
 			paraIdx = i
 		}
 	}
@@ -185,8 +186,8 @@ func TestWalkBottomUp(t *testing.T) {
 func TestWalkBottomUpVisitsRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	djot.WalkBottomUp(doc.Root(), func(n djot.Node) {
-		if n.Kind() == djot.KindDocument {
+	ast.WalkBottomUp(doc.Root(), func(n ast.Node) {
+		if n.Kind() == ast.KindDocument {
 			visitedRoot = true
 		}
 	})

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestSymbolRenderer(t *testing.T) {
@@ -41,7 +42,7 @@ func TestSymbolRenderer(t *testing.T) {
 	t.Run("last hook wins across execution models", func(t *testing.T) {
 		doc := djot.Parse(":star:")
 		tapeLast := djot.RenderHTML(doc,
-			djot.WithNodeRenderer(djot.KindSymbol, func(djot.Node, djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindSymbol, func(ast.Node, djot.NodeRenderer) {
 				t.Fatal("replaced Node hook ran")
 			}),
 			djot.WithSymbolRenderer(func(djot.SymbolView, djot.ElementRenderer) {}),
@@ -54,8 +55,8 @@ func TestSymbolRenderer(t *testing.T) {
 			djot.WithSymbolRenderer(func(djot.SymbolView, djot.ElementRenderer) {
 				t.Fatal("replaced tape hook ran")
 			}),
-			djot.WithNodeRenderer(djot.KindSymbol, func(n djot.Node, r djot.NodeRenderer) {
-				r.Write("[" + n.(*djot.Symbol).Name + "]")
+			djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
+				r.Write("[" + n.(*ast.Symbol).Name + "]")
 			}),
 		)
 		if nodeLast != "<p>[star]</p>\n" {
@@ -84,8 +85,8 @@ func TestSymbolRendererMatchesRawNodeCrawl(t *testing.T) {
 	const input = "A :star:, a :moon:, and another :star:."
 
 	nodeDoc := djot.Parse(input)
-	djot.Preorder(nodeDoc.Root(), func(node djot.Node) bool {
-		if symbol, ok := node.(*djot.Symbol); ok && symbol.Name == "star" {
+	ast.Preorder(nodeDoc.Root(), func(node ast.Node) bool {
+		if symbol, ok := node.(*ast.Symbol); ok && symbol.Name == "star" {
 			symbol.Name = "sparkle"
 		}
 		return true
@@ -121,8 +122,8 @@ func FuzzSymbolRendererMatchesRawNodeCrawl(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, input string) {
 		nodeDoc := djot.Parse(input)
-		djot.Preorder(nodeDoc.Root(), func(node djot.Node) bool {
-			if symbol, ok := node.(*djot.Symbol); ok {
+		ast.Preorder(nodeDoc.Root(), func(node ast.Node) bool {
+			if symbol, ok := node.(*ast.Symbol); ok {
 				symbol.Name = "x_" + symbol.Name
 			}
 			return true
@@ -182,18 +183,18 @@ func TestDivRenderer(t *testing.T) {
 
 	t.Run("attribute iteration and span", func(t *testing.T) {
 		doc := djot.Parse("{#alert .extra key=value}\n::: note\ntext\n:::\n")
-		var wantSpan djot.SourceSpan
-		var wantAttributes []djot.Attribute
-		djot.Preorder(doc.Root(), func(node djot.Node) bool {
-			if div, ok := node.(*djot.Div); ok {
+		var wantSpan ast.SourceSpan
+		var wantAttributes []ast.Attribute
+		ast.Preorder(doc.Root(), func(node ast.Node) bool {
+			if div, ok := node.(*ast.Div); ok {
 				wantSpan = div.Span()
 				wantAttributes = div.Attributes().Entries()
 				return false
 			}
 			return true
 		})
-		var attributes []djot.Attribute
-		var span djot.SourceSpan
+		var attributes []ast.Attribute
+		var span ast.SourceSpan
 		djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
 			span = div.Span()
 			if div.Attributes().Len() != len(wantAttributes) {
@@ -202,7 +203,7 @@ func TestDivRenderer(t *testing.T) {
 			if value, ok := div.Attributes().Lookup("key"); !ok || value != "value" {
 				t.Fatalf("key lookup = %q, %v", value, ok)
 			}
-			div.Attributes().Range(func(attribute djot.Attribute) bool {
+			div.Attributes().Range(func(attribute ast.Attribute) bool {
 				attributes = append(attributes, attribute)
 				return true
 			})
@@ -223,19 +224,19 @@ func TestDivRenderer(t *testing.T) {
 
 	t.Run("mutated span is authoritative", func(t *testing.T) {
 		doc := djot.Parse("::: note\ntext\n:::\n")
-		want := djot.SourceSpan{
-			Start: djot.Pos{File: 1, Offset: 7},
-			End:   djot.Pos{File: 1, Offset: 19},
+		want := ast.SourceSpan{
+			Start: ast.Pos{File: 1, Offset: 7},
+			End:   ast.Pos{File: 1, Offset: 19},
 		}
-		djot.Preorder(doc.Root(), func(node djot.Node) bool {
-			if _, ok := node.(*djot.Div); ok {
-				djot.SetSpan(node, want)
+		ast.Preorder(doc.Root(), func(node ast.Node) bool {
+			if _, ok := node.(*ast.Div); ok {
+				ast.SetSpan(node, want)
 				return false
 			}
 			return true
 		})
 
-		var got djot.SourceSpan
+		var got ast.SourceSpan
 		djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
 			got = div.Span()
 			r.Default()
@@ -258,7 +259,7 @@ func FuzzDivRendererMatchesNodeRenderer(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, input string) {
 		nodeDoc := djot.Parse(input)
-		want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, func(_ djot.Node, r djot.NodeRenderer) {
+		want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindDiv, func(_ ast.Node, r djot.NodeRenderer) {
 			r.Write("<aside>")
 			r.Children()
 			r.Write("</aside>")

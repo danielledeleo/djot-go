@@ -1,12 +1,14 @@
 package djot
 
+import "github.com/danielledeleo/djot-go/ast"
+
 type typedNodeArena struct {
-	texts      typedSlab[Text]
-	strongs    typedSlab[Strong]
-	paragraphs typedSlab[Paragraph]
-	tableCells typedSlab[TableCell]
-	listItems  typedSlab[ListItem]
-	links      typedSlab[Link]
+	texts      typedSlab[ast.Text]
+	strongs    typedSlab[ast.Strong]
+	paragraphs typedSlab[ast.Paragraph]
+	tableCells typedSlab[ast.TableCell]
+	listItems  typedSlab[ast.ListItem]
+	links      typedSlab[ast.Link]
 }
 
 type typedSlab[T any] struct {

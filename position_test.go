@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestPositionTracking(t *testing.T) {
@@ -12,7 +13,7 @@ func TestPositionTracking(t *testing.T) {
 
 	// The AST should be: Document > Section > [Heading, Paragraph].
 	root := doc.Root()
-	if root.Kind() != djot.KindDocument {
+	if root.Kind() != ast.KindDocument {
 		t.Fatalf("expected Document, got %v", root.Kind())
 	}
 	if root.Span().Start.Offset != 0 {
@@ -23,7 +24,7 @@ func TestPositionTracking(t *testing.T) {
 	if len(root.Children) == 0 {
 		t.Fatal("document has no children")
 	}
-	section, ok := root.Children[0].(*djot.Section)
+	section, ok := root.Children[0].(*ast.Section)
 	if !ok {
 		t.Fatalf("expected *Section, got %T", root.Children[0])
 	}
@@ -32,11 +33,11 @@ func TestPositionTracking(t *testing.T) {
 		t.Fatalf("section has %d children, want >= 2", len(section.Children))
 	}
 
-	heading, ok := section.Children[0].(*djot.Heading)
+	heading, ok := section.Children[0].(*ast.Heading)
 	if !ok {
 		t.Fatalf("expected *Heading, got %T", section.Children[0])
 	}
-	para, ok := section.Children[1].(*djot.Paragraph)
+	para, ok := section.Children[1].(*ast.Paragraph)
 	if !ok {
 		t.Fatalf("expected *Paragraph, got %T", section.Children[1])
 	}
@@ -74,7 +75,7 @@ func TestPositionTracking(t *testing.T) {
 		t.Fatal("heading has no inline children")
 	}
 	textNode := heading.Children[0]
-	if textNode.Kind() != djot.KindText {
+	if textNode.Kind() != ast.KindText {
 		t.Fatalf("expected Text child, got %v", textNode.Kind())
 	}
 	if textNode.Span().Start.Offset == 0 && textNode.Span().End.Offset == 0 {
@@ -92,7 +93,7 @@ func TestPositionCodeBlock(t *testing.T) {
 	}
 
 	cb := root.Children[0]
-	if cb.Kind() != djot.KindCodeBlock {
+	if cb.Kind() != ast.KindCodeBlock {
 		t.Fatalf("expected CodeBlock, got %v", cb.Kind())
 	}
 
@@ -116,7 +117,7 @@ func TestPositionThematicBreak(t *testing.T) {
 	}
 
 	tb := root.Children[1]
-	if tb.Kind() != djot.KindThematicBreak {
+	if tb.Kind() != ast.KindThematicBreak {
 		t.Fatalf("expected ThematicBreak, got %v", tb.Kind())
 	}
 
@@ -139,7 +140,7 @@ func TestPositionList(t *testing.T) {
 		t.Fatal("document has no children")
 	}
 
-	list, ok := root.Children[0].(*djot.BulletList)
+	list, ok := root.Children[0].(*ast.BulletList)
 	if !ok {
 		t.Fatalf("expected *BulletList, got %T", root.Children[0])
 	}
@@ -178,7 +179,7 @@ func TestPositionBlockQuote(t *testing.T) {
 	}
 
 	bq := root.Children[0]
-	if bq.Kind() != djot.KindBlockQuote {
+	if bq.Kind() != ast.KindBlockQuote {
 		t.Fatalf("expected BlockQuote, got %v", bq.Kind())
 	}
 
@@ -201,7 +202,7 @@ func TestPositionDiv(t *testing.T) {
 	}
 
 	div := root.Children[0]
-	if div.Kind() != djot.KindDiv {
+	if div.Kind() != ast.KindDiv {
 		t.Fatalf("expected Div, got %v", div.Kind())
 	}
 

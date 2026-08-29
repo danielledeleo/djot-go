@@ -1,217 +1,215 @@
 package djot
 
-func (t *semanticTape) materializeAST() *Document {
+import "github.com/danielledeleo/djot-go/ast"
+
+func (t *semanticTape) materializeAST() *ast.Document {
 	if t == nil || len(t.records) < 2 {
 		return nil
 	}
 	var arena typedNodeArena
 	root, _ := t.materializeNode(0, &arena)
-	document, ok := root.(*Document)
+	document, ok := root.(*ast.Document)
 	if !ok {
 		panic("djot: semantic tape root is not a document")
 	}
 	return document
 }
 
-func (t *semanticTape) materializeNode(index int, arena *typedNodeArena) (Node, int) {
+func (t *semanticTape) materializeNode(index int, arena *typedNodeArena) (ast.Node, int) {
 	record := t.records[index]
-	node := allocateTypedNode(Kind(record.kind), arena)
+	node := allocateTypedNode(ast.Kind(record.kind), arena)
 	position := t.positions[index]
-	node.base().span = SourceSpan{
-		Start: Pos{Offset: int(position.start)},
-		End:   Pos{Offset: int(position.end)},
-	}
+	ast.SetSpan(node, ast.SourceSpan{
+		Start: ast.Pos{Offset: int(position.start)},
+		End:   ast.Pos{Offset: int(position.end)},
+	})
 	for j, end := record.attrStart, t.records[index+1].attrStart; j < end; j++ {
 		attribute := t.attributes[j]
-		node.base().attrs.items = append(node.base().attrs.items, Attribute{
-			Key: attribute.key, Value: attribute.value,
-		})
+		node.Attributes().Set(attribute.key, attribute.value)
 	}
 
 	switch node := node.(type) {
-	case *Heading:
+	case *ast.Heading:
 		node.Level = int(record.small)
-	case *BulletList:
+	case *ast.BulletList:
 		node.Marker = byte(record.small)
 		node.Tight = record.flags&semanticTight != 0
-	case *OrderedList:
-		node.Style = ListStyle(record.small)
+	case *ast.OrderedList:
+		node.Style = ast.ListStyle(record.small)
 		node.Start = t.listStarts[record.payload]
 		node.Tight = record.flags&semanticTight != 0
-	case *TaskList:
+	case *ast.TaskList:
 		node.Tight = record.flags&semanticTight != 0
-	case *DefinitionList:
+	case *ast.DefinitionList:
 		node.Tight = record.flags&semanticTight != 0
-	case *TaskListItem:
+	case *ast.TaskListItem:
 		node.Checked = record.flags&semanticChecked != 0
-	case *TableRow:
+	case *ast.TableRow:
 		node.Header = record.flags&semanticHeader != 0
-	case *TableCell:
-		node.Alignment = CellAlign(record.small)
+	case *ast.TableCell:
+		node.Alignment = ast.CellAlign(record.small)
 		node.Header = record.flags&semanticHeader != 0
-	case *Text:
+	case *ast.Text:
 		node.Value = t.text(record.payload)
-	case *Verbatim:
+	case *ast.Verbatim:
 		node.Text = t.text(record.payload)
-	case *InlineMath:
+	case *ast.InlineMath:
 		node.Text = t.text(record.payload)
-	case *DisplayMath:
+	case *ast.DisplayMath:
 		node.Text = t.text(record.payload)
-	case *Symbol:
+	case *ast.Symbol:
 		node.Name = t.text(record.payload)
-	case *Link:
+	case *ast.Link:
 		node.DestinationSet = record.flags&semanticHasTarget != 0
 		if record.payload != 0 {
 			node.Destination = t.targets[record.payload]
 		}
-	case *Image:
+	case *ast.Image:
 		node.DestinationSet = record.flags&semanticHasTarget != 0
 		if record.payload != 0 {
 			node.Destination = t.targets[record.payload]
 		}
-	case *CodeBlock:
+	case *ast.CodeBlock:
 		payload := t.textExtras[record.payload]
 		node.Text, node.Language = payload.text, payload.extra
-	case *RawBlock:
+	case *ast.RawBlock:
 		payload := t.textExtras[record.payload]
 		node.Text, node.Format = payload.text, payload.extra
-	case *RawInline:
+	case *ast.RawInline:
 		payload := t.textExtras[record.payload]
 		node.Text, node.Format = payload.text, payload.extra
-	case *Footnote:
+	case *ast.Footnote:
 		node.Label = t.labels[record.payload]
-	case *FootnoteReference:
+	case *ast.FootnoteReference:
 		node.Label = t.labels[record.payload]
 	}
 
 	next := index + 1
 	for next < int(record.subtreeEnd) {
 		child, after := t.materializeNode(next, arena)
-		appendTypedChild(node, child)
+		ast.AppendChild(node, child)
 		next = after
 	}
 	return node, next
 }
 
-func allocateTypedNode(kind Kind, arena *typedNodeArena) Node {
+func allocateTypedNode(kind ast.Kind, arena *typedNodeArena) ast.Node {
 	switch kind {
-	case KindDocument:
-		return &Document{}
-	case KindSection:
-		return &Section{}
-	case KindParagraph:
+	case ast.KindDocument:
+		return &ast.Document{}
+	case ast.KindSection:
+		return &ast.Section{}
+	case ast.KindParagraph:
 		return arena.paragraphs.alloc()
-	case KindHeading:
-		return &Heading{}
-	case KindThematicBreak:
-		return &ThematicBreak{}
-	case KindCodeBlock:
-		return &CodeBlock{}
-	case KindRawBlock:
-		return &RawBlock{}
-	case KindBlockQuote:
-		return &BlockQuote{}
-	case KindDiv:
-		return &Div{}
-	case KindBulletList:
-		return &BulletList{}
-	case KindOrderedList:
-		return &OrderedList{}
-	case KindTaskList:
-		return &TaskList{}
-	case KindListItem:
+	case ast.KindHeading:
+		return &ast.Heading{}
+	case ast.KindThematicBreak:
+		return &ast.ThematicBreak{}
+	case ast.KindCodeBlock:
+		return &ast.CodeBlock{}
+	case ast.KindRawBlock:
+		return &ast.RawBlock{}
+	case ast.KindBlockQuote:
+		return &ast.BlockQuote{}
+	case ast.KindDiv:
+		return &ast.Div{}
+	case ast.KindBulletList:
+		return &ast.BulletList{}
+	case ast.KindOrderedList:
+		return &ast.OrderedList{}
+	case ast.KindTaskList:
+		return &ast.TaskList{}
+	case ast.KindListItem:
 		return arena.listItems.alloc()
-	case KindTaskListItem:
-		return &TaskListItem{}
-	case KindDefinitionList:
-		return &DefinitionList{}
-	case KindTerm:
-		return &Term{}
-	case KindDefinition:
-		return &Definition{}
-	case KindTable:
-		return &Table{}
-	case KindTableRow:
-		return &TableRow{}
-	case KindTableCell:
+	case ast.KindTaskListItem:
+		return &ast.TaskListItem{}
+	case ast.KindDefinitionList:
+		return &ast.DefinitionList{}
+	case ast.KindTerm:
+		return &ast.Term{}
+	case ast.KindDefinition:
+		return &ast.Definition{}
+	case ast.KindTable:
+		return &ast.Table{}
+	case ast.KindTableRow:
+		return &ast.TableRow{}
+	case ast.KindTableCell:
 		return arena.tableCells.alloc()
-	case KindCaption:
-		return &Caption{}
-	case KindFootnote:
-		return &Footnote{}
-	case KindText:
+	case ast.KindCaption:
+		return &ast.Caption{}
+	case ast.KindFootnote:
+		return &ast.Footnote{}
+	case ast.KindText:
 		return arena.texts.alloc()
-	case KindSoftBreak:
-		return &SoftBreak{}
-	case KindHardBreak:
-		return &HardBreak{}
-	case KindNonBreakingSpace:
-		return &NonBreakingSpace{}
-	case KindEmphasis:
-		return &Emphasis{}
-	case KindStrong:
+	case ast.KindSoftBreak:
+		return &ast.SoftBreak{}
+	case ast.KindHardBreak:
+		return &ast.HardBreak{}
+	case ast.KindNonBreakingSpace:
+		return &ast.NonBreakingSpace{}
+	case ast.KindEmphasis:
+		return &ast.Emphasis{}
+	case ast.KindStrong:
 		return arena.strongs.alloc()
-	case KindSuperscript:
-		return &Superscript{}
-	case KindSubscript:
-		return &Subscript{}
-	case KindInsert:
-		return &Insert{}
-	case KindDelete:
-		return &Delete{}
-	case KindMark:
-		return &Mark{}
-	case KindLink:
+	case ast.KindSuperscript:
+		return &ast.Superscript{}
+	case ast.KindSubscript:
+		return &ast.Subscript{}
+	case ast.KindInsert:
+		return &ast.Insert{}
+	case ast.KindDelete:
+		return &ast.Delete{}
+	case ast.KindMark:
+		return &ast.Mark{}
+	case ast.KindLink:
 		return arena.links.alloc()
-	case KindImage:
-		return &Image{}
-	case KindSpan:
-		return &Span{}
-	case KindVerbatim:
-		return &Verbatim{}
-	case KindInlineMath:
-		return &InlineMath{}
-	case KindDisplayMath:
-		return &DisplayMath{}
-	case KindRawInline:
-		return &RawInline{}
-	case KindSymbol:
-		return &Symbol{}
-	case KindFootnoteReference:
-		return &FootnoteReference{}
-	case KindDoubleQuoted:
-		return &DoubleQuoted{}
-	case KindSingleQuoted:
-		return &SingleQuoted{}
-	case KindEllipsis:
-		return &Ellipsis{}
-	case KindEmDash:
-		return &EmDash{}
-	case KindEnDash:
-		return &EnDash{}
+	case ast.KindImage:
+		return &ast.Image{}
+	case ast.KindSpan:
+		return &ast.Span{}
+	case ast.KindVerbatim:
+		return &ast.Verbatim{}
+	case ast.KindInlineMath:
+		return &ast.InlineMath{}
+	case ast.KindDisplayMath:
+		return &ast.DisplayMath{}
+	case ast.KindRawInline:
+		return &ast.RawInline{}
+	case ast.KindSymbol:
+		return &ast.Symbol{}
+	case ast.KindFootnoteReference:
+		return &ast.FootnoteReference{}
+	case ast.KindDoubleQuoted:
+		return &ast.DoubleQuoted{}
+	case ast.KindSingleQuoted:
+		return &ast.SingleQuoted{}
+	case ast.KindEllipsis:
+		return &ast.Ellipsis{}
+	case ast.KindEmDash:
+		return &ast.EmDash{}
+	case ast.KindEnDash:
+		return &ast.EnDash{}
 	default:
 		panic("djot: unknown semantic node kind")
 	}
 }
 
-func (t *semanticTape) materializeReferences() map[string]*Reference {
-	result := make(map[string]*Reference, len(t.references))
+func (t *semanticTape) materializeReferences() map[string]*ast.Reference {
+	result := make(map[string]*ast.Reference, len(t.references))
 	for _, named := range t.references {
 		source := named.semanticReference
-		reference := &Reference{
+		reference := &ast.Reference{
 			Destination: source.target, DestinationSet: source.hasTarget,
 		}
 		for _, attribute := range source.attrs {
-			reference.Attributes.items = append(reference.Attributes.items, Attribute{
-				Key: attribute.key, Value: attribute.value,
-			})
+			reference.Attributes.Set(attribute.key, attribute.value)
 		}
 		result[named.name] = reference
 	}
 	return result
 }
 
-func (t *semanticTape) matchesAST(root *Document) bool {
+func (t *semanticTape) matchesAST(root *ast.Document) bool {
 	if t == nil || root == nil || len(t.records) < 2 {
 		return false
 	}
@@ -219,12 +217,12 @@ func (t *semanticTape) matchesAST(root *Document) bool {
 	return ok && index == len(t.records)-1
 }
 
-func (t *semanticTape) matchNode(node Node, index int) (int, bool) {
+func (t *semanticTape) matchNode(node ast.Node, index int) (int, bool) {
 	if index+1 >= len(t.records) || node == nil {
 		return index, false
 	}
 	record := t.records[index]
-	if Kind(record.kind) != node.Kind() || !t.matchAttributes(node, index) {
+	if ast.Kind(record.kind) != node.Kind() || !t.matchAttributes(node, index) {
 		return index, false
 	}
 	position := t.positions[index]
@@ -236,39 +234,39 @@ func (t *semanticTape) matchNode(node Node, index int) (int, bool) {
 
 	var flags uint8
 	switch node := node.(type) {
-	case *BulletList:
+	case *ast.BulletList:
 		if node.Tight {
 			flags |= semanticTight
 		}
-	case *OrderedList:
+	case *ast.OrderedList:
 		if node.Tight {
 			flags |= semanticTight
 		}
-	case *TaskList:
+	case *ast.TaskList:
 		if node.Tight {
 			flags |= semanticTight
 		}
-	case *DefinitionList:
+	case *ast.DefinitionList:
 		if node.Tight {
 			flags |= semanticTight
 		}
-	case *TaskListItem:
+	case *ast.TaskListItem:
 		if node.Checked {
 			flags |= semanticChecked
 		}
-	case *TableRow:
+	case *ast.TableRow:
 		if node.Header {
 			flags |= semanticHeader
 		}
-	case *TableCell:
+	case *ast.TableCell:
 		if node.Header {
 			flags |= semanticHeader
 		}
-	case *Link:
+	case *ast.Link:
 		if node.DestinationSet {
 			flags |= semanticHasTarget
 		}
-	case *Image:
+	case *ast.Image:
 		if node.DestinationSet {
 			flags |= semanticHasTarget
 		}
@@ -278,77 +276,77 @@ func (t *semanticTape) matchNode(node Node, index int) (int, bool) {
 	}
 
 	switch node := node.(type) {
-	case *Heading:
+	case *ast.Heading:
 		if node.Level != int(record.small) {
 			return index, false
 		}
-	case *BulletList:
+	case *ast.BulletList:
 		if node.Marker != byte(record.small) {
 			return index, false
 		}
-	case *OrderedList:
-		if node.Style != ListStyle(record.small) || node.Start != t.listStarts[record.payload] {
+	case *ast.OrderedList:
+		if node.Style != ast.ListStyle(record.small) || node.Start != t.listStarts[record.payload] {
 			return index, false
 		}
-	case *TableCell:
-		if node.Alignment != CellAlign(record.small) {
+	case *ast.TableCell:
+		if node.Alignment != ast.CellAlign(record.small) {
 			return index, false
 		}
-	case *Text:
+	case *ast.Text:
 		if node.Value != t.text(record.payload) {
 			return index, false
 		}
-	case *Verbatim:
+	case *ast.Verbatim:
 		if node.Text != t.text(record.payload) {
 			return index, false
 		}
-	case *InlineMath:
+	case *ast.InlineMath:
 		if node.Text != t.text(record.payload) {
 			return index, false
 		}
-	case *DisplayMath:
+	case *ast.DisplayMath:
 		if node.Text != t.text(record.payload) {
 			return index, false
 		}
-	case *Symbol:
+	case *ast.Symbol:
 		if node.Name != t.text(record.payload) {
 			return index, false
 		}
-	case *Link:
+	case *ast.Link:
 		if node.Destination != t.semanticTarget(record.payload) {
 			return index, false
 		}
-	case *Image:
+	case *ast.Image:
 		if node.Destination != t.semanticTarget(record.payload) {
 			return index, false
 		}
-	case *CodeBlock:
+	case *ast.CodeBlock:
 		payload := t.textExtras[record.payload]
 		if node.Text != payload.text || node.Language != payload.extra {
 			return index, false
 		}
-	case *RawBlock:
+	case *ast.RawBlock:
 		payload := t.textExtras[record.payload]
 		if node.Text != payload.text || node.Format != payload.extra {
 			return index, false
 		}
-	case *RawInline:
+	case *ast.RawInline:
 		payload := t.textExtras[record.payload]
 		if node.Text != payload.text || node.Format != payload.extra {
 			return index, false
 		}
-	case *Footnote:
+	case *ast.Footnote:
 		if node.Label != t.labels[record.payload] {
 			return index, false
 		}
-	case *FootnoteReference:
+	case *ast.FootnoteReference:
 		if node.Label != t.labels[record.payload] {
 			return index, false
 		}
 	}
 
 	next, ok := index+1, true
-	forEachChild(node, func(child Node) {
+	ast.ForEachChild(node, func(child ast.Node) {
 		if !ok {
 			return
 		}
@@ -367,10 +365,10 @@ func (t *semanticTape) semanticTarget(index uint32) string {
 	return t.targets[index]
 }
 
-func (t *semanticTape) matchAttributes(node Node, index int) bool {
+func (t *semanticTape) matchAttributes(node ast.Node, index int) bool {
 	start := int(t.records[index].attrStart)
 	end := int(t.records[index+1].attrStart)
-	attributes := node.Attributes().items
+	attributes := node.Attributes().Entries()
 	if len(attributes) != end-start {
 		return false
 	}

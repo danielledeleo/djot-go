@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestDocumentRendererBuildsTOCBeforeOutput(t *testing.T) {
@@ -39,7 +40,7 @@ func TestDocumentViewHeadingParity(t *testing.T) {
 		level int
 		text  string
 		id    string
-		span  djot.SourceSpan
+		span  ast.SourceSpan
 	}
 	input := "# Hello :star: `code` -- ...\n\n::: note\n## “Nested”\n:::\n"
 	var wantHeadings []headingSnapshot
@@ -98,14 +99,14 @@ func TestDocumentViewKindCounts(t *testing.T) {
 			}
 			var counts []int
 			djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
-				for kind := djot.KindDocument; kind <= djot.KindEnDash; kind++ {
+				for kind := ast.KindDocument; kind <= ast.KindEnDash; kind++ {
 					count := document.Count(kind)
 					if document.Contains(kind) != (count != 0) {
 						t.Fatalf("Contains(%v) disagrees with Count=%d", kind, count)
 					}
 					counts = append(counts, count)
 				}
-				if document.Count(djot.Kind(-1)) != 0 || document.Count(djot.KindEnDash+1) != 0 {
+				if document.Count(ast.Kind(-1)) != 0 || document.Count(ast.KindEnDash+1) != 0 {
 					t.Fatal("out-of-range kind count was nonzero")
 				}
 				r.Default()
@@ -119,13 +120,13 @@ func TestDocumentViewKindCounts(t *testing.T) {
 			}
 		})
 	}
-	for kind, count := range map[djot.Kind]int{
-		djot.KindDocument:  1,
-		djot.KindSection:   1,
-		djot.KindHeading:   1,
-		djot.KindDiv:       1,
-		djot.KindParagraph: 1,
-		djot.KindSymbol:    1,
+	for kind, count := range map[ast.Kind]int{
+		ast.KindDocument:  1,
+		ast.KindSection:   1,
+		ast.KindHeading:   1,
+		ast.KindDiv:       1,
+		ast.KindParagraph: 1,
+		ast.KindSymbol:    1,
 	} {
 		if got := want[int(kind)]; got != count {
 			t.Fatalf("Count(%v) = %d, want %d", kind, got, count)
@@ -140,7 +141,7 @@ func TestDocumentViewFootnoteParityAndOrdering(t *testing.T) {
 		number     int
 		references int
 		defined    bool
-		span       djot.SourceSpan
+		span       ast.SourceSpan
 	}
 	var want []snapshot
 	for _, backend := range []string{"tape", "tree"} {
@@ -212,7 +213,7 @@ func TestDocumentViewReferenceParityAndOrdering(t *testing.T) {
 						label: reference.Label(), destination: reference.Destination(),
 						destinationSet: reference.HasDestination(),
 					}
-					reference.Attributes().Range(func(attribute djot.Attribute) bool {
+					reference.Attributes().Range(func(attribute ast.Attribute) bool {
 						entry.attributes += attribute.Key + "=" + attribute.Value + ";"
 						return true
 					})
@@ -243,8 +244,8 @@ func TestDocumentViewAnchorParityAndDuplicates(t *testing.T) {
 	const input = "{#same}\n# First\n\n{#same}\n## Second\n\n{#box}\n::: note\ntext\n:::\n"
 	type snapshot struct {
 		id   string
-		kind djot.Kind
-		span djot.SourceSpan
+		kind ast.Kind
+		span ast.SourceSpan
 	}
 	var want []snapshot
 	for _, backend := range []string{"tape", "tree"} {
@@ -278,29 +279,29 @@ func TestDocumentViewAnchorParityAndDuplicates(t *testing.T) {
 		})
 	}
 	if len(want) != 3 || want[0].id != "same" || want[1].id != "same" || want[2].id != "box" ||
-		want[0].kind != djot.KindSection || want[1].kind != djot.KindSection || want[2].kind != djot.KindDiv {
+		want[0].kind != ast.KindSection || want[1].kind != ast.KindSection || want[2].kind != ast.KindDiv {
 		t.Fatalf("anchors = %#v", want)
 	}
 }
 
 func TestDocumentViewUsesMutatedSpans(t *testing.T) {
 	doc := djot.Parse("# heading\n\n{#box}\n::: note\ntext\n:::\n\nreference[^a]\n\n[^a]: body\n")
-	wantHeading := djot.SourceSpan{Start: djot.Pos{File: 1, Offset: 10}, End: djot.Pos{File: 1, Offset: 20}}
-	wantDiv := djot.SourceSpan{Start: djot.Pos{File: 2, Offset: 30}, End: djot.Pos{File: 2, Offset: 40}}
-	wantFootnote := djot.SourceSpan{Start: djot.Pos{File: 3, Offset: 50}, End: djot.Pos{File: 3, Offset: 60}}
-	djot.Preorder(doc.Root(), func(node djot.Node) bool {
+	wantHeading := ast.SourceSpan{Start: ast.Pos{File: 1, Offset: 10}, End: ast.Pos{File: 1, Offset: 20}}
+	wantDiv := ast.SourceSpan{Start: ast.Pos{File: 2, Offset: 30}, End: ast.Pos{File: 2, Offset: 40}}
+	wantFootnote := ast.SourceSpan{Start: ast.Pos{File: 3, Offset: 50}, End: ast.Pos{File: 3, Offset: 60}}
+	ast.Preorder(doc.Root(), func(node ast.Node) bool {
 		switch node.(type) {
-		case *djot.Heading:
-			djot.SetSpan(node, wantHeading)
-		case *djot.Div:
-			djot.SetSpan(node, wantDiv)
-		case *djot.Footnote:
-			djot.SetSpan(node, wantFootnote)
+		case *ast.Heading:
+			ast.SetSpan(node, wantHeading)
+		case *ast.Div:
+			ast.SetSpan(node, wantDiv)
+		case *ast.Footnote:
+			ast.SetSpan(node, wantFootnote)
 		}
 		return true
 	})
 
-	var headingSpan, divSpan, footnoteSpan djot.SourceSpan
+	var headingSpan, divSpan, footnoteSpan ast.SourceSpan
 	djot.RenderHTML(doc, djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
 		headingSpan = document.Headings()[0].Span()
 		footnoteSpan = document.Footnotes()[0].Span()
@@ -377,7 +378,7 @@ func TestDocumentRendererComposesElementAndSubtreeHooks(t *testing.T) {
 			r.Default()
 			r.Write("</main>")
 		}),
-		djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+		djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 			r.Children()
 		}),
 		djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
@@ -501,10 +502,10 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 		render := func(doc *djot.Doc, forceTree bool) (string, summary) {
 			var result summary
 			if forceTree {
-				djot.SetSpan(doc.Root(), djot.SourceSpan{Start: djot.Pos{File: 1}})
+				ast.SetSpan(doc.Root(), ast.SourceSpan{Start: ast.Pos{File: 1}})
 			}
 			options := []djot.RenderOption{djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
-				for kind := djot.KindDocument; kind <= djot.KindEnDash; kind++ {
+				for kind := ast.KindDocument; kind <= ast.KindEnDash; kind++ {
 					result.counts = append(result.counts, document.Count(kind))
 				}
 				for _, heading := range document.Headings() {

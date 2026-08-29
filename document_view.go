@@ -3,6 +3,8 @@ package djot
 import (
 	"sort"
 	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // HeadingView is a read-only heading entry produced by [DocumentView.Headings].
@@ -14,7 +16,7 @@ type HeadingView struct {
 }
 
 // FootnoteView is compact, read-only metadata for one logical footnote.
-// Inspecting a footnote's block contents requires the Node API.
+// Inspecting a footnote's block contents requires the ast.Node API.
 type FootnoteView struct {
 	element        ElementView
 	label          string
@@ -24,7 +26,7 @@ type FootnoteView struct {
 }
 
 // ReferenceView is compact, read-only metadata for one resolved reference
-// definition. Reference definitions are document metadata rather than Nodes.
+// definition. Reference definitions are document metadata rather than nodes.
 type ReferenceView struct {
 	label          string
 	destination    string
@@ -43,10 +45,10 @@ type AnchorView struct {
 func (a AnchorView) ID() string { return a.id }
 
 // Kind returns the kind of element carrying the id.
-func (a AnchorView) Kind() Kind { return a.element.Kind() }
+func (a AnchorView) Kind() ast.Kind { return a.element.Kind() }
 
 // Span returns the element's half-open source range.
-func (a AnchorView) Span() SourceSpan { return a.element.Span() }
+func (a AnchorView) Span() ast.SourceSpan { return a.element.Span() }
 
 // Attributes returns the element's read-only ordered attributes.
 func (a AnchorView) Attributes() AttributeView { return a.element.Attributes() }
@@ -80,7 +82,7 @@ func (f FootnoteView) HasDefinition() bool { return f.defined }
 
 // Span returns the definition's half-open source range. It is zero when the
 // footnote is referenced but undefined.
-func (f FootnoteView) Span() SourceSpan { return f.element.Span() }
+func (f FootnoteView) Span() ast.SourceSpan { return f.element.Span() }
 
 // Attributes returns the definition's read-only ordered attributes. It is
 // empty when the footnote is referenced but undefined.
@@ -101,7 +103,7 @@ func (h HeadingView) Plaintext() string { return h.text }
 func (h HeadingView) ID() string { return h.id }
 
 // Span returns the heading's half-open source range.
-func (h HeadingView) Span() SourceSpan { return h.element.Span() }
+func (h HeadingView) Span() ast.SourceSpan { return h.element.Span() }
 
 // Attributes returns the heading's read-only ordered attributes. Use
 // [HeadingView.ID] for its generated or explicit anchor id.
@@ -111,7 +113,7 @@ type documentViewState struct {
 	root            ElementView
 	headings        []HeadingView
 	headingsReady   bool
-	kindCounts      *[int(KindEnDash) + 1]int
+	kindCounts      *[int(ast.KindEnDash) + 1]int
 	footnotes       []FootnoteView
 	footnotesReady  bool
 	references      []ReferenceView
@@ -147,15 +149,15 @@ func (d DocumentView) Headings() []HeadingView {
 
 // Contains reports whether the document contains an element of kind. It shares
 // a lazily built kind index with [DocumentView.Count].
-func (d DocumentView) Contains(kind Kind) bool {
+func (d DocumentView) Contains(kind ast.Kind) bool {
 	return d.Count(kind) != 0
 }
 
 // Count returns the number of elements of kind in the document. The document
-// root is included, so Count(KindDocument) returns one for a valid document.
+// root is included, so Count(ast.KindDocument) returns one for a valid document.
 // The kind index is built lazily and reused for the duration of the callback.
-func (d DocumentView) Count(kind Kind) int {
-	if d.state == nil || kind < 0 || kind > KindEnDash {
+func (d DocumentView) Count(kind ast.Kind) int {
+	if d.state == nil || kind < 0 || kind > ast.KindEnDash {
 		return 0
 	}
 	if d.state.kindCounts == nil {
@@ -244,10 +246,10 @@ func buildHeadingViews(root ElementView) []HeadingView {
 		var headings []HeadingView
 		end := int(root.tape.records[root.record].subtreeEnd)
 		for i := root.record + 1; i < end; i++ {
-			if Kind(root.tape.records[i].kind) == KindHeading {
+			if ast.Kind(root.tape.records[i].kind) == ast.KindHeading {
 				element := ElementView{tape: root.tape, record: i}
 				id := element.Attributes().Get("id")
-				if i > root.record && Kind(root.tape.records[i-1].kind) == KindSection &&
+				if i > root.record && ast.Kind(root.tape.records[i-1].kind) == ast.KindSection &&
 					int(root.tape.records[i-1].subtreeEnd) > i {
 					if sectionID := (ElementView{tape: root.tape, record: i - 1}).Attributes().Get("id"); sectionID != "" {
 						id = sectionID
@@ -267,12 +269,12 @@ func buildHeadingViews(root ElementView) []HeadingView {
 		return nil
 	}
 	var headings []HeadingView
-	var walk func(Node)
-	walk = func(node Node) {
-		if section, ok := node.(*Section); ok {
+	var walk func(ast.Node)
+	walk = func(node ast.Node) {
+		if section, ok := node.(*ast.Section); ok {
 			for i, child := range section.Children {
 				if i == 0 {
-					if heading, ok := child.(*Heading); ok {
+					if heading, ok := child.(*ast.Heading); ok {
 						element := ElementView{node: heading}
 						id := heading.Attributes().Get("id")
 						if sectionID := section.Attributes().Get("id"); sectionID != "" {
@@ -284,7 +286,7 @@ func buildHeadingViews(root ElementView) []HeadingView {
 							text:    collectDocumentText(element),
 							id:      id,
 						})
-						forEachChild(heading, walk)
+						ast.ForEachChild(heading, walk)
 						continue
 					}
 				}
@@ -292,7 +294,7 @@ func buildHeadingViews(root ElementView) []HeadingView {
 			}
 			return
 		}
-		if heading, ok := node.(*Heading); ok {
+		if heading, ok := node.(*ast.Heading); ok {
 			element := ElementView{node: heading}
 			headings = append(headings, HeadingView{
 				element: element,
@@ -301,26 +303,26 @@ func buildHeadingViews(root ElementView) []HeadingView {
 				id:      heading.Attributes().Get("id"),
 			})
 		}
-		forEachChild(node, walk)
+		ast.ForEachChild(node, walk)
 	}
 	walk(root.node)
 	return headings
 }
 
-func buildDocumentKindCounts(root ElementView) *[int(KindEnDash) + 1]int {
-	counts := new([int(KindEnDash) + 1]int)
+func buildDocumentKindCounts(root ElementView) *[int(ast.KindEnDash) + 1]int {
+	counts := new([int(ast.KindEnDash) + 1]int)
 	if root.tape != nil {
 		end := int(root.tape.records[root.record].subtreeEnd)
 		for i := root.record; i < end; i++ {
-			kind := Kind(root.tape.records[i].kind)
-			if kind >= 0 && kind <= KindEnDash {
+			kind := ast.Kind(root.tape.records[i].kind)
+			if kind >= 0 && kind <= ast.KindEnDash {
 				counts[kind]++
 			}
 		}
 	} else if root.node != nil {
-		Preorder(root.node, func(node Node) bool {
+		ast.Preorder(root.node, func(node ast.Node) bool {
 			kind := node.Kind()
-			if kind >= 0 && kind <= KindEnDash {
+			if kind >= 0 && kind <= ast.KindEnDash {
 				counts[kind]++
 			}
 			return true
@@ -347,7 +349,7 @@ func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
 		}
 		end := int(renderer.tape.records[0].subtreeEnd)
 		for i := 1; i < end; i++ {
-			if Kind(renderer.tape.records[i].kind) != KindFootnote {
+			if ast.Kind(renderer.tape.records[i].kind) != ast.KindFootnote {
 				continue
 			}
 			label := renderer.label(i)
@@ -376,8 +378,8 @@ func buildDocumentFootnotes(state *documentViewState) []FootnoteView {
 			footnotes = append(footnotes, view)
 			seen[item.label] = struct{}{}
 		}
-		Preorder(state.root.node, func(node Node) bool {
-			definition, ok := node.(*Footnote)
+		ast.Preorder(state.root.node, func(node ast.Node) bool {
+			definition, ok := node.(*ast.Footnote)
 			if !ok {
 				return true
 			}
@@ -450,7 +452,7 @@ func buildDocumentAnchors(root ElementView) []AnchorView {
 			}
 		}
 	} else if root.node != nil {
-		Preorder(root.node, func(node Node) bool {
+		ast.Preorder(root.node, func(node ast.Node) bool {
 			if id, ok := node.Attributes().Lookup("id"); ok && id != "" {
 				anchors = append(anchors, AnchorView{element: ElementView{node: node}, id: id})
 			}
@@ -469,48 +471,48 @@ func collectDocumentText(element ElementView) string {
 func appendDocumentText(text *strings.Builder, element ElementView) {
 	prefix, suffix := "", ""
 	switch element.Kind() {
-	case KindText:
+	case ast.KindText:
 		if element.tape != nil {
 			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
 			return
 		}
-		text.WriteString(element.node.(*Text).Value)
+		text.WriteString(element.node.(*ast.Text).Value)
 		return
-	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
+	case ast.KindSoftBreak, ast.KindHardBreak, ast.KindNonBreakingSpace:
 		text.WriteByte(' ')
 		return
-	case KindVerbatim, KindInlineMath, KindDisplayMath:
+	case ast.KindVerbatim, ast.KindInlineMath, ast.KindDisplayMath:
 		if element.tape != nil {
 			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
 			return
 		}
 		switch node := element.node.(type) {
-		case *Verbatim:
+		case *ast.Verbatim:
 			text.WriteString(node.Text)
-		case *InlineMath:
+		case *ast.InlineMath:
 			text.WriteString(node.Text)
-		case *DisplayMath:
+		case *ast.DisplayMath:
 			text.WriteString(node.Text)
 		}
 		return
-	case KindSymbol:
+	case ast.KindSymbol:
 		symbol, _ := element.Symbol()
 		text.WriteByte(':')
 		text.WriteString(symbol.Name)
 		text.WriteByte(':')
 		return
-	case KindEllipsis:
+	case ast.KindEllipsis:
 		text.WriteString("…")
 		return
-	case KindEmDash:
+	case ast.KindEmDash:
 		text.WriteString("—")
 		return
-	case KindEnDash:
+	case ast.KindEnDash:
 		text.WriteString("–")
 		return
-	case KindDoubleQuoted:
+	case ast.KindDoubleQuoted:
 		prefix, suffix = "“", "”"
-	case KindSingleQuoted:
+	case ast.KindSingleQuoted:
 		prefix, suffix = "‘", "’"
 	}
 
@@ -522,7 +524,7 @@ func appendDocumentText(text *strings.Builder, element ElementView) {
 			child = int(tape.records[child].subtreeEnd)
 		}
 	} else if element.node != nil {
-		forEachChild(element.node, func(child Node) {
+		ast.ForEachChild(element.node, func(child ast.Node) {
 			appendDocumentText(text, ElementView{node: child})
 		})
 	}

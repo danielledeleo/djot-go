@@ -1,4 +1,4 @@
-package djot
+package ast
 
 type actionKind uint8
 
@@ -51,7 +51,7 @@ func preorder(node Node, visit func(Node) bool) bool {
 		return false
 	}
 	keepGoing := true
-	forEachChild(node, func(child Node) {
+	ForEachChild(node, func(child Node) {
 		if keepGoing {
 			keepGoing = preorder(child, visit)
 		}
@@ -61,7 +61,8 @@ func preorder(node Node, visit func(Node) bool) bool {
 
 // Walk transforms a tree top-down and returns the possibly replaced root. The
 // supplied root is visited. Removing it returns nil. Callers replacing a
-// document root should type-assert the result to *Document or use Doc.SetRoot.
+// document root should type-assert the result to *Document before passing it
+// to djot.Doc.SetRoot.
 func Walk(root Node, fn FilterFunc) Node {
 	if root == nil {
 		return nil
@@ -256,6 +257,6 @@ func WalkBottomUp(root Node, fn func(Node)) {
 	if root == nil {
 		return
 	}
-	forEachChild(root, func(child Node) { WalkBottomUp(child, fn) })
+	ForEachChild(root, func(child Node) { WalkBottomUp(child, fn) })
 	fn(root)
 }

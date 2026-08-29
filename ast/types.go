@@ -1,6 +1,6 @@
-package djot
+package ast
 
-// Kind identifies the type of an AST node.
+// Kind identifies the type of a syntax-tree node.
 type Kind int
 
 const (
@@ -65,7 +65,7 @@ const (
 	KindEnDash   // KindEnDash represents a smart en-dash (--).
 )
 
-// Pos identifies a byte position in a source file. Use [Doc.Position] to
+// Pos identifies a byte position in a source file. Use djot.Doc.Position to
 // resolve it to a human-readable filename, line, and column.
 type Pos struct {
 	File   FileID
@@ -132,10 +132,3 @@ const (
 	AlignRight                    // AlignRight aligns cell content to the right.
 	AlignCenter                   // AlignCenter centers cell content.
 )
-
-// Position resolves a Pos to a filename, line, and column.
-func (d *Doc) Position(p Pos) (file string, line, col int) {
-	fi := &d.Files[p.File]
-	line, col = fi.Position(p.Offset)
-	return fi.Path, line, col
-}

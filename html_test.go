@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // errWriter is an io.Writer that fails after n bytes.
@@ -187,9 +188,9 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
 			d := djot.Parse("# x")
-			var sect *djot.Section
+			var sect *ast.Section
 			for _, child := range d.Root().Children {
-				if section, ok := child.(*djot.Section); ok {
+				if section, ok := child.(*ast.Section); ok {
 					sect = section
 				}
 			}
@@ -228,9 +229,9 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 	for _, k := range valid {
 		t.Run(k, func(t *testing.T) {
 			d := djot.Parse("# x")
-			var sect *djot.Section
+			var sect *ast.Section
 			for _, child := range d.Root().Children {
-				if section, ok := child.(*djot.Section); ok {
+				if section, ok := child.(*ast.Section); ok {
 					sect = section
 				}
 			}
@@ -255,9 +256,9 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 	// Calling SetAttr with an invalid key after a valid SetAttr on a different
 	// key must not mutate any state.
 	d := djot.Parse("# x")
-	var sect *djot.Section
+	var sect *ast.Section
 	for _, child := range d.Root().Children {
-		if section, ok := child.(*djot.Section); ok {
+		if section, ok := child.(*ast.Section); ok {
 			sect = section
 		}
 	}
@@ -276,7 +277,7 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 func TestAddClassWithSpecialValueStaysWellFormed(t *testing.T) {
 	d := djot.Parse("# x")
 	for _, child := range d.Root().Children {
-		if section, ok := child.(*djot.Section); ok {
+		if section, ok := child.(*ast.Section); ok {
 			section.Attributes().AddClass(`"><script>alert(1)</script>`)
 		}
 	}

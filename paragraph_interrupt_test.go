@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // These tests pin parser edge cases to djot.js behavior.
@@ -188,16 +189,16 @@ func TestTaskListTabContinuation(t *testing.T) {
 
 	var bad []string
 	zeroStart := -1
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 		span := n.Span()
 		if span.Start.Offset < 0 || span.End.Offset < span.Start.Offset ||
 			span.End.Offset > len(input) {
 			bad = append(bad, n.Kind().String())
 		}
-		if text, ok := n.(*djot.Text); ok && text.Value == "0" {
+		if text, ok := n.(*ast.Text); ok && text.Value == "0" {
 			zeroStart = text.Span().Start.Offset
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	if len(bad) > 0 {
 		t.Errorf("nodes with spans outside [0, %d]: %v", len(input), bad)
@@ -226,13 +227,13 @@ func TestTabContinuationAllContainers(t *testing.T) {
 			if !strings.Contains(html, tc.want) {
 				t.Errorf("input %q: missing %q\nhtml:\n%s", tc.in, tc.want, html)
 			}
-			djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+			ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 				span := n.Span()
 				if span.Start.Offset < 0 || span.End.Offset < span.Start.Offset ||
 					span.End.Offset > len(tc.in) {
 					t.Errorf("%s span outside [0, %d]: %+v", n.Kind(), len(tc.in), span)
 				}
-				return djot.Continue
+				return ast.Continue
 			})
 		})
 	}

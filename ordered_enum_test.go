@@ -2,6 +2,8 @@ package djot
 
 import (
 	"testing"
+
+	. "github.com/danielledeleo/djot-go/ast"
 )
 
 // TestParseOrderedEnumAs exercises the enumerator reader one style at a time.

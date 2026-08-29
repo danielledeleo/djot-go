@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
-func nodeContainsDescendant(root djot.Node, kind djot.Kind) bool {
+func nodeContainsDescendant(root ast.Node, kind ast.Kind) bool {
 	first := true
 	found := false
-	djot.Preorder(root, func(node djot.Node) bool {
+	ast.Preorder(root, func(node ast.Node) bool {
 		if first {
 			first = false
 			return true
@@ -25,8 +26,8 @@ func nodeContainsDescendant(root djot.Node, kind djot.Kind) bool {
 func TestSubtreeRendererInspectsBeforeWriting(t *testing.T) {
 	input := "::: prose\nplain\n:::\n\n::: example\n``` go\ncode\n```\n:::\n"
 	nodeDoc := djot.Parse(input)
-	want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, func(node djot.Node, r djot.NodeRenderer) {
-		if nodeContainsDescendant(node, djot.KindCodeBlock) {
+	want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindDiv, func(node ast.Node, r djot.NodeRenderer) {
+		if nodeContainsDescendant(node, ast.KindCodeBlock) {
 			r.Write(`<section class="contains-code">`)
 			r.Children()
 			r.Write("</section>\n")
@@ -36,8 +37,8 @@ func TestSubtreeRendererInspectsBeforeWriting(t *testing.T) {
 	}))
 
 	tapeDoc := djot.Parse(input)
-	got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-		if subtree.Contains(djot.KindCodeBlock) {
+	got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+		if subtree.Contains(ast.KindCodeBlock) {
 			r.Write(`<section class="contains-code">`)
 			r.Children()
 			r.Write("</section>\n")
@@ -52,14 +53,14 @@ func TestSubtreeRendererInspectsBeforeWriting(t *testing.T) {
 
 func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 	type snapshot struct {
-		kind       djot.Kind
-		span       djot.SourceSpan
-		attributes []djot.Attribute
+		kind       ast.Kind
+		span       ast.SourceSpan
+		attributes []ast.Attribute
 		symbol     string
 	}
-	fromNode := func(node djot.Node) snapshot {
+	fromNode := func(node ast.Node) snapshot {
 		result := snapshot{kind: node.Kind(), span: node.Span(), attributes: node.Attributes().Entries()}
-		if symbol, ok := node.(*djot.Symbol); ok {
+		if symbol, ok := node.(*ast.Symbol); ok {
 			result.symbol = symbol.Name
 		}
 		return result
@@ -67,8 +68,8 @@ func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 	fromView := func(element djot.ElementView) snapshot {
 		result := snapshot{kind: element.Kind(), span: element.Span()}
 		attributes := element.Attributes()
-		result.attributes = make([]djot.Attribute, 0, attributes.Len())
-		attributes.Range(func(attribute djot.Attribute) bool {
+		result.attributes = make([]ast.Attribute, 0, attributes.Len())
+		attributes.Range(func(attribute ast.Attribute) bool {
 			result.attributes = append(result.attributes, attribute)
 			return true
 		})
@@ -92,8 +93,8 @@ func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 	input := "{#outer key=value}\n::: note\nText :star:.\n\n- one\n- *two*\n:::\n"
 	var want []snapshot
 	nodeDoc := djot.Parse(input)
-	djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, func(node djot.Node, r djot.NodeRenderer) {
-		djot.Preorder(node, func(descendant djot.Node) bool {
+	djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindDiv, func(node ast.Node, r djot.NodeRenderer) {
+		ast.Preorder(node, func(descendant ast.Node) bool {
 			want = append(want, fromNode(descendant))
 			return true
 		})
@@ -107,7 +108,7 @@ func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 			if backend == "tree" {
 				doc = djot.NewDoc(doc.Root())
 			}
-			djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+			djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
 				subtree.Preorder(func(element djot.ElementView) bool {
 					got = append(got, fromView(element))
 					return true
@@ -128,7 +129,7 @@ func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 		t.Fatal("Node oracle visited no elements")
 	}
 	for _, element := range want {
-		if element.kind == djot.KindSymbol && element.symbol != "star" {
+		if element.kind == ast.KindSymbol && element.symbol != "star" {
 			t.Fatalf("symbol payload = %q, want star", element.symbol)
 		}
 	}
@@ -137,10 +138,10 @@ func TestSubtreeViewTraversalMatchesNodePreorder(t *testing.T) {
 func TestSubtreeViewTraversalBoundaries(t *testing.T) {
 	doc := djot.Parse(":::: outer\n::: inner\n:star:\n:::\n::::\n")
 	outerCalls := 0
-	djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+	djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
 		outerCalls++
 		root := subtree.Root()
-		if root.Kind() != djot.KindDiv {
+		if root.Kind() != ast.KindDiv {
 			t.Fatalf("root kind = %v", root.Kind())
 		}
 		preorder, descendants := 0, 0
@@ -155,10 +156,10 @@ func TestSubtreeViewTraversalBoundaries(t *testing.T) {
 		if preorder != 2 || descendants != 1 {
 			t.Fatalf("early traversal counts = preorder %d, descendants %d", preorder, descendants)
 		}
-		if subtree.Contains(djot.KindDocument) {
+		if subtree.Contains(ast.KindDocument) {
 			t.Fatal("bounded subtree leaked its document ancestor")
 		}
-		if !subtree.Contains(djot.KindSymbol) {
+		if !subtree.Contains(ast.KindSymbol) {
 			t.Fatal("bounded subtree missed symbol descendant")
 		}
 		r.Default()
@@ -171,8 +172,8 @@ func TestSubtreeViewTraversalBoundaries(t *testing.T) {
 func TestSubtreeRendererWorksForNonDivKinds(t *testing.T) {
 	input := "- plain\n- item with *emphasis*\n"
 	nodeDoc := djot.Parse(input)
-	want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindListItem, func(node djot.Node, r djot.NodeRenderer) {
-		if nodeContainsDescendant(node, djot.KindEmphasis) {
+	want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindListItem, func(node ast.Node, r djot.NodeRenderer) {
+		if nodeContainsDescendant(node, ast.KindEmphasis) {
 			r.Write("<li class=\"emphasis\">")
 			r.Children()
 			r.Write("</li>\n")
@@ -182,8 +183,8 @@ func TestSubtreeRendererWorksForNonDivKinds(t *testing.T) {
 	}))
 
 	tapeDoc := djot.Parse(input)
-	got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(djot.KindListItem, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-		if subtree.Contains(djot.KindEmphasis) {
+	got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(ast.KindListItem, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+		if subtree.Contains(ast.KindEmphasis) {
 			r.Write("<li class=\"emphasis\">")
 			r.Children()
 			r.Write("</li>\n")
@@ -199,8 +200,8 @@ func TestSubtreeRendererWorksForNonDivKinds(t *testing.T) {
 func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 	doc := djot.Parse("::: note\n:star:\n:::\n")
 	got := djot.RenderHTML(doc,
-		djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-			if !subtree.Contains(djot.KindSymbol) {
+		djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+			if !subtree.Contains(ast.KindSymbol) {
 				t.Fatal("Div subtree did not see symbol")
 			}
 			r.Write("<aside>")
@@ -216,10 +217,10 @@ func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 	}
 
 	last := djot.RenderHTML(doc,
-		djot.WithNodeRenderer(djot.KindDiv, func(djot.Node, djot.NodeRenderer) {
+		djot.WithNodeRenderer(ast.KindDiv, func(ast.Node, djot.NodeRenderer) {
 			t.Fatal("replaced Node hook ran")
 		}),
-		djot.WithSubtreeRenderer(djot.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
+		djot.WithSubtreeRenderer(ast.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
 			t.Fatal("replaced subtree hook ran")
 		}),
 		djot.WithDivRenderer(func(_ djot.DivView, r djot.ElementRenderer) { r.Children() }),
@@ -232,7 +233,7 @@ func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 		djot.WithDivRenderer(func(djot.DivView, djot.ElementRenderer) {
 			t.Fatal("replaced Div hook ran")
 		}),
-		djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+		djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 			r.Write("<subtree>")
 			r.Children()
 			r.Write("</subtree>")
@@ -243,10 +244,10 @@ func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 	}
 
 	nodeLast := djot.RenderHTML(doc,
-		djot.WithSubtreeRenderer(djot.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
+		djot.WithSubtreeRenderer(ast.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
 			t.Fatal("replaced subtree hook ran")
 		}),
-		djot.WithNodeRenderer(djot.KindDiv, func(_ djot.Node, r djot.NodeRenderer) {
+		djot.WithNodeRenderer(ast.KindDiv, func(_ ast.Node, r djot.NodeRenderer) {
 			r.Children()
 		}),
 	)
@@ -258,7 +259,7 @@ func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 		djot.WithSymbolRenderer(func(djot.SymbolView, djot.ElementRenderer) {
 			t.Fatal("replaced symbol hook ran")
 		}),
-		djot.WithSubtreeRenderer(djot.KindSymbol, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+		djot.WithSubtreeRenderer(ast.KindSymbol, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
 			if symbol, ok := subtree.Root().Symbol(); !ok || symbol.Name != "star" {
 				t.Fatalf("symbol subtree root = %#v, %v", symbol, ok)
 			}
@@ -272,14 +273,14 @@ func TestSubtreeRendererCompositionAndPrecedence(t *testing.T) {
 
 func TestSubtreeRendererDefaultReplayAndSuppression(t *testing.T) {
 	doc := djot.Parse("::: note\ntext\n:::\n")
-	defaultHTML := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+	defaultHTML := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 		r.Default()
 	}))
 	if defaultHTML != djot.RenderHTML(doc) {
 		t.Fatalf("Default differs\nwant: %q\n got: %q", djot.RenderHTML(doc), defaultHTML)
 	}
 
-	replayed := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+	replayed := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 		r.Children()
 		r.Children()
 	}))
@@ -287,7 +288,7 @@ func TestSubtreeRendererDefaultReplayAndSuppression(t *testing.T) {
 		t.Fatalf("replayed children output = %q", replayed)
 	}
 
-	suppressed := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {}))
+	suppressed := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {}))
 	if suppressed != "" {
 		t.Fatalf("suppressed subtree output = %q", suppressed)
 	}
@@ -296,7 +297,7 @@ func TestSubtreeRendererDefaultReplayAndSuppression(t *testing.T) {
 func TestSubtreeRendererCoversFinalFootnoteParagraph(t *testing.T) {
 	doc := djot.Parse("note[^a]\n\n[^a]: first\n\n    last\n")
 	calls := 0
-	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 		calls++
 		r.Default()
 	}))
@@ -311,7 +312,7 @@ func TestSubtreeRendererCoversFinalFootnoteParagraph(t *testing.T) {
 func TestSubtreeRendererCoversTightListParagraphs(t *testing.T) {
 	doc := djot.Parse("- one\n- two\n")
 	calls := 0
-	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+	got := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindParagraph, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 		calls++
 		r.Default()
 	}))
@@ -325,8 +326,8 @@ func TestSubtreeRendererCoversTightListParagraphs(t *testing.T) {
 
 func TestSubtreeRendererConcurrentRendering(t *testing.T) {
 	doc := djot.Parse("::: note\n```\ncode\n```\n:::\n")
-	option := djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-		if subtree.Contains(djot.KindCodeBlock) {
+	option := djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+		if subtree.Contains(ast.KindCodeBlock) {
 			r.Write("<code-example>")
 			r.Children()
 			r.Write("</code-example>")
@@ -357,7 +358,7 @@ func TestSubtreeRendererConcurrentRendering(t *testing.T) {
 
 func TestSubtreeRendererHTMLToParity(t *testing.T) {
 	doc := djot.Parse("::: note\ntext\n:::\n")
-	option := djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+	option := djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 		r.Children()
 	})
 	want := djot.RenderHTML(doc, option)
@@ -380,7 +381,7 @@ func TestSubtreeRendererWriterErrorStopsCallbacks(t *testing.T) {
 			}
 			writer := &errWriter{limit: 0}
 			calls := 0
-			err := djot.RenderHTMLTo(writer, doc, djot.WithSubtreeRenderer(djot.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
+			err := djot.RenderHTMLTo(writer, doc, djot.WithSubtreeRenderer(ast.KindDiv, func(_ djot.SubtreeView, r djot.ElementRenderer) {
 				calls++
 				r.Write("<aside>")
 				r.Children()
@@ -408,7 +409,7 @@ func TestSubtreeRendererPanicPropagates(t *testing.T) {
 			if backend == "tree" {
 				doc = djot.NewDoc(doc.Root())
 			}
-			djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
+			djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv, func(djot.SubtreeView, djot.ElementRenderer) {
 				panic(marker)
 			}))
 		})
@@ -426,8 +427,8 @@ func FuzzSubtreeRendererMatchesNodeCrawl(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		nodeDoc := djot.Parse(input)
-		want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, func(node djot.Node, r djot.NodeRenderer) {
-			if nodeContainsDescendant(node, djot.KindCodeBlock) {
+		want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindDiv, func(node ast.Node, r djot.NodeRenderer) {
+			if nodeContainsDescendant(node, ast.KindCodeBlock) {
 				r.Write("<code-div>")
 				r.Children()
 				r.Write("</code-div>")
@@ -437,8 +438,8 @@ func FuzzSubtreeRendererMatchesNodeCrawl(f *testing.F) {
 		}))
 
 		tapeDoc := djot.Parse(input)
-		got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(djot.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-			if subtree.Contains(djot.KindCodeBlock) {
+		got := djot.RenderHTML(tapeDoc, djot.WithSubtreeRenderer(ast.KindDiv, func(subtree djot.SubtreeView, r djot.ElementRenderer) {
+			if subtree.Contains(ast.KindCodeBlock) {
 				r.Write("<code-div>")
 				r.Children()
 				r.Write("</code-div>")

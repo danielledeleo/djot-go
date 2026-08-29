@@ -3,6 +3,8 @@ package djot
 import (
 	"math"
 	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 type blockParser struct {
@@ -85,11 +87,11 @@ func (bp *blockParser) splitLines() {
 }
 
 func (bp *blockParser) parse() *parseNode {
-	root := bp.arena.new(parseNodeSpec{Kind: KindDocument})
-	root.Start = Pos{Offset: 0}
+	root := bp.arena.new(parseNodeSpec{Kind: ast.KindDocument})
+	root.Start = ast.Pos{Offset: 0}
 	bp.parseBlocks(root, 0, "")
 	if len(bp.lines) > 0 {
-		root.End = Pos{Offset: bp.lines[len(bp.lines)-1].end}
+		root.End = ast.Pos{Offset: bp.lines[len(bp.lines)-1].end}
 	}
 	return root
 }
@@ -155,9 +157,9 @@ func (bp *blockParser) parseBlock(parent *parseNode, baseIndent int, prefix stri
 	// Paragraphs consume continuation lines before dispatch, so a thematic
 	// break reaching here needs no preceding blank.
 	if isThematicBreak(stripped) {
-		node := bp.arena.new(parseNodeSpec{Kind: KindThematicBreak})
-		node.Start = Pos{Offset: line.start}
-		node.End = Pos{Offset: line.end}
+		node := bp.arena.new(parseNodeSpec{Kind: ast.KindThematicBreak})
+		node.Start = ast.Pos{Offset: line.start}
+		node.End = ast.Pos{Offset: line.end}
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
 		bp.pos++
@@ -230,8 +232,8 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 	content := strings.TrimSpace(stripped[level:])
 
 	startLine := bp.currentLine()
-	node := bp.arena.new(parseNodeSpec{Kind: KindHeading, Level: level})
-	node.Start = Pos{Offset: startLine.start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindHeading, Level: level})
+	node.Start = ast.Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
 
 	lastEnd := startLine.end
@@ -313,7 +315,7 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 		bp.pos++
 	}
 
-	node.End = Pos{Offset: lastEnd}
+	node.End = ast.Pos{Offset: lastEnd}
 	node.Text = textBuf.String()
 	parent.Children = append(parent.Children, node)
 }
@@ -332,8 +334,8 @@ func (bp *blockParser) parseCodeBlock(parent *parseNode, stripped string, baseIn
 	// Check for raw block: ``` =html
 	if len(lang) > 1 && lang[0] == '=' {
 		format := lang[1:]
-		node := bp.arena.new(parseNodeSpec{Kind: KindRawBlock, Format: format})
-		node.Start = Pos{Offset: openLine.start}
+		node := bp.arena.new(parseNodeSpec{Kind: ast.KindRawBlock, Format: format})
+		node.Start = ast.Pos{Offset: openLine.start}
 		// Don't attach pending attrs to raw blocks.
 		bp.pendingAttrs = nil
 		bp.pos++
@@ -361,14 +363,14 @@ func (bp *blockParser) parseCodeBlock(parent *parseNode, stripped string, baseIn
 			lastEnd = line.end
 			bp.pos++
 		}
-		node.End = Pos{Offset: lastEnd}
+		node.End = ast.Pos{Offset: lastEnd}
 		node.Text = textBuf.String()
 		parent.Children = append(parent.Children, node)
 		return
 	}
 
-	node := bp.arena.new(parseNodeSpec{Kind: KindCodeBlock, Lang: lang})
-	node.Start = Pos{Offset: openLine.start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindCodeBlock, Lang: lang})
+	node.Start = ast.Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 
 	bp.pos++
@@ -402,15 +404,15 @@ func (bp *blockParser) parseCodeBlock(parent *parseNode, stripped string, baseIn
 		bp.pos++
 	}
 
-	node.End = Pos{Offset: lastEnd}
+	node.End = ast.Pos{Offset: lastEnd}
 	node.Text = textBuf.String()
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseBlockQuote(parent *parseNode, indent int, outerPrefix string) {
-	node := bp.arena.new(parseNodeSpec{Kind: KindBlockQuote})
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindBlockQuote})
 	startLine := bp.currentLine()
-	node.Start = Pos{Offset: startLine.start}
+	node.Start = ast.Pos{Offset: startLine.start}
 	bp.attachPendingAttrs(node)
 
 	var content contentLines
@@ -456,7 +458,7 @@ func (bp *blockParser) parseBlockQuote(parent *parseNode, indent int, outerPrefi
 	subBP := content.subParser(bp.references, bp.arena)
 	subBP.parseBlocks(node, 0, "")
 
-	node.End = Pos{Offset: lastEnd}
+	node.End = ast.Pos{Offset: lastEnd}
 	parent.Children = append(parent.Children, node)
 }
 
@@ -469,8 +471,8 @@ func (bp *blockParser) parseFencedDiv(parent *parseNode, stripped string, baseIn
 	className := strings.TrimSpace(stripped[fenceLen:])
 
 	openLine := bp.currentLine()
-	node := bp.arena.new(parseNodeSpec{Kind: KindDiv})
-	node.Start = Pos{Offset: openLine.start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindDiv})
+	node.Start = ast.Pos{Offset: openLine.start}
 	bp.attachPendingAttrs(node)
 	if className != "" {
 		node.AddClass(className)
@@ -542,15 +544,15 @@ func (bp *blockParser) parseFencedDiv(parent *parseNode, stripped string, baseIn
 	subBP := content.subParser(bp.references, bp.arena)
 	subBP.parseBlocks(node, 0, "")
 
-	node.End = Pos{Offset: lastEnd}
+	node.End = ast.Pos{Offset: lastEnd}
 	parent.Children = append(parent.Children, node)
 }
 
 func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMarker string, indent int, prefix string) {
-	node := bp.arena.new(parseNodeSpec{Kind: KindBulletList})
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindBulletList})
 	line := bp.currentLine()
 	// Position at the list marker, not the leading whitespace.
-	node.Start = Pos{Offset: line.start + indent}
+	node.Start = ast.Pos{Offset: line.start + indent}
 	node.Marker = marker
 	bp.attachPendingAttrs(node)
 
@@ -604,9 +606,9 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 			hasBlankBetweenItems = true
 		}
 
-		item := bp.arena.new(parseNodeSpec{Kind: KindListItem})
+		item := bp.arena.new(parseNodeSpec{Kind: ast.KindListItem})
 		// Position at the list marker, not the leading whitespace.
-		item.Start = Pos{Offset: line.start + itemIndent}
+		item.Start = ast.Pos{Offset: line.start + itemIndent}
 		bp.pos++
 
 		var content contentLines
@@ -701,7 +703,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 			if prevIdx+1 < len(bp.lines) {
 				endOffset = bp.lines[prevIdx+1].start
 			}
-			item.End = Pos{Offset: endOffset}
+			item.End = ast.Pos{Offset: endOffset}
 		}
 		node.Children = append(node.Children, item)
 	}
@@ -721,7 +723,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 	parent.Children = append(parent.Children, node)
 }
 
-func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ListStyle, afterMarker string, indent int, prefix string) {
+func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.ListStyle, afterMarker string, indent int, prefix string) {
 	// Extract the first item's enum text and delimiter for potential reinterpretation.
 	firstLine := bp.lines[bp.pos].text
 	if prefix != "" && strings.HasPrefix(firstLine, prefix) {
@@ -733,8 +735,8 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style List
 	// style is still open to revision — see the reinterpretation below.
 	enums := []string{firstEnum}
 
-	node := bp.arena.new(parseNodeSpec{Kind: KindOrderedList, ListStart: start, ListStyle: style})
-	node.Start = Pos{Offset: bp.currentLine().start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindOrderedList, ListStart: start, ListStyle: style})
+	node.Start = ast.Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	hasBlankBetweenItems := false
@@ -816,8 +818,8 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style List
 
 		enums = append(enums, itemEnum)
 
-		item := bp.arena.new(parseNodeSpec{Kind: KindListItem})
-		item.Start = Pos{Offset: line.start}
+		item := bp.arena.new(parseNodeSpec{Kind: ast.KindListItem})
+		item.Start = ast.Pos{Offset: line.start}
 		bp.pos++
 
 		var content contentLines
@@ -907,7 +909,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style List
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
-			item.End = Pos{Offset: bp.lines[bp.pos-1].end}
+			item.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
 		}
 		node.Children = append(node.Children, item)
 	}
@@ -964,9 +966,9 @@ func (bp *blockParser) parseParagraph(parent *parseNode, prefix string, literalL
 		if literalLines > 0 && taken < literalLines {
 			literalBytes = len(text)
 		}
-		node := bp.arena.new(parseNodeSpec{Kind: KindParagraph, Text: text})
-		node.Start = Pos{Offset: startOffset}
-		node.End = Pos{Offset: lastEnd}
+		node := bp.arena.new(parseNodeSpec{Kind: ast.KindParagraph, Text: text})
+		node.Start = ast.Pos{Offset: startOffset}
+		node.End = ast.Pos{Offset: lastEnd}
 		node.plainBracesUntil = min(literalBytes, len(text))
 		bp.attachPendingAttrs(node)
 		parent.Children = append(parent.Children, node)
@@ -1189,7 +1191,7 @@ func blankCountsBetweenItems(list *parseNode) bool {
 		return true
 	}
 	switch prev.Children[len(prev.Children)-1].Kind {
-	case KindBulletList, KindOrderedList, KindTaskList, KindDefinitionList:
+	case ast.KindBulletList, ast.KindOrderedList, ast.KindTaskList, ast.KindDefinitionList:
 		return false
 	}
 	return true
@@ -1210,7 +1212,7 @@ func bulletListMarker(s string) (marker byte, after string, ok bool) {
 	return 0, "", false
 }
 
-func orderedListMarker(s string) (start int, style ListStyle, after string, ok bool) {
+func orderedListMarker(s string) (start int, style ast.ListStyle, after string, ok bool) {
 	// Try parenthesized form: (num), (a), (A), (i), (I)
 	if len(s) > 0 && s[0] == '(' {
 		closeParen := strings.IndexByte(s, ')')
@@ -1308,31 +1310,31 @@ func parseDecimalEnum(s string) (int, bool) {
 }
 
 // parseOrderedEnumAs tries to parse an enum string as a specific style.
-func parseOrderedEnumAs(s string, style ListStyle) (int, bool) {
+func parseOrderedEnumAs(s string, style ast.ListStyle) (int, bool) {
 	// No style reads an empty enumerator; without this the decimal case would
 	// fall out of its loop and call it zero.
 	if s == "" {
 		return 0, false
 	}
 	switch style {
-	case ListDecimal:
+	case ast.ListDecimal:
 		return parseDecimalEnum(s)
-	case ListAlphaLower:
+	case ast.ListAlphaLower:
 		if len(s) == 1 && s[0] >= 'a' && s[0] <= 'z' {
 			return int(s[0]-'a') + 1, true
 		}
 		return 0, false
-	case ListAlphaUpper:
+	case ast.ListAlphaUpper:
 		if len(s) == 1 && s[0] >= 'A' && s[0] <= 'Z' {
 			return int(s[0]-'A') + 1, true
 		}
 		return 0, false
-	case ListRomanLower:
+	case ast.ListRomanLower:
 		if isAllLower(s) {
 			return parseRoman(strings.ToUpper(s))
 		}
 		return 0, false
-	case ListRomanUpper:
+	case ast.ListRomanUpper:
 		if isAllUpper(s) {
 			return parseRoman(s)
 		}
@@ -1345,7 +1347,7 @@ func parseOrderedEnumAs(s string, style ListStyle) (int, bool) {
 // and returns the numeric value and style. It handles decimal, lower/upper alpha,
 // and lower/upper roman numerals. When ambiguous (e.g. "i" could be alpha or roman),
 // roman numerals are preferred.
-func parseOrderedEnum(s string) (num int, style ListStyle, ok bool) {
+func parseOrderedEnum(s string) (num int, style ast.ListStyle, ok bool) {
 	if len(s) == 0 {
 		return 0, 0, false
 	}
@@ -1356,16 +1358,16 @@ func parseOrderedEnum(s string) (num int, style ListStyle, ok bool) {
 		if !ok {
 			return 0, 0, false
 		}
-		return n, ListDecimal, true
+		return n, ast.ListDecimal, true
 	}
 
 	// Lower letters: try roman first, then alpha
 	if isAllLower(s) {
 		if rn, ok2 := parseRoman(strings.ToUpper(s)); ok2 {
-			return rn, ListRomanLower, true
+			return rn, ast.ListRomanLower, true
 		}
 		if len(s) == 1 {
-			return int(s[0]-'a') + 1, ListAlphaLower, true
+			return int(s[0]-'a') + 1, ast.ListAlphaLower, true
 		}
 		return 0, 0, false
 	}
@@ -1373,10 +1375,10 @@ func parseOrderedEnum(s string) (num int, style ListStyle, ok bool) {
 	// Upper letters: try roman first, then alpha
 	if isAllUpper(s) {
 		if rn, ok2 := parseRoman(s); ok2 {
-			return rn, ListRomanUpper, true
+			return rn, ast.ListRomanUpper, true
 		}
 		if len(s) == 1 {
-			return int(s[0]-'A') + 1, ListAlphaUpper, true
+			return int(s[0]-'A') + 1, ast.ListAlphaUpper, true
 		}
 		return 0, 0, false
 	}
@@ -1556,7 +1558,7 @@ func (bp *blockParser) parseReferenceDefinition(parent *parseNode, stripped stri
 	}
 
 	url := strings.Join(urlParts, "")
-	ref := bp.arena.new(parseNodeSpec{Kind: KindLink, Target: url, Label: label})
+	ref := bp.arena.new(parseNodeSpec{Kind: ast.KindLink, Target: url, Label: label})
 	bp.attachPendingAttrs(ref)
 	bp.references[label] = ref
 }
@@ -1584,8 +1586,8 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 		after = strings.TrimSpace(stripped[closeBracket+2:])
 	}
 
-	node := bp.arena.new(parseNodeSpec{Kind: KindFootnote, Label: label})
-	node.Start = Pos{Offset: bp.currentLine().start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindFootnote, Label: label})
+	node.Start = ast.Pos{Offset: bp.currentLine().start}
 	bp.pos++
 
 	var content contentLines
@@ -1648,7 +1650,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 	}
 
 	if bp.pos > 0 {
-		node.End = Pos{Offset: bp.lines[bp.pos-1].end}
+		node.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
 	}
 	parent.Children = append(parent.Children, node)
 }
@@ -1659,8 +1661,8 @@ func isTaskListItem(after string) bool {
 }
 
 func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int, prefix string) {
-	node := bp.arena.new(parseNodeSpec{Kind: KindTaskList})
-	node.Start = Pos{Offset: bp.currentLine().start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindTaskList})
+	node.Start = ast.Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	tight := true
@@ -1714,8 +1716,8 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		checked := after[1] == 'x' || after[1] == 'X'
 		afterCheckbox := after[4:] // skip "[ ] " or "[x] "
 
-		item := bp.arena.new(parseNodeSpec{Kind: KindTaskListItem, Checked: checked})
-		item.Start = Pos{Offset: line.start}
+		item := bp.arena.new(parseNodeSpec{Kind: ast.KindTaskListItem, Checked: checked})
+		item.Start = ast.Pos{Offset: line.start}
 		bp.pos++
 
 		var content contentLines
@@ -1784,7 +1786,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		subBP.parseBlocks(item, 0, "")
 
 		if bp.pos > 0 {
-			item.End = Pos{Offset: bp.lines[bp.pos-1].end}
+			item.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
 		}
 		node.Children = append(node.Children, item)
 	}
@@ -1860,8 +1862,8 @@ func isTableRow(s string) bool {
 }
 
 func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix string) {
-	node := bp.arena.new(parseNodeSpec{Kind: KindDefinitionList})
-	node.Start = Pos{Offset: bp.currentLine().start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindDefinitionList})
+	node.Start = ast.Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	tight := true
@@ -1980,7 +1982,7 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 
 		// Parse collected content as blocks.
 		subBP := content.subParser(bp.references, bp.arena)
-		itemNode := bp.arena.new(parseNodeSpec{Kind: KindDocument})
+		itemNode := bp.arena.new(parseNodeSpec{Kind: ast.KindDocument})
 		subBP.parseBlocks(itemNode, 0, "")
 
 		// Split: first paragraph is the term, rest is the definition.
@@ -1988,11 +1990,11 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 		if bp.pos > 0 {
 			itemEndOffset = bp.lines[bp.pos-1].end
 		}
-		term := bp.arena.new(parseNodeSpec{Kind: KindTerm})
-		term.Start = Pos{Offset: itemStartOffset}
-		def := bp.arena.new(parseNodeSpec{Kind: KindDefinition})
+		term := bp.arena.new(parseNodeSpec{Kind: ast.KindTerm})
+		term.Start = ast.Pos{Offset: itemStartOffset}
+		def := bp.arena.new(parseNodeSpec{Kind: ast.KindDefinition})
 
-		if len(itemNode.Children) > 0 && itemNode.Children[0].Kind == KindParagraph {
+		if len(itemNode.Children) > 0 && itemNode.Children[0].Kind == ast.KindParagraph {
 			// The first paragraph's text becomes the term.
 			term.Text = itemNode.Children[0].Text
 			term.Children = itemNode.Children[0].Children
@@ -2005,10 +2007,10 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 		} else {
 			// No paragraph — empty term, everything is definition.
 			term.End = term.Start
-			def.Start = Pos{Offset: itemStartOffset}
+			def.Start = ast.Pos{Offset: itemStartOffset}
 			def.Children = itemNode.Children
 		}
-		def.End = Pos{Offset: itemEndOffset}
+		def.End = ast.Pos{Offset: itemEndOffset}
 
 		node.Children = append(node.Children, term, def)
 	}
@@ -2024,12 +2026,12 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 }
 
 func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int, prefix string) {
-	node := bp.arena.new(parseNodeSpec{Kind: KindTable})
-	node.Start = Pos{Offset: bp.currentLine().start}
+	node := bp.arena.new(parseNodeSpec{Kind: ast.KindTable})
+	node.Start = ast.Pos{Offset: bp.currentLine().start}
 	bp.attachPendingAttrs(node)
 
 	// Track current alignment from the most recent separator row.
-	var currentAligns []CellAlign
+	var currentAligns []ast.CellAlign
 
 	for bp.pos < len(bp.lines) {
 		line := bp.currentLine()
@@ -2053,7 +2055,7 @@ func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int
 			aligns := parseTableAlignments(stripped)
 			if len(node.Children) > 0 {
 				lastRow := node.Children[len(node.Children)-1]
-				if lastRow.Kind == KindTableRow {
+				if lastRow.Kind == ast.KindTableRow {
 					for i, cell := range lastRow.Children {
 						cell.IsHeader = true
 						if i < len(aligns) {
@@ -2068,8 +2070,8 @@ func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int
 		}
 
 		row := parseTableRow(stripped, bp.arena)
-		row.Start = Pos{Offset: line.start}
-		row.End = Pos{Offset: line.end}
+		row.Start = ast.Pos{Offset: line.start}
+		row.End = ast.Pos{Offset: line.end}
 		// Apply current alignment to data row cells.
 		if currentAligns != nil {
 			for i, cell := range row.Children {
@@ -2151,9 +2153,9 @@ func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int
 			bp.pos++
 		}
 		captionText := strings.Join(captionLines, "\n")
-		captionNode = bp.arena.new(parseNodeSpec{Kind: KindCaption, Text: captionText})
-		captionNode.Start = Pos{Offset: captionStart}
-		captionNode.End = Pos{Offset: captionLastEnd}
+		captionNode = bp.arena.new(parseNodeSpec{Kind: ast.KindCaption, Text: captionText})
+		captionNode.Start = ast.Pos{Offset: captionStart}
+		captionNode.End = ast.Pos{Offset: captionLastEnd}
 		// Skip blank lines before checking for another caption.
 		for bp.pos < len(bp.lines) {
 			bl := bp.currentLine()
@@ -2179,7 +2181,7 @@ func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int
 	// If no caption was found, restore position (blank lines consumed should stay consumed
 	// only if caption was found). Actually, blank lines between table and non-caption
 	// content are fine to consume — but let's be safe.
-	if len(node.Children) == 0 || node.Children[0].Kind != KindCaption {
+	if len(node.Children) == 0 || node.Children[0].Kind != ast.KindCaption {
 		bp.pos = savedPos
 		// Re-skip blank lines (they are normally consumed by the main loop).
 		for bp.pos < len(bp.lines) {
@@ -2250,7 +2252,7 @@ func isTableSeparator(s string) bool {
 	}
 }
 
-func parseTableAlignments(s string) []CellAlign {
+func parseTableAlignments(s string) []ast.CellAlign {
 	s = strings.TrimSpace(s)
 	if len(s) > 0 && s[0] == '|' {
 		s = s[1:]
@@ -2259,27 +2261,27 @@ func parseTableAlignments(s string) []CellAlign {
 		s = s[:len(s)-1]
 	}
 	parts := strings.Split(s, "|")
-	var aligns []CellAlign
+	var aligns []ast.CellAlign
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		left := len(part) > 0 && part[0] == ':'
 		right := len(part) > 0 && part[len(part)-1] == ':'
 		switch {
 		case left && right:
-			aligns = append(aligns, AlignCenter)
+			aligns = append(aligns, ast.AlignCenter)
 		case left:
-			aligns = append(aligns, AlignLeft)
+			aligns = append(aligns, ast.AlignLeft)
 		case right:
-			aligns = append(aligns, AlignRight)
+			aligns = append(aligns, ast.AlignRight)
 		default:
-			aligns = append(aligns, AlignDefault)
+			aligns = append(aligns, ast.AlignDefault)
 		}
 	}
 	return aligns
 }
 
 func parseTableRow(s string, arena *parseNodeArena) *parseNode {
-	row := arena.new(parseNodeSpec{Kind: KindTableRow})
+	row := arena.new(parseNodeSpec{Kind: ast.KindTableRow})
 	s = strings.TrimSpace(s)
 	if len(s) > 0 && s[0] == '|' {
 		s = s[1:]
@@ -2290,7 +2292,7 @@ func parseTableRow(s string, arena *parseNodeArena) *parseNode {
 
 	cells := splitTableCells(s)
 	for _, cellText := range cells {
-		cell := arena.new(parseNodeSpec{Kind: KindTableCell, Text: strings.TrimSpace(cellText)})
+		cell := arena.new(parseNodeSpec{Kind: ast.KindTableCell, Text: strings.TrimSpace(cellText)})
 		row.Children = append(row.Children, cell)
 	}
 	return row
@@ -2370,7 +2372,7 @@ func mergeAttrsOrdered(dst map[string]string, dstOrder []string, src map[string]
 // allParseAs reports whether every enumerator can be read in the given style.
 // A list only changes style when the items already taken can all be reread that
 // way, so that the change explains the whole list rather than splitting it.
-func allParseAs(enums []string, style ListStyle) bool {
+func allParseAs(enums []string, style ast.ListStyle) bool {
 	for _, e := range enums {
 		if _, ok := parseOrderedEnumAs(e, style); !ok {
 			return false

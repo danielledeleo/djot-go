@@ -47,6 +47,13 @@ Requires Go 1.22+.
 
 ## Usage
 
+```go
+import (
+    "github.com/danielledeleo/djot-go"
+    "github.com/danielledeleo/djot-go/ast"
+)
+```
+
 ### Parse and render
 
 ```go
@@ -64,16 +71,16 @@ djot.RenderHTMLTo(&buf, doc)
 ### Walk the AST
 
 ```go
-djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-    if link, ok := n.(*djot.Link); ok {
+ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+    if link, ok := n.(*ast.Link); ok {
         fmt.Println(link.Destination)
     }
-    return djot.Continue
+    return ast.Continue
 })
 ```
 
-The walker supports `Continue`, `SkipChildren`, `Remove`, and `Replace(node)`
-actions. `WalkBottomUp` visits children before parents.
+The walker supports `ast.Continue`, `ast.SkipChildren`, `ast.Remove`, and
+`ast.Replace(node)` actions. `ast.WalkBottomUp` visits children before parents.
 
 Use `djot.NewDoc(root)` to render an externally constructed AST. To replace a
 document's root, call `doc.SetRoot(root)`; parsed documents otherwise materialize
@@ -84,8 +91,8 @@ their mutable AST only when `doc.Root()` is requested.
 Override the HTML output for specific node kinds:
 
 ```go
-rendered := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
-    code := n.(*djot.CodeBlock)
+rendered := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindCodeBlock, func(n ast.Node, r djot.NodeRenderer) {
+    code := n.(*ast.CodeBlock)
     r.Write(`<pre class="highlight"><code>`)
     r.Write(html.EscapeString(code.Text))
     r.Write("</code></pre>")
@@ -122,9 +129,9 @@ its children before rendering. When the wrapper depends on descendant content,
 use a bounded, read-only subtree view:
 
 ```go
-html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv,
+html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv,
     func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-        if subtree.Contains(djot.KindCodeBlock) {
+        if subtree.Contains(ast.KindCodeBlock) {
             r.Write(`<section class="contains-code">`)
             r.Children()
             r.Write(`</section>`)

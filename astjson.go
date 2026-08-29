@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // RenderASTJSON renders a parsed document to indented JSON that mirrors
@@ -37,11 +39,11 @@ func RenderASTJSONTo(w io.Writer, doc *Doc, positions bool) error {
 	return err
 }
 
-func astJSONNode(doc *Doc, n Node, positions bool) *jsonObj {
+func astJSONNode(doc *Doc, n ast.Node, positions bool) *jsonObj {
 	o := &jsonObj{}
 	o.set("tag", astTagName(n))
 
-	if positions && n.Kind() != KindDocument {
+	if positions && n.Kind() != ast.KindDocument {
 		if pos := astJSONPos(doc, n); pos != nil {
 			o.set("pos", pos)
 		}
@@ -53,14 +55,14 @@ func astJSONNode(doc *Doc, n Node, positions bool) *jsonObj {
 
 	if n.Attributes().Len() > 0 {
 		attrs := &jsonObj{}
-		for _, attribute := range n.Attributes().items {
+		for _, attribute := range n.Attributes().Entries() {
 			attrs.set(attribute.Key, attribute.Value)
 		}
 		o.set("attributes", attrs)
 	}
 
 	var kids []any
-	forEachChild(n, func(child Node) {
+	ast.ForEachChild(n, func(child ast.Node) {
 		kids = append(kids, astJSONNode(doc, child, positions))
 	})
 	if len(kids) > 0 {
@@ -70,7 +72,7 @@ func astJSONNode(doc *Doc, n Node, positions bool) *jsonObj {
 	return o
 }
 
-func astJSONPos(doc *Doc, n Node) *jsonObj {
+func astJSONPos(doc *Doc, n ast.Node) *jsonObj {
 	if doc == nil || len(doc.Files) == 0 {
 		return nil
 	}

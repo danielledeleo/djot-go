@@ -1,6 +1,4 @@
-package djot
-
-import "sync"
+package ast
 
 // SourceSpan identifies the half-open source range occupied by a node: Start is
 // inclusive and End is exclusive.
@@ -112,6 +110,26 @@ func (a *Attributes) Entries() []Attribute {
 // Clone returns an independent copy of the attributes.
 func (a *Attributes) Clone() Attributes {
 	return Attributes{items: a.Entries()}
+}
+
+func isValidAttrKey(key string) bool {
+	if key == "" || !isAttrKeyStart(key[0]) {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		if !isAttrKeyChar(key[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAttrKeyStart(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == ':'
+}
+
+func isAttrKeyChar(c byte) bool {
+	return isAttrKeyStart(c) || c >= '0' && c <= '9' || c == '-'
 }
 
 // Node is the closed interface implemented by every Djot syntax-tree node.
@@ -551,98 +569,6 @@ type Reference struct {
 	Destination    string
 	DestinationSet bool
 	Attributes     Attributes
-}
-
-// Doc is the top-level parsed document. Its compact semantic representation is
-// rendered directly; Root, Footnotes, and References materialize typed views on
-// demand.
-type Doc struct {
-	Files []FileInfo
-
-	mu            sync.RWMutex
-	root          *Document
-	rootRequested bool
-	references    map[string]*Reference
-	semantic      *semanticTape
-
-	parseRoot       *parseNode
-	parseReferences map[string]*parseNode
-}
-
-// NewDoc constructs a document from an existing mutable typed tree.
-func NewDoc(root *Document) *Doc {
-	return &Doc{root: root, rootRequested: true}
-}
-
-// Root returns the shared mutable typed tree, materializing it on first use.
-// Repeated calls return the same root. Concurrent read-only materialization is
-// safe; callers must synchronize subsequent tree mutations with other users of
-// the document.
-func (d *Doc) Root() *Document {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.rootRequested = true
-	return d.materializeRootLocked()
-}
-
-func (d *Doc) materializeRootLocked() *Document {
-	if d.root == nil && d.semantic != nil {
-		d.root = d.semantic.materializeAST()
-	}
-	return d.root
-}
-
-// SetRoot replaces the document tree and discards compact rendering caches.
-func (d *Doc) SetRoot(root *Document) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.root = root
-	d.rootRequested = true
-	d.semantic = nil
-	d.references = nil
-}
-
-func (d *Doc) semanticRenderSnapshot() (tape *semanticTape, root *Document, direct bool) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	if d.semantic != nil && !d.rootRequested {
-		return d.semantic, nil, true
-	}
-	return d.semantic, d.root, false
-}
-
-// Footnotes returns a newly built footnote-definition index for the current
-// typed tree. Mutating the returned map does not modify the tree; changing a
-// Footnote through Root is reflected the next time Footnotes is called.
-func (d *Doc) Footnotes() map[string]*Footnote {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.rootRequested = true
-	footnotes := make(map[string]*Footnote)
-	if root := d.materializeRootLocked(); root != nil {
-		walkRead(root, func(node Node) {
-			if footnote, ok := node.(*Footnote); ok {
-				footnotes[footnote.Label] = footnote
-			}
-		})
-	}
-	return footnotes
-}
-
-// References returns the shared mutable resolved-reference index,
-// materializing it on first use. Reference definitions are document metadata;
-// links and images already contain their resolved destinations.
-func (d *Doc) References() map[string]*Reference {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.references == nil {
-		if d.semantic != nil {
-			d.references = d.semantic.materializeReferences()
-		} else {
-			d.references = make(map[string]*Reference)
-		}
-	}
-	return d.references
 }
 
 var (

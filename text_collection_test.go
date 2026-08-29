@@ -1,6 +1,10 @@
 package djot
 
-import "testing"
+import (
+	"testing"
+
+	. "github.com/danielledeleo/djot-go/ast"
+)
 
 func TestDeepTextCollectorsDoNotAllocatePerLevel(t *testing.T) {
 	const depth = 2048

@@ -5,18 +5,19 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // flattenInlines walks the first paragraph's inline children and returns a
 // compact "kind:value" representation, merging adjacent text nodes the way
 // the reference djot.js coalesces str runs. Used to compare djot-go symbol
 // parsing against the canonical implementation.
-func flattenInlines(t *testing.T, doc *djot.Document) []string {
+func flattenInlines(t *testing.T, doc *ast.Document) []string {
 	t.Helper()
 	if len(doc.Children) == 0 {
 		t.Fatalf("expected a leading paragraph, got %+v", doc.Children)
 	}
-	paragraph, ok := doc.Children[0].(*djot.Paragraph)
+	paragraph, ok := doc.Children[0].(*ast.Paragraph)
 	if !ok {
 		t.Fatalf("expected a leading paragraph, got %T", doc.Children[0])
 	}
@@ -30,9 +31,9 @@ func flattenInlines(t *testing.T, doc *djot.Document) []string {
 	}
 	for _, n := range paragraph.Children {
 		switch n := n.(type) {
-		case *djot.Text:
+		case *ast.Text:
 			textBuf.WriteString(n.Value)
-		case *djot.Symbol:
+		case *ast.Symbol:
 			flush()
 			out = append(out, "symb:"+n.Name)
 		default:

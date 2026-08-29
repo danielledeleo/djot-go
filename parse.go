@@ -1,6 +1,10 @@
 package djot
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
+)
 
 // Parse parses a djot document with resolved references, footnotes, and
 // auto-generated section IDs. The mutable AST is materialized lazily by Root.
@@ -14,7 +18,7 @@ func Parse(input string) *Doc {
 
 	doc := &Doc{
 		parseRoot:       root,
-		Files:           []FileInfo{{Path: "<input>", Source: []byte(input)}},
+		Files:           []ast.FileInfo{{Path: "<input>", Source: []byte(input)}},
 		parseReferences: bp.references,
 	}
 
@@ -34,18 +38,18 @@ func Parse(input string) *Doc {
 // mapping the heading's text content to the section's (or heading's) ID.
 func registerHeadingRefs(doc *Doc) {
 	walkParse(doc.parseRoot, func(n *parseNode) {
-		if n.Kind == KindSection {
+		if n.Kind == ast.KindSection {
 			id := n.Attr("id")
 			if id == "" {
 				return
 			}
 			for _, child := range n.Children {
-				if child.Kind == KindHeading {
+				if child.Kind == ast.KindHeading {
 					label := collectParseText(child)
 					if label != "" {
 						if _, exists := doc.parseReferences[label]; !exists {
 							doc.parseReferences[label] = &parseNode{
-								Kind:         KindLink,
+								Kind:         ast.KindLink,
 								parsePayload: &parsePayload{Target: "#" + id, Label: label},
 							}
 						}
@@ -62,7 +66,7 @@ func registerHeadingRefs(doc *Doc) {
 // resolves them against the now-complete reference map.
 func resolveUnresolvedRefs(doc *Doc) {
 	walkParse(doc.parseRoot, func(n *parseNode) {
-		if (n.Kind == KindLink || n.Kind == KindImage) && n.Target == "" && !n.HasTarget {
+		if (n.Kind == ast.KindLink || n.Kind == ast.KindImage) && n.Target == "" && !n.HasTarget {
 			label := collectParseText(n)
 			if ref, ok := doc.parseReferences[label]; ok {
 				n.Target = ref.Target
@@ -84,8 +88,8 @@ func tightenBlockEnds(n *parseNode) {
 		tightenBlockEnds(c)
 	}
 	switch n.Kind {
-	case KindBulletList, KindOrderedList, KindTaskList, KindDefinitionList,
-		KindListItem, KindTaskListItem, KindBlockQuote, KindTable, KindFootnote:
+	case ast.KindBulletList, ast.KindOrderedList, ast.KindTaskList, ast.KindDefinitionList,
+		ast.KindListItem, ast.KindTaskListItem, ast.KindBlockQuote, ast.KindTable, ast.KindFootnote:
 		if len(n.Children) > 0 {
 			if last := n.Children[len(n.Children)-1]; last.End.Offset > 0 {
 				n.End = last.End

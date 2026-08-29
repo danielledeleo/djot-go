@@ -20,23 +20,24 @@
 //
 // # Traversing the AST
 //
-// [Walk] visits nodes top-down and supports [Continue], [SkipChildren], [Remove],
-// and [Replace] actions. [WalkBottomUp] visits children before parents.
+// Package ast provides the mutable tree and traversal API. ast.Walk visits
+// nodes top-down and supports continue, skip, remove, and replace actions;
+// ast.WalkBottomUp visits children before parents.
 //
-//	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-//	    if strong, ok := n.(*djot.Strong); ok {
-//	        replacement := &djot.Emphasis{Children: strong.Children}
-//	        djot.CopyMetadata(replacement, strong)
-//	        return djot.Replace(replacement)
+//	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+//	    if strong, ok := n.(*ast.Strong); ok {
+//	        replacement := &ast.Emphasis{Children: strong.Children}
+//	        ast.CopyMetadata(replacement, strong)
+//	        return ast.Replace(replacement)
 //	    }
-//	    return djot.Continue
+//	    return ast.Continue
 //	})
 //
 // # Custom rendering
 //
 // Override rendering for specific node kinds with [WithNodeRenderer]:
 //
-//	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindImage, func(n djot.Node, r djot.NodeRenderer) {
+//	html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindImage, func(n ast.Node, r djot.NodeRenderer) {
 //	    r.Write("<figure>")
 //	    r.Default()
 //	    r.Write("</figure>")
@@ -44,7 +45,7 @@
 //
 // Compact render views cover common streaming and structural decisions without
 // materializing the AST. They intentionally expose only the data required by
-// each hook. Use [Node] values when an extension needs arbitrary typed
+// each hook. Use ast.Node values when an extension needs arbitrary typed
 // inspection or mutation; doing so may materialize the AST.
 //
 // Lightweight symbol and Div customizations can use [WithSymbolRenderer] and

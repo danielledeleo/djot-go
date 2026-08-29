@@ -1,4 +1,4 @@
-package djot
+package ast
 
 import "reflect"
 
@@ -11,10 +11,11 @@ func requireNode(node Node) {
 func walkRead(node Node, visit func(Node)) {
 	requireNode(node)
 	visit(node)
-	forEachChild(node, func(child Node) { walkRead(child, visit) })
+	ForEachChild(node, func(child Node) { walkRead(child, visit) })
 }
 
-func forEachChild(node Node, visit func(Node)) {
+// ForEachChild calls visit for each direct child in source order.
+func ForEachChild(node Node, visit func(Node)) {
 	switch node := node.(type) {
 	case *Document:
 		for _, child := range node.Children {
@@ -149,7 +150,9 @@ func forEachChild(node Node, visit func(Node)) {
 	}
 }
 
-func appendTypedChild(parent, child Node) {
+// AppendChild appends child to parent, enforcing the AST grammar categories.
+// It panics if parent is a leaf or child is invalid for the occupied slot.
+func AppendChild(parent, child Node) {
 	requireNode(parent)
 	requireNode(child)
 	switch parent := parent.(type) {

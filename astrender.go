@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // RenderAST renders a parsed document to the djot AST text format,
@@ -37,11 +39,11 @@ func (r *astRenderer) write(s string) {
 	_, r.err = io.WriteString(r.w, s)
 }
 
-func (r *astRenderer) renderNode(n Node, indent int) {
+func (r *astRenderer) renderNode(n ast.Node, indent int) {
 	r.write(strings.Repeat(" ", indent))
 	r.write(astTagName(n))
 
-	if r.positions && n.Kind() != KindDocument {
+	if r.positions && n.Kind() != ast.KindDocument {
 		r.renderPos(n)
 	}
 
@@ -49,10 +51,10 @@ func (r *astRenderer) renderNode(n Node, indent int) {
 	r.renderAttrs(n)
 	r.write("\n")
 
-	forEachChild(n, func(child Node) { r.renderNode(child, indent+2) })
+	ast.ForEachChild(n, func(child ast.Node) { r.renderNode(child, indent+2) })
 }
 
-func (r *astRenderer) renderPos(n Node) {
+func (r *astRenderer) renderPos(n ast.Node) {
 	if r.doc == nil || len(r.doc.Files) == 0 {
 		return
 	}
@@ -68,7 +70,7 @@ func (r *astRenderer) renderPos(n Node) {
 // astEndPosition resolves an end offset to line:col using the djot.js
 // convention: newline characters and end-of-input map to the next line at
 // column 0.
-func astEndPosition(fi *FileInfo, offset int) (line, col int) {
+func astEndPosition(fi *ast.FileInfo, offset int) (line, col int) {
 	src := fi.Source
 	if offset >= len(src) || (offset < len(src) && src[offset] == '\n') {
 		line, _ = fi.Position(offset)
@@ -77,7 +79,7 @@ func astEndPosition(fi *FileInfo, offset int) (line, col int) {
 	return fi.Position(offset)
 }
 
-func (r *astRenderer) renderFields(n Node) {
+func (r *astRenderer) renderFields(n ast.Node) {
 	for _, f := range astFields(n) {
 		switch v := f.val.(type) {
 		case string:
@@ -99,22 +101,22 @@ type astField struct {
 	val any
 }
 
-func astFields(n Node) []astField {
+func astFields(n ast.Node) []astField {
 	switch n := n.(type) {
-	case *Heading:
+	case *ast.Heading:
 		return []astField{{"level", n.Level}}
 
-	case *CodeBlock:
+	case *ast.CodeBlock:
 		var fs []astField
 		if n.Language != "" {
 			fs = append(fs, astField{"lang", n.Language})
 		}
 		return append(fs, astField{"text", n.Text})
 
-	case *RawBlock:
+	case *ast.RawBlock:
 		return []astField{{"format", n.Format}, {"text", n.Text}}
 
-	case *BulletList:
+	case *ast.BulletList:
 		var fs []astField
 		if n.Tight {
 			fs = append(fs, astField{"tight", true})
@@ -124,7 +126,7 @@ func astFields(n Node) []astField {
 		}
 		return fs
 
-	case *OrderedList:
+	case *ast.OrderedList:
 		var fs []astField
 		if n.Tight {
 			fs = append(fs, astField{"tight", true})
@@ -135,199 +137,199 @@ func astFields(n Node) []astField {
 		}
 		return fs
 
-	case *TaskList:
+	case *ast.TaskList:
 		if n.Tight {
 			return []astField{{"tight", true}}
 		}
 		return nil
 
-	case *TaskListItem:
+	case *ast.TaskListItem:
 		if n.Checked {
 			return []astField{{"checkbox", "checked"}}
 		}
 		return []astField{{"checkbox", "unchecked"}}
 
-	case *TableRow:
+	case *ast.TableRow:
 		return []astField{{"head", n.Header}}
 
-	case *TableCell:
+	case *ast.TableCell:
 		return []astField{{"head", n.Header}, {"align", astCellAlign(n.Alignment)}}
 
-	case *Footnote:
+	case *ast.Footnote:
 		return []astField{{"label", n.Label}}
 
-	case *Text:
+	case *ast.Text:
 		return []astField{{"text", n.Value}}
 
-	case *Symbol:
+	case *ast.Symbol:
 		return []astField{{"alias", n.Name}}
 
-	case *Verbatim:
+	case *ast.Verbatim:
 		return []astField{{"text", n.Text}}
 
-	case *InlineMath:
+	case *ast.InlineMath:
 		return []astField{{"text", n.Text}}
 
-	case *DisplayMath:
+	case *ast.DisplayMath:
 		return []astField{{"text", n.Text}}
 
-	case *RawInline:
+	case *ast.RawInline:
 		return []astField{{"format", n.Format}, {"text", n.Text}}
 
-	case *Link:
+	case *ast.Link:
 		if n.Destination != "" || n.DestinationSet {
 			return []astField{{"destination", n.Destination}}
 		}
 		return nil
 
-	case *Image:
+	case *ast.Image:
 		if n.Destination != "" || n.DestinationSet {
 			return []astField{{"destination", n.Destination}}
 		}
 		return nil
 
-	case *FootnoteReference:
+	case *ast.FootnoteReference:
 		return []astField{{"text", n.Label}}
 
-	case *Ellipsis:
+	case *ast.Ellipsis:
 		return []astField{{"type", "ellipsis"}, {"text", "..."}}
 
-	case *EmDash:
+	case *ast.EmDash:
 		return []astField{{"type", "em_dash"}, {"text", "---"}}
 
-	case *EnDash:
+	case *ast.EnDash:
 		return []astField{{"type", "en_dash"}, {"text", "--"}}
 	}
 	return nil
 }
 
-func (r *astRenderer) renderAttrs(n Node) {
-	for _, attribute := range n.Attributes().items {
+func (r *astRenderer) renderAttrs(n ast.Node) {
+	for _, attribute := range n.Attributes().Entries() {
 		r.write(fmt.Sprintf(" %s=%s", attribute.Key, astStringify(attribute.Value)))
 	}
 }
 
-func astTagName(n Node) string {
+func astTagName(n ast.Node) string {
 	switch n.Kind() {
-	case KindDocument:
+	case ast.KindDocument:
 		return "doc"
-	case KindSection:
+	case ast.KindSection:
 		return "section"
-	case KindParagraph:
+	case ast.KindParagraph:
 		return "para"
-	case KindHeading:
+	case ast.KindHeading:
 		return "heading"
-	case KindThematicBreak:
+	case ast.KindThematicBreak:
 		return "thematic_break"
-	case KindCodeBlock:
+	case ast.KindCodeBlock:
 		return "code_block"
-	case KindRawBlock:
+	case ast.KindRawBlock:
 		return "raw_block"
-	case KindBlockQuote:
+	case ast.KindBlockQuote:
 		return "block_quote"
-	case KindDiv:
+	case ast.KindDiv:
 		return "div"
-	case KindBulletList:
+	case ast.KindBulletList:
 		return "bullet_list"
-	case KindOrderedList:
+	case ast.KindOrderedList:
 		return "ordered_list"
-	case KindTaskList:
+	case ast.KindTaskList:
 		return "task_list"
-	case KindListItem:
+	case ast.KindListItem:
 		return "list_item"
-	case KindTaskListItem:
+	case ast.KindTaskListItem:
 		return "task_list_item"
-	case KindDefinitionList:
+	case ast.KindDefinitionList:
 		return "definition_list"
-	case KindTerm:
+	case ast.KindTerm:
 		return "term"
-	case KindDefinition:
+	case ast.KindDefinition:
 		return "definition"
-	case KindTable:
+	case ast.KindTable:
 		return "table"
-	case KindTableRow:
+	case ast.KindTableRow:
 		return "row"
-	case KindTableCell:
+	case ast.KindTableCell:
 		return "cell"
-	case KindCaption:
+	case ast.KindCaption:
 		return "caption"
-	case KindFootnote:
+	case ast.KindFootnote:
 		return "footnote"
-	case KindText:
+	case ast.KindText:
 		return "str"
-	case KindSoftBreak:
+	case ast.KindSoftBreak:
 		return "soft_break"
-	case KindHardBreak:
+	case ast.KindHardBreak:
 		return "hard_break"
-	case KindNonBreakingSpace:
+	case ast.KindNonBreakingSpace:
 		return "non_breaking_space"
-	case KindEmphasis:
+	case ast.KindEmphasis:
 		return "emph"
-	case KindStrong:
+	case ast.KindStrong:
 		return "strong"
-	case KindSuperscript:
+	case ast.KindSuperscript:
 		return "superscript"
-	case KindSubscript:
+	case ast.KindSubscript:
 		return "subscript"
-	case KindInsert:
+	case ast.KindInsert:
 		return "insert"
-	case KindDelete:
+	case ast.KindDelete:
 		return "delete"
-	case KindMark:
+	case ast.KindMark:
 		return "mark"
-	case KindLink:
+	case ast.KindLink:
 		return "link"
-	case KindImage:
+	case ast.KindImage:
 		return "image"
-	case KindSpan:
+	case ast.KindSpan:
 		return "span"
-	case KindVerbatim:
+	case ast.KindVerbatim:
 		return "verbatim"
-	case KindInlineMath:
+	case ast.KindInlineMath:
 		return "inline_math"
-	case KindDisplayMath:
+	case ast.KindDisplayMath:
 		return "display_math"
-	case KindRawInline:
+	case ast.KindRawInline:
 		return "raw_inline"
-	case KindSymbol:
+	case ast.KindSymbol:
 		return "symb"
-	case KindFootnoteReference:
+	case ast.KindFootnoteReference:
 		return "footnote_reference"
-	case KindDoubleQuoted:
+	case ast.KindDoubleQuoted:
 		return "double_quoted"
-	case KindSingleQuoted:
+	case ast.KindSingleQuoted:
 		return "single_quoted"
-	case KindEllipsis, KindEmDash, KindEnDash:
+	case ast.KindEllipsis, ast.KindEmDash, ast.KindEnDash:
 		return "smart_punctuation"
 	default:
 		return n.Kind().String()
 	}
 }
 
-func astListStyle(s ListStyle) string {
+func astListStyle(s ast.ListStyle) string {
 	switch s {
-	case ListDecimal:
+	case ast.ListDecimal:
 		return "1."
-	case ListAlphaLower:
+	case ast.ListAlphaLower:
 		return "a."
-	case ListAlphaUpper:
+	case ast.ListAlphaUpper:
 		return "A."
-	case ListRomanLower:
+	case ast.ListRomanLower:
 		return "i."
-	case ListRomanUpper:
+	case ast.ListRomanUpper:
 		return "I."
 	default:
 		return "1."
 	}
 }
 
-func astCellAlign(a CellAlign) string {
+func astCellAlign(a ast.CellAlign) string {
 	switch a {
-	case AlignLeft:
+	case ast.AlignLeft:
 		return "left"
-	case AlignRight:
+	case ast.AlignRight:
 		return "right"
-	case AlignCenter:
+	case ast.AlignCenter:
 		return "center"
 	default:
 		return "default"

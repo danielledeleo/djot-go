@@ -4,6 +4,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 type semanticFootnote struct {
@@ -46,7 +48,7 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 
 type semanticRenderHooks struct {
 	elements              elementHooks
-	subtrees              map[Kind]SubtreeRenderFunc
+	subtrees              map[ast.Kind]SubtreeRenderFunc
 	document              DocumentRenderFunc
 	doc                   *Doc
 	multiBacklinks        bool
@@ -92,7 +94,7 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 		r.footnoteBacklinkLabel = defaultFootnoteBacklinkLabel
 	}
 	for i := 0; i+1 < len(tape.records); i++ {
-		if r.kind(i) == KindFootnote {
+		if r.kind(i) == ast.KindFootnote {
 			r.footnotes[r.label(i)] = i
 		}
 	}
@@ -163,8 +165,8 @@ func (r *semanticHTMLRenderer) writeByte(value byte) {
 	}
 }
 
-func (r *semanticHTMLRenderer) kind(i int) Kind {
-	return Kind(r.tape.records[i].kind)
+func (r *semanticHTMLRenderer) kind(i int) ast.Kind {
+	return ast.Kind(r.tape.records[i].kind)
 }
 
 func (r *semanticHTMLRenderer) label(i int) string {
@@ -199,10 +201,10 @@ func (r *semanticHTMLRenderer) children(i int, fn func(int)) {
 }
 
 func (r *semanticHTMLRenderer) walkRefs(i int) {
-	if r.kind(i) == KindFootnote {
+	if r.kind(i) == ast.KindFootnote {
 		return
 	}
-	if r.kind(i) == KindFootnoteReference {
+	if r.kind(i) == ast.KindFootnoteReference {
 		label := r.label(i)
 		r.footnoteNum(label)
 		r.fnrefTotal[label]++
@@ -272,7 +274,7 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		return
 	}
 	switch r.kind(i) {
-	case KindSymbol:
+	case ast.KindSymbol:
 		if r.hooks != nil && r.hooks.elements.symbol != nil {
 			r.hooks.elements.symbol(
 				SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
@@ -280,7 +282,7 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 			)
 			return
 		}
-	case KindDiv:
+	case ast.KindDiv:
 		if r.hooks != nil && r.hooks.elements.div != nil {
 			record := r.tape.records[i]
 			position := r.tape.positions[i]
@@ -289,9 +291,9 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 					attributes: AttributeView{
 						tape: r.tape, start: record.attrStart, end: r.tape.records[i+1].attrStart,
 					},
-					span: SourceSpan{
-						Start: Pos{Offset: int(position.start)},
-						End:   Pos{Offset: int(position.end)},
+					span: ast.SourceSpan{
+						Start: ast.Pos{Offset: int(position.start)},
+						End:   ast.Pos{Offset: int(position.end)},
 					},
 				},
 				ElementRenderer{semantic: r, record: i},
@@ -314,15 +316,15 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 func (r *semanticHTMLRenderer) renderDefault(i int) {
 	record := r.tape.records[i]
 	switch r.kind(i) {
-	case KindDocument:
+	case ast.KindDocument:
 		r.renderChildren(i)
-	case KindSection:
+	case ast.KindSection:
 		r.write("<section")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</section>\n")
-	case KindParagraph:
+	case ast.KindParagraph:
 		if r.tight {
 			r.renderChildren(i)
 			r.writeByte('\n')
@@ -336,7 +338,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 			r.renderBackref(*r.footnoteParagraphInfo)
 		}
 		r.write("</p>\n")
-	case KindHeading:
+	case ast.KindHeading:
 		level := int(record.small)
 		if level < 1 {
 			level = 1
@@ -352,11 +354,11 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case KindThematicBreak:
+	case ast.KindThematicBreak:
 		r.write("<hr")
 		r.renderAttrs(i)
 		r.write(">\n")
-	case KindCodeBlock:
+	case ast.KindCodeBlock:
 		payload := r.textExtra(i)
 		r.write("<pre")
 		r.renderAttrs(i)
@@ -369,14 +371,14 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.writeByte('>')
 		r.write(escapeHTML(payload.text))
 		r.write("</code></pre>\n")
-	case KindRawBlock:
+	case ast.KindRawBlock:
 		payload := r.textExtra(i)
 		if payload.extra == "html" {
 			r.write(payload.text)
 		}
-	case KindBlockQuote, KindDiv:
+	case ast.KindBlockQuote, ast.KindDiv:
 		tag := "blockquote"
-		if r.kind(i) == KindDiv {
+		if r.kind(i) == ast.KindDiv {
 			tag = "div"
 		}
 		r.writeByte('<')
@@ -387,14 +389,14 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case KindBulletList, KindTaskList, KindDefinitionList:
+	case ast.KindBulletList, ast.KindTaskList, ast.KindDefinitionList:
 		tag := "ul"
-		if r.kind(i) == KindDefinitionList {
+		if r.kind(i) == ast.KindDefinitionList {
 			tag = "dl"
 		}
 		r.writeByte('<')
 		r.write(tag)
-		if r.kind(i) == KindTaskList {
+		if r.kind(i) == ast.KindTaskList {
 			r.write(` class="task-list"`)
 		}
 		r.renderAttrs(i)
@@ -403,7 +405,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case KindOrderedList:
+	case ast.KindOrderedList:
 		r.write("<ol")
 		start := r.tape.listStarts[record.payload]
 		if start != 1 {
@@ -411,48 +413,48 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 			r.write(strconv.Itoa(start))
 			r.write(`"`)
 		}
-		switch ListStyle(record.small) {
-		case ListAlphaLower:
+		switch ast.ListStyle(record.small) {
+		case ast.ListAlphaLower:
 			r.write(` type="a"`)
-		case ListAlphaUpper:
+		case ast.ListAlphaUpper:
 			r.write(` type="A"`)
-		case ListRomanLower:
+		case ast.ListRomanLower:
 			r.write(` type="i"`)
-		case ListRomanUpper:
+		case ast.ListRomanUpper:
 			r.write(` type="I"`)
 		}
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.withTight(record.flags&semanticTight != 0, func() { r.renderChildren(i) })
 		r.write("</ol>\n")
-	case KindTable:
+	case ast.KindTable:
 		r.write("<table")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</table>\n")
-	case KindCaption:
+	case ast.KindCaption:
 		r.write("<caption>")
 		r.renderChildren(i)
 		r.write("</caption>\n")
-	case KindTableRow:
+	case ast.KindTableRow:
 		r.write("<tr")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderChildren(i)
 		r.write("</tr>\n")
-	case KindTableCell:
+	case ast.KindTableCell:
 		tag := "td"
 		if record.flags&semanticHeader != 0 {
 			tag = "th"
 		}
 		r.writeByte('<')
 		r.write(tag)
-		if alignment := CellAlign(record.small); alignment != AlignDefault {
+		if alignment := ast.CellAlign(record.small); alignment != ast.AlignDefault {
 			name := "left"
-			if alignment == AlignRight {
+			if alignment == ast.AlignRight {
 				name = "right"
-			} else if alignment == AlignCenter {
+			} else if alignment == ast.AlignCenter {
 				name = "center"
 			}
 			r.write(` style="text-align: `)
@@ -465,21 +467,21 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.write("</")
 		r.write(tag)
 		r.write(">\n")
-	case KindTerm:
+	case ast.KindTerm:
 		r.write("<dt>")
 		r.renderChildren(i)
 		r.write("</dt>\n")
-	case KindDefinition:
+	case ast.KindDefinition:
 		r.write("<dd>\n")
 		r.renderListItemChildren(i)
 		r.write("</dd>\n")
-	case KindListItem:
+	case ast.KindListItem:
 		r.write("<li")
 		r.renderAttrs(i)
 		r.write(">\n")
 		r.renderListItemChildren(i)
 		r.write("</li>\n")
-	case KindTaskListItem:
+	case ast.KindTaskListItem:
 		r.write("<li>\n")
 		if record.flags&semanticChecked != 0 {
 			r.write(`<input disabled="" type="checkbox" checked=""/>`)
@@ -489,36 +491,36 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.writeByte('\n')
 		r.renderListItemChildren(i)
 		r.write("</li>\n")
-	case KindText:
+	case ast.KindText:
 		r.write(escapeHTML(r.tape.text(record.payload)))
-	case KindSoftBreak:
+	case ast.KindSoftBreak:
 		r.writeByte('\n')
-	case KindHardBreak:
+	case ast.KindHardBreak:
 		r.write("<br>\n")
-	case KindNonBreakingSpace:
+	case ast.KindNonBreakingSpace:
 		r.write("&nbsp;")
-	case KindEmphasis, KindStrong, KindSuperscript, KindSubscript, KindInsert, KindDelete, KindMark, KindSpan:
+	case ast.KindEmphasis, ast.KindStrong, ast.KindSuperscript, ast.KindSubscript, ast.KindInsert, ast.KindDelete, ast.KindMark, ast.KindSpan:
 		tag := ""
 		switch r.kind(i) {
-		case KindEmphasis:
+		case ast.KindEmphasis:
 			tag = "em"
-		case KindStrong:
+		case ast.KindStrong:
 			tag = "strong"
-		case KindSuperscript:
+		case ast.KindSuperscript:
 			tag = "sup"
-		case KindSubscript:
+		case ast.KindSubscript:
 			tag = "sub"
-		case KindInsert:
+		case ast.KindInsert:
 			tag = "ins"
-		case KindDelete:
+		case ast.KindDelete:
 			tag = "del"
-		case KindMark:
+		case ast.KindMark:
 			tag = "mark"
-		case KindSpan:
+		case ast.KindSpan:
 			tag = "span"
 		}
 		r.renderContainer(i, tag)
-	case KindLink:
+	case ast.KindLink:
 		r.write("<a")
 		target := r.target(i)
 		if target != "" || record.flags&semanticHasTarget != 0 {
@@ -530,7 +532,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.writeByte('>')
 		r.renderChildren(i)
 		r.write("</a>")
-	case KindImage:
+	case ast.KindImage:
 		r.write("<img")
 		if alt := r.collectText(i); alt != "" {
 			r.write(` alt="`)
@@ -545,30 +547,30 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		}
 		r.renderAttrs(i)
 		r.writeByte('>')
-	case KindVerbatim:
+	case ast.KindVerbatim:
 		r.write("<code>")
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write("</code>")
-	case KindInlineMath:
+	case ast.KindInlineMath:
 		r.write(`<span class="math inline">\(`)
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write(`\)</span>`)
-	case KindDisplayMath:
+	case ast.KindDisplayMath:
 		r.write(`<span class="math display">\[`)
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.write(`\]</span>`)
-	case KindRawInline:
+	case ast.KindRawInline:
 		payload := r.textExtra(i)
 		if payload.extra == "html" {
 			r.write(payload.text)
 		}
-	case KindSymbol:
+	case ast.KindSymbol:
 		r.writeByte(':')
 		r.write(escapeHTML(r.tape.text(record.payload)))
 		r.writeByte(':')
-	case KindFootnote:
+	case ast.KindFootnote:
 		return
-	case KindFootnoteReference:
+	case ast.KindFootnoteReference:
 		label := r.label(i)
 		num := r.footnoteNums[label]
 		r.fnrefSeen[label]++
@@ -584,19 +586,19 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		r.write(`" role="doc-noteref"><sup>`)
 		r.write(strconv.Itoa(num))
 		r.write(`</sup></a>`)
-	case KindDoubleQuoted:
+	case ast.KindDoubleQuoted:
 		r.write("“")
 		r.renderChildren(i)
 		r.write("”")
-	case KindSingleQuoted:
+	case ast.KindSingleQuoted:
 		r.write("‘")
 		r.renderChildren(i)
 		r.write("’")
-	case KindEllipsis:
+	case ast.KindEllipsis:
 		r.write("…")
-	case KindEmDash:
+	case ast.KindEmDash:
 		r.write("—")
-	case KindEnDash:
+	case ast.KindEnDash:
 		r.write("–")
 	}
 }
@@ -609,10 +611,10 @@ func (r *semanticHTMLRenderer) collectText(i int) string {
 
 func (r *semanticHTMLRenderer) appendText(out *strings.Builder, i int) {
 	switch r.kind(i) {
-	case KindText:
+	case ast.KindText:
 		out.WriteString(r.tape.text(r.tape.records[i].payload))
 		return
-	case KindSoftBreak, KindHardBreak, KindNonBreakingSpace:
+	case ast.KindSoftBreak, ast.KindHardBreak, ast.KindNonBreakingSpace:
 		out.WriteByte(' ')
 		return
 	}
@@ -631,7 +633,7 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 		if footnote.node >= 0 && int(r.tape.records[footnote.node].subtreeEnd) > footnote.node+1 {
 			lastParagraph := -1
 			r.children(footnote.node, func(child int) {
-				if r.kind(child) == KindParagraph {
+				if r.kind(child) == ast.KindParagraph {
 					lastParagraph = child
 				}
 			})

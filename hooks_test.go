@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestRenderHooks(t *testing.T) {
 	t.Run("generic renderer infers concrete kind", func(t *testing.T) {
 		doc := djot.Parse(":rocket:")
-		html := djot.RenderHTML(doc, djot.WithRenderer(func(symbol *djot.Symbol, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithRenderer(func(symbol *ast.Symbol, r djot.NodeRenderer) {
 			r.Write("[" + symbol.Name + "]")
 		}))
 		if !strings.Contains(html, "[rocket]") {
@@ -20,8 +21,8 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("replace code block rendering", func(t *testing.T) {
 		doc := djot.Parse("```go\nfmt.Println()\n```")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
-			r.Write("<custom-code>" + n.(*djot.CodeBlock).Text + "</custom-code>")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindCodeBlock, func(n ast.Node, r djot.NodeRenderer) {
+			r.Write("<custom-code>" + n.(*ast.CodeBlock).Text + "</custom-code>")
 		}))
 		if !strings.Contains(html, "<custom-code>") {
 			t.Errorf("expected <custom-code>, got:\n%s", html)
@@ -33,7 +34,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("augment heading with Default", func(t *testing.T) {
 		doc := djot.Parse("# Hello")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindHeading, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindHeading, func(n ast.Node, r djot.NodeRenderer) {
 			r.Default()
 			r.Write(`<a href="#">¶</a>`)
 		}))
@@ -44,7 +45,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("Div with Children for admonition", func(t *testing.T) {
 		doc := djot.Parse("::: warning\nBe careful!\n:::")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindDiv, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindDiv, func(n ast.Node, r djot.NodeRenderer) {
 			if n.Attributes().Get("class") == "warning" {
 				r.Write(`<aside class="warning">`)
 				r.Children()
@@ -67,13 +68,13 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("hooks compose", func(t *testing.T) {
 		doc := djot.Parse("::: note\n:star:\n:::")
 		html := djot.RenderHTML(doc,
-			djot.WithNodeRenderer(djot.KindDiv, func(n djot.Node, r djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindDiv, func(n ast.Node, r djot.NodeRenderer) {
 				r.Write("<aside>")
 				r.Children()
 				r.Write("</aside>")
 			}),
-			djot.WithNodeRenderer(djot.KindSymbol, func(n djot.Node, r djot.NodeRenderer) {
-				r.Write("<svg>" + n.(*djot.Symbol).Name + "</svg>")
+			djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
+				r.Write("<svg>" + n.(*ast.Symbol).Name + "</svg>")
 			}),
 		)
 		if !strings.Contains(html, "<aside>") {
@@ -86,7 +87,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("noop hook matches default behavior", func(t *testing.T) {
 		doc := djot.Parse("Hello *world*")
-		withHook := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindStrong, func(n djot.Node, r djot.NodeRenderer) {
+		withHook := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindStrong, func(n ast.Node, r djot.NodeRenderer) {
 			r.Default()
 		}))
 		without := djot.RenderHTML(doc)
@@ -98,13 +99,13 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("multiple hooks for different kinds", func(t *testing.T) {
 		doc := djot.Parse("# Title\n\n```\ncode\n```")
 		html := djot.RenderHTML(doc,
-			djot.WithNodeRenderer(djot.KindHeading, func(n djot.Node, r djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindHeading, func(n ast.Node, r djot.NodeRenderer) {
 				r.Write("<h1 class=\"custom\">")
 				r.Children()
 				r.Write("</h1>")
 			}),
-			djot.WithNodeRenderer(djot.KindCodeBlock, func(n djot.Node, r djot.NodeRenderer) {
-				r.Write("<pre class=\"custom\">" + n.(*djot.CodeBlock).Text + "</pre>")
+			djot.WithNodeRenderer(ast.KindCodeBlock, func(n ast.Node, r djot.NodeRenderer) {
+				r.Write("<pre class=\"custom\">" + n.(*ast.CodeBlock).Text + "</pre>")
 			}),
 		)
 		if !strings.Contains(html, `<h1 class="custom">`) {
@@ -118,10 +119,10 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("last hook wins for same kind", func(t *testing.T) {
 		doc := djot.Parse(":star:")
 		html := djot.RenderHTML(doc,
-			djot.WithNodeRenderer(djot.KindSymbol, func(n djot.Node, r djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
 				r.Write("FIRST")
 			}),
-			djot.WithNodeRenderer(djot.KindSymbol, func(n djot.Node, r djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
 				r.Write("SECOND")
 			}),
 		)
@@ -136,7 +137,7 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("Default does not re-trigger hook", func(t *testing.T) {
 		callCount := 0
 		doc := djot.Parse("# Hello")
-		djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindHeading, func(n djot.Node, r djot.NodeRenderer) {
+		djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindHeading, func(n ast.Node, r djot.NodeRenderer) {
 			callCount++
 			r.Default()
 		}))
@@ -148,10 +149,10 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("Default does not suppress descendant hooks", func(t *testing.T) {
 		doc := djot.Parse("# Hello :star:")
 		html := djot.RenderHTML(doc,
-			djot.WithNodeRenderer(djot.KindHeading, func(n djot.Node, r djot.NodeRenderer) {
+			djot.WithNodeRenderer(ast.KindHeading, func(n ast.Node, r djot.NodeRenderer) {
 				r.Default()
 			}),
-			djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
+			djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
 				return "STAR"
 			}),
 		)
@@ -165,7 +166,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("ListItem hook fires for bullet list", func(t *testing.T) {
 		doc := djot.Parse("- one\n- two\n")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindListItem, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindListItem, func(n ast.Node, r djot.NodeRenderer) {
 			r.Write(`<li class="custom">`)
 			r.Children()
 			r.Write("</li>\n")
@@ -177,7 +178,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("ListItem hook fires for ordered list", func(t *testing.T) {
 		doc := djot.Parse("1. one\n2. two\n")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindListItem, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindListItem, func(n ast.Node, r djot.NodeRenderer) {
 			r.Write(`<li class="custom">`)
 			r.Children()
 			r.Write("</li>\n")
@@ -189,8 +190,8 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("TaskListItem hook fires", func(t *testing.T) {
 		doc := djot.Parse("- [ ] todo\n- [x] done\n")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindTaskListItem, func(n djot.Node, r djot.NodeRenderer) {
-			if n.(*djot.TaskListItem).Checked {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindTaskListItem, func(n ast.Node, r djot.NodeRenderer) {
+			if n.(*ast.TaskListItem).Checked {
 				r.Write("<li>DONE ")
 			} else {
 				r.Write("<li>TODO ")
@@ -208,7 +209,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("Term hook fires", func(t *testing.T) {
 		doc := djot.Parse(": apple\n\n  red fruit\n")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindTerm, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindTerm, func(n ast.Node, r djot.NodeRenderer) {
 			r.Write(`<dt class="custom">`)
 			r.Children()
 			r.Write("</dt>\n")
@@ -220,7 +221,7 @@ func TestRenderHooks(t *testing.T) {
 
 	t.Run("Definition hook fires", func(t *testing.T) {
 		doc := djot.Parse(": apple\n\n  red fruit\n")
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindDefinition, func(n djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindDefinition, func(n ast.Node, r djot.NodeRenderer) {
 			r.Write(`<dd class="custom">`)
 			r.Children()
 			r.Write("</dd>\n")
@@ -233,7 +234,7 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("paragraph hook covers final footnote paragraph", func(t *testing.T) {
 		doc := djot.Parse("note[^a]\n\n[^a]: first\n\n    last\n")
 		calls := 0
-		html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindParagraph, func(_ djot.Node, r djot.NodeRenderer) {
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindParagraph, func(_ ast.Node, r djot.NodeRenderer) {
 			calls++
 			r.Default()
 		}))
@@ -248,7 +249,7 @@ func TestRenderHooks(t *testing.T) {
 	t.Run("paragraph hook covers tight list paragraphs", func(t *testing.T) {
 		doc := djot.Parse("- one\n- two\n")
 		calls := 0
-		got := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindParagraph, func(_ djot.Node, r djot.NodeRenderer) {
+		got := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindParagraph, func(_ ast.Node, r djot.NodeRenderer) {
 			calls++
 			r.Default()
 		}))
@@ -266,12 +267,12 @@ func TestElementHooksRejectSyntheticRoots(t *testing.T) {
 		name string
 		make func()
 	}{
-		{"node document", func() { djot.WithNodeRenderer(djot.KindDocument, func(djot.Node, djot.NodeRenderer) {}) }},
-		{"node footnote", func() { djot.WithNodeRenderer(djot.KindFootnote, func(djot.Node, djot.NodeRenderer) {}) }},
-		{"subtree document", func() { djot.WithSubtreeRenderer(djot.KindDocument, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
-		{"subtree footnote", func() { djot.WithSubtreeRenderer(djot.KindFootnote, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
-		{"nil node", func() { djot.WithNodeRenderer(djot.KindParagraph, nil) }},
-		{"nil subtree", func() { djot.WithSubtreeRenderer(djot.KindParagraph, nil) }},
+		{"node document", func() { djot.WithNodeRenderer(ast.KindDocument, func(ast.Node, djot.NodeRenderer) {}) }},
+		{"node footnote", func() { djot.WithNodeRenderer(ast.KindFootnote, func(ast.Node, djot.NodeRenderer) {}) }},
+		{"subtree document", func() { djot.WithSubtreeRenderer(ast.KindDocument, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
+		{"subtree footnote", func() { djot.WithSubtreeRenderer(ast.KindFootnote, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
+		{"nil node", func() { djot.WithNodeRenderer(ast.KindParagraph, nil) }},
+		{"nil subtree", func() { djot.WithSubtreeRenderer(ast.KindParagraph, nil) }},
 		{"nil symbol", func() { djot.WithSymbolRenderer(nil) }},
 		{"nil div", func() { djot.WithDivRenderer(nil) }},
 		{"nil document", func() { djot.WithDocumentRenderer(nil) }},
@@ -297,5 +298,5 @@ func TestWithRendererRejectsInterfaceType(t *testing.T) {
 			t.Fatal("WithRenderer accepted Node as its inferred type")
 		}
 	}()
-	djot.WithRenderer(func(djot.Node, djot.NodeRenderer) {})
+	djot.WithRenderer(func(ast.Node, djot.NodeRenderer) {})
 }

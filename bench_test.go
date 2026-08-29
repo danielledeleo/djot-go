@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // ---------------------------------------------------------------------------
@@ -227,13 +228,13 @@ func BenchmarkASTShape(b *testing.B) {
 			nodes := 0
 			nodesWithAttrs := 0
 			attrs := 0
-			djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+			ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 				nodes++
 				if n.Attributes().Len() > 0 {
 					nodesWithAttrs++
 					attrs += n.Attributes().Len()
 				}
-				return djot.Continue
+				return ast.Continue
 			})
 
 			b.ResetTimer()
@@ -252,10 +253,10 @@ func BenchmarkASTShape(b *testing.B) {
 // useful when evaluating concrete node representation costs.
 func BenchmarkASTKindDistribution(b *testing.B) {
 	doc := djot.Parse(hugeDoc())
-	counts := make([]int, int(djot.KindEnDash)+1)
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+	counts := make([]int, int(ast.KindEnDash)+1)
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 		counts[n.Kind()]++
-		return djot.Continue
+		return ast.Continue
 	})
 
 	b.ResetTimer()
@@ -265,19 +266,19 @@ func BenchmarkASTKindDistribution(b *testing.B) {
 	b.StopTimer()
 	for kind, count := range counts {
 		if count > 0 {
-			b.ReportMetric(float64(count), "node-"+djot.Kind(kind).String()+"/doc")
+			b.ReportMetric(float64(count), "node-"+ast.Kind(kind).String()+"/doc")
 		}
 	}
 }
 
 // BenchmarkNodeSize records representative concrete typed-node sizes.
 func BenchmarkNodeSize(b *testing.B) {
-	b.ReportMetric(float64(unsafe.Sizeof(djot.Text{})), "text-B")
-	b.ReportMetric(float64(unsafe.Sizeof(djot.Strong{})), "strong-B")
-	b.ReportMetric(float64(unsafe.Sizeof(djot.Paragraph{})), "paragraph-B")
-	b.ReportMetric(float64(unsafe.Sizeof(djot.TableCell{})), "table-cell-B")
-	b.ReportMetric(float64(unsafe.Sizeof(djot.ListItem{})), "list-item-B")
-	b.ReportMetric(float64(unsafe.Sizeof(djot.Link{})), "link-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.Text{})), "text-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.Strong{})), "strong-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.Paragraph{})), "paragraph-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.TableCell{})), "table-cell-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.ListItem{})), "list-item-B")
+	b.ReportMetric(float64(unsafe.Sizeof(ast.Link{})), "link-B")
 	for i := 0; i < b.N; i++ {
 	}
 }
@@ -467,8 +468,8 @@ func BenchmarkWalk(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				djot.Walk(root, func(n djot.Node) djot.Action {
-					return djot.Continue
+				ast.Walk(root, func(n ast.Node) ast.Action {
+					return ast.Continue
 				})
 			}
 		})
@@ -493,7 +494,7 @@ func BenchmarkPreorder(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				djot.Preorder(root, func(djot.Node) bool { return true })
+				ast.Preorder(root, func(ast.Node) bool { return true })
 			}
 		})
 	}

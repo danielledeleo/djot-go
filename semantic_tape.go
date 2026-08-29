@@ -1,6 +1,10 @@
 package djot
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/danielledeleo/djot-go/ast"
+)
 
 // semanticTape is the compact, immutable rendering representation attached to
 // parser-produced documents. It is deliberately private: the public mutable
@@ -161,37 +165,37 @@ func (t *semanticTape) appendNode(node *parseNode) {
 	}
 
 	switch node.Kind {
-	case KindHeading:
+	case ast.KindHeading:
 		if node.Level < 0 || uint64(node.Level) > uint64(^uint16(0)) {
 			panic("djot: semantic tape heading level exceeds uint16 capacity")
 		}
 		record.small = uint16(node.Level)
-	case KindBulletList:
+	case ast.KindBulletList:
 		record.small = uint16(node.Marker)
-	case KindOrderedList:
+	case ast.KindOrderedList:
 		record.small = uint16(node.ListStyle)
 		record.payload = checkedSemanticUint32(len(t.listStarts), "list-start index")
 		t.listStarts = append(t.listStarts, node.ListStart)
-	case KindTableCell:
+	case ast.KindTableCell:
 		record.small = uint16(node.CellAlign)
-	case KindText, KindVerbatim, KindInlineMath, KindDisplayMath, KindSymbol:
+	case ast.KindText, ast.KindVerbatim, ast.KindInlineMath, ast.KindDisplayMath, ast.KindSymbol:
 		value := node.Text
-		if node.Kind == KindSymbol {
+		if node.Kind == ast.KindSymbol {
 			value = node.Name
 		}
 		record.payload = t.addText(node, value)
-	case KindLink, KindImage:
+	case ast.KindLink, ast.KindImage:
 		if node.Target != "" {
 			record.payload = checkedSemanticUint32(len(t.targets), "target index")
 			t.targets = append(t.targets, node.Target)
 		}
-	case KindCodeBlock:
+	case ast.KindCodeBlock:
 		record.payload = checkedSemanticUint32(len(t.textExtras), "text-extra index")
 		t.textExtras = append(t.textExtras, semanticTextExtra{text: node.Text, extra: node.Lang})
-	case KindRawBlock, KindRawInline:
+	case ast.KindRawBlock, ast.KindRawInline:
 		record.payload = checkedSemanticUint32(len(t.textExtras), "text-extra index")
 		t.textExtras = append(t.textExtras, semanticTextExtra{text: node.Text, extra: node.Format})
-	case KindFootnote, KindFootnoteReference:
+	case ast.KindFootnote, ast.KindFootnoteReference:
 		record.payload = checkedSemanticUint32(len(t.labels), "label index")
 		t.labels = append(t.labels, node.Label)
 	}

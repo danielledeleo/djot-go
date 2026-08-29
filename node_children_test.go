@@ -1,6 +1,10 @@
 package djot
 
-import "testing"
+import (
+	"testing"
+
+	. "github.com/danielledeleo/djot-go/ast"
+)
 
 func TestAllocateTypedNodeCoversEveryKind(t *testing.T) {
 	var arena typedNodeArena
@@ -58,9 +62,9 @@ func TestTypedChildDispatch(t *testing.T) {
 	}
 
 	for _, test := range cases {
-		appendTypedChild(test.parent, test.child)
+		AppendChild(test.parent, test.child)
 		var children []Node
-		forEachChild(test.parent, func(child Node) { children = append(children, child) })
+		ForEachChild(test.parent, func(child Node) { children = append(children, child) })
 		if len(children) != 1 || children[0] != test.child {
 			t.Errorf("%T children = %#v, want %#v", test.parent, children, test.child)
 		}

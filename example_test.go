@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func ExampleParse() {
@@ -40,14 +41,14 @@ func ExampleWalk() {
 
 	// Count strong and emphasis nodes.
 	strong, emphasis := 0, 0
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
 		switch n.Kind() {
-		case djot.KindStrong:
+		case ast.KindStrong:
 			strong++
-		case djot.KindEmphasis:
+		case ast.KindEmphasis:
 			emphasis++
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	fmt.Printf("strong: %d, emphasis: %d\n", strong, emphasis)
 	// Output:
@@ -58,13 +59,13 @@ func ExampleWalk_replace() {
 	doc := djot.Parse("Hello *world*!")
 
 	// Replace all Strong nodes with Emphasis.
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if strong, ok := n.(*djot.Strong); ok {
-			replacement := &djot.Emphasis{Children: strong.Children}
-			djot.CopyMetadata(replacement, strong)
-			return djot.Replace(replacement)
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if strong, ok := n.(*ast.Strong); ok {
+			replacement := &ast.Emphasis{Children: strong.Children}
+			ast.CopyMetadata(replacement, strong)
+			return ast.Replace(replacement)
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	fmt.Println(djot.RenderHTML(doc))
 	// Output:
@@ -75,8 +76,8 @@ func ExampleWithNodeRenderer() {
 	doc := djot.Parse("Visit [djot](https://djot.net).")
 
 	// Render links with target="_blank".
-	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindLink, func(n djot.Node, r djot.NodeRenderer) {
-		link := n.(*djot.Link)
+	html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindLink, func(n ast.Node, r djot.NodeRenderer) {
+		link := n.(*ast.Link)
 		r.Write(fmt.Sprintf(`<a href="%s" target="_blank">`, link.Destination))
 		r.Children()
 		r.Write("</a>")
@@ -119,9 +120,9 @@ func ExampleWithDivRenderer() {
 
 func ExampleWithSubtreeRenderer() {
 	doc := djot.Parse("::: example\n``` go\nfmt.Println()\n```\n:::\n")
-	html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(djot.KindDiv,
+	html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv,
 		func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-			if subtree.Contains(djot.KindCodeBlock) {
+			if subtree.Contains(ast.KindCodeBlock) {
 				r.Write(`<section class="contains-code">`)
 				r.Children()
 				r.Write("</section>")
@@ -162,8 +163,8 @@ func ExampleDocumentView_Count() {
 	var hasCode bool
 	djot.RenderHTML(doc, djot.WithDocumentRenderer(
 		func(document djot.DocumentView, _ djot.DocumentRenderer) {
-			headings = document.Count(djot.KindHeading)
-			hasCode = document.Contains(djot.KindCodeBlock)
+			headings = document.Count(ast.KindHeading)
+			hasCode = document.Contains(ast.KindCodeBlock)
 		},
 	))
 	fmt.Println(headings, hasCode)

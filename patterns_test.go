@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,8 +14,8 @@ import (
 
 func TestPatternSymbolIcons(t *testing.T) {
 	doc := djot.Parse("Click :arrow-right: to continue")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-		return `<i class="lucide lucide-` + n.(*djot.Symbol).Name + `"></i>`
+	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		return `<i class="lucide lucide-` + n.(*ast.Symbol).Name + `"></i>`
 	}))
 	if !strings.Contains(html, `<i class="lucide lucide-arrow-right"></i>`) {
 		t.Errorf("expected icon markup, got:\n%s", html)
@@ -28,8 +29,8 @@ func TestPatternSymbolEmoji(t *testing.T) {
 		"rocket": "🚀",
 	}
 	doc := djot.Parse("Launch :rocket: and :star: it")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-		return emoji[n.(*djot.Symbol).Name] // unknown returns "" and falls through
+	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		return emoji[n.(*ast.Symbol).Name] // unknown returns "" and falls through
 	}))
 	if !strings.Contains(html, "🚀") || !strings.Contains(html, "⭐") {
 		t.Errorf("expected emoji, got:\n%s", html)
@@ -38,8 +39,8 @@ func TestPatternSymbolEmoji(t *testing.T) {
 
 func TestPatternSymbolFallthrough(t *testing.T) {
 	doc := djot.Parse(":known: and :unknown:")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-		if n.(*djot.Symbol).Name == "known" {
+	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		if n.(*ast.Symbol).Name == "known" {
 			return "REPLACED"
 		}
 		return "" // fall through to default
@@ -54,8 +55,8 @@ func TestPatternSymbolFallthrough(t *testing.T) {
 
 func TestPatternSymbolYouTubeEmbed(t *testing.T) {
 	doc := djot.Parse(`:youtube:{id="dQw4w9WgXcQ"}`)
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-		if n.(*djot.Symbol).Name == "youtube" {
+	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		if n.(*ast.Symbol).Name == "youtube" {
 			id := n.Attributes().Get("id")
 			if id != "" {
 				return `<iframe src="https://www.youtube.com/embed/` + id + `" allowfullscreen></iframe>`
@@ -70,8 +71,8 @@ func TestPatternSymbolYouTubeEmbed(t *testing.T) {
 
 func TestPatternSymbolDataWidget(t *testing.T) {
 	doc := djot.Parse(`:chart:{type="bar" data="1,2,3,4"}`)
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-		if n.(*djot.Symbol).Name == "chart" {
+	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		if n.(*ast.Symbol).Name == "chart" {
 			return `<div class="chart" data-type="` + n.Attributes().Get("type") + `" data-values="` + n.Attributes().Get("data") + `"></div>`
 		}
 		return ""
@@ -87,7 +88,7 @@ func TestPatternSymbolDataWidget(t *testing.T) {
 
 func TestPatternDivAdmonition(t *testing.T) {
 	doc := djot.Parse("::: warning\nDo not do this!\n:::")
-	html := djot.RenderHTML(doc, djot.WithNodeRenderer(djot.KindDiv, func(n djot.Node, r djot.NodeRenderer) {
+	html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindDiv, func(n ast.Node, r djot.NodeRenderer) {
 		class := n.Attributes().Get("class")
 		if class == "warning" || class == "note" || class == "tip" {
 			r.Write(`<aside class="admonition ` + class + `">`)
@@ -115,18 +116,18 @@ func TestPatternDivAdmonition(t *testing.T) {
 func TestPatternWalkCollectHeadings(t *testing.T) {
 	doc := djot.Parse("# Intro\n\ntext\n\n## Methods\n\ntext\n\n## Results\n\ntext")
 	var headings []string
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if heading, ok := n.(*djot.Heading); ok {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if heading, ok := n.(*ast.Heading); ok {
 			var text string
 			for _, inline := range heading.Children {
-				if textNode, ok := inline.(*djot.Text); ok {
+				if textNode, ok := inline.(*ast.Text); ok {
 					text += textNode.Value
 				}
 			}
 			headings = append(headings, text)
-			return djot.SkipChildren
+			return ast.SkipChildren
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	if len(headings) != 3 {
 		t.Fatalf("expected 3 headings, got %d: %v", len(headings), headings)
@@ -139,11 +140,11 @@ func TestPatternWalkCollectHeadings(t *testing.T) {
 func TestPatternWalkRewriteImageURLs(t *testing.T) {
 	doc := djot.Parse("![photo](images/cat.png)")
 	base := "https://cdn.example.com/"
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if image, ok := n.(*djot.Image); ok && !strings.HasPrefix(image.Destination, "http") {
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if image, ok := n.(*ast.Image); ok && !strings.HasPrefix(image.Destination, "http") {
 			image.Destination = base + image.Destination
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 	html := djot.RenderHTML(doc)
 	if !strings.Contains(html, `src="https://cdn.example.com/images/cat.png"`) {
@@ -162,7 +163,7 @@ func TestPatternASTInclude(t *testing.T) {
 	// Splice the child's content into the parent AST.
 	// Wrap in a Div to replace a placeholder, simulating :include:.
 	parentRoot := parent.Root()
-	wrapper := &djot.Div{Children: child.Root().Children}
+	wrapper := &ast.Div{Children: child.Root().Children}
 	parentRoot.Children = append(parentRoot.Children, wrapper)
 
 	// Render — footnotes should be derived from the combined AST.
@@ -187,13 +188,13 @@ func TestPatternASTIncludeViaWalk(t *testing.T) {
 
 	included := djot.Parse("Included paragraph[^x].\n\n[^x]: Included note.")
 
-	djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-		if paragraph, ok := n.(*djot.Paragraph); ok && len(paragraph.Children) == 1 {
-			if symbol, ok := paragraph.Children[0].(*djot.Symbol); ok && symbol.Name == "include" {
-				return djot.Replace(&djot.Div{Children: included.Root().Children})
+	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		if paragraph, ok := n.(*ast.Paragraph); ok && len(paragraph.Children) == 1 {
+			if symbol, ok := paragraph.Children[0].(*ast.Symbol); ok && symbol.Name == "include" {
+				return ast.Replace(&ast.Div{Children: included.Root().Children})
 			}
 		}
-		return djot.Continue
+		return ast.Continue
 	})
 
 	html := djot.RenderHTML(doc)
@@ -229,7 +230,7 @@ Regular :star: outside.`
 
 	html := djot.RenderHTML(doc,
 		// Admonition divs
-		djot.WithNodeRenderer(djot.KindDiv, func(n djot.Node, r djot.NodeRenderer) {
+		djot.WithNodeRenderer(ast.KindDiv, func(n ast.Node, r djot.NodeRenderer) {
 			if class := n.Attributes().Get("class"); class == "note" || class == "warning" {
 				r.Write(`<aside class="` + class + `">`)
 				r.Children()
@@ -239,8 +240,8 @@ Regular :star: outside.`
 			r.Default()
 		}),
 		// Icons
-		djot.WithRenderFunc(djot.KindSymbol, func(n djot.Node) string {
-			name := n.(*djot.Symbol).Name
+		djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+			name := n.(*ast.Symbol).Name
 			if e, ok := emoji[name]; ok {
 				return e
 			}

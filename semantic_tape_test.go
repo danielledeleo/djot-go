@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"unsafe"
+
+	. "github.com/danielledeleo/djot-go/ast"
 )
 
 func renderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
@@ -26,11 +28,12 @@ func RenderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
 func findTypedNode[T Node](root Node) T {
 	var found T
 	have := false
-	walkRead(root, func(node Node) {
+	Preorder(root, func(node Node) bool {
 		if candidate, ok := node.(T); ok && !have {
 			found = candidate
 			have = true
 		}
+		return !have
 	})
 	return found
 }

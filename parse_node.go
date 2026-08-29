@@ -1,12 +1,14 @@
 package djot
 
+import "github.com/danielledeleo/djot-go/ast"
+
 type parseNode struct {
-	Kind      Kind
+	Kind      ast.Kind
 	Children  []*parseNode
 	Attrs     map[string]string
 	attrOrder []string
-	Start     Pos
-	End       Pos
+	Start     ast.Pos
+	End       ast.Pos
 
 	plainBracesUntil int
 	Text             string
@@ -24,21 +26,21 @@ type parsePayload struct {
 
 	tight     bool
 	Marker    byte
-	ListStyle ListStyle
+	ListStyle ast.ListStyle
 	ListStart int
 	Checked   bool
-	CellAlign CellAlign
+	CellAlign ast.CellAlign
 	IsHeader  bool
 	Label     string
 }
 
 type parseNodeSpec struct {
-	Kind      Kind
+	Kind      ast.Kind
 	Children  []*parseNode
 	Attrs     map[string]string
 	attrOrder []string
-	Start     Pos
-	End       Pos
+	Start     ast.Pos
+	End       ast.Pos
 
 	plainBracesUntil int
 	Text             string
@@ -50,19 +52,19 @@ type parseNodeSpec struct {
 	Format           string
 	tight            bool
 	Marker           byte
-	ListStyle        ListStyle
+	ListStyle        ast.ListStyle
 	ListStart        int
 	Checked          bool
-	CellAlign        CellAlign
+	CellAlign        ast.CellAlign
 	IsHeader         bool
 	Label            string
 }
 
-func parseNodeNeedsPayload(kind Kind) bool {
+func parseNodeNeedsPayload(kind ast.Kind) bool {
 	switch kind {
-	case KindHeading, KindLink, KindImage, KindSymbol, KindVerbatim, KindCodeBlock, KindRawBlock, KindRawInline,
-		KindBulletList, KindOrderedList, KindTaskList, KindDefinitionList, KindTaskListItem,
-		KindTableRow, KindTableCell, KindFootnote, KindFootnoteReference:
+	case ast.KindHeading, ast.KindLink, ast.KindImage, ast.KindSymbol, ast.KindVerbatim, ast.KindCodeBlock, ast.KindRawBlock, ast.KindRawInline,
+		ast.KindBulletList, ast.KindOrderedList, ast.KindTaskList, ast.KindDefinitionList, ast.KindTaskListItem,
+		ast.KindTableRow, ast.KindTableCell, ast.KindFootnote, ast.KindFootnoteReference:
 		return true
 	default:
 		return false

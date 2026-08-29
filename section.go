@@ -3,6 +3,8 @@ package djot
 import (
 	"strings"
 	"unicode"
+
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 // wrapSections wraps headings and their content in <section> elements.
@@ -14,7 +16,7 @@ func wrapSections(root *parseNode, arena *parseNodeArena) {
 	// Pre-populate ID set with any explicitly-set IDs on non-heading nodes.
 	usedIDs := make(map[string]int)
 	walkParse(root, func(n *parseNode) {
-		if n.Kind != KindHeading {
+		if n.Kind != ast.KindHeading {
 			if id := n.Attr("id"); id != "" {
 				usedIDs[id]++
 			}
@@ -28,9 +30,9 @@ func wrapSections(root *parseNode, arena *parseNodeArena) {
 
 // isBlockContainer returns true for node kinds that are block containers
 // where headings should NOT be wrapped in sections.
-func isBlockContainer(kind Kind) bool {
+func isBlockContainer(kind ast.Kind) bool {
 	switch kind {
-	case KindBlockQuote, KindDiv, KindListItem, KindTaskListItem:
+	case ast.KindBlockQuote, ast.KindDiv, ast.KindListItem, ast.KindTaskListItem:
 		return true
 	}
 	return false
@@ -42,7 +44,7 @@ func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
 	for _, child := range node.Children {
 		if isBlockContainer(child.Kind) {
 			assignHeadingIDsInContainer(child, idCounts)
-		} else if child.Kind != KindHeading {
+		} else if child.Kind != ast.KindHeading {
 			// Recurse into non-heading, non-container nodes too
 			// (e.g. the document root itself on first call).
 			assignContainerHeadingIDs(child, idCounts)
@@ -54,7 +56,7 @@ func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
 // block container, recursing into nested containers.
 func assignHeadingIDsInContainer(node *parseNode, idCounts map[string]int) {
 	for _, child := range node.Children {
-		if child.Kind == KindHeading {
+		if child.Kind == ast.KindHeading {
 			id := child.Attr("id")
 			explicit := id != ""
 			if !explicit {
@@ -76,14 +78,14 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 
 	for i < len(nodes) {
 		node := nodes[i]
-		if node.Kind != KindHeading {
+		if node.Kind != ast.KindHeading {
 			result = append(result, node)
 			i++
 			continue
 		}
 
 		// Create a section wrapping this heading and subsequent content.
-		section := arena.new(parseNodeSpec{Kind: KindSection})
+		section := arena.new(parseNodeSpec{Kind: ast.KindSection})
 
 		// Generate or use provided ID.
 		id := node.Attr("id")
@@ -121,7 +123,7 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 		// Collect subsequent nodes that belong in this section.
 		for i < len(nodes) {
 			next := nodes[i]
-			if next.Kind == KindHeading && next.Level <= node.Level {
+			if next.Kind == ast.KindHeading && next.Level <= node.Level {
 				break
 			}
 			section.Children = append(section.Children, next)
@@ -181,13 +183,13 @@ func collectParseText(n *parseNode) string {
 
 func appendParseText(b *strings.Builder, n *parseNode) {
 	switch n.Kind {
-	case KindText:
+	case ast.KindText:
 		b.WriteString(n.Text)
 		return
-	case KindSoftBreak, KindHardBreak:
+	case ast.KindSoftBreak, ast.KindHardBreak:
 		b.WriteByte(' ')
 		return
-	case KindNonBreakingSpace:
+	case ast.KindNonBreakingSpace:
 		b.WriteByte(' ')
 		return
 	}

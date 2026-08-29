@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	. "github.com/danielledeleo/djot-go/ast"
 )
 
 func TestSubtreeRendererMaterializationBoundary(t *testing.T) {

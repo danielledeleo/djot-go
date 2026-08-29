@@ -1,4 +1,4 @@
-package djot
+package ast
 
 var kindNames = [...]string{
 	KindDocument:          "document",

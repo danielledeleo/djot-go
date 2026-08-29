@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestDivRendererCorpusParity(t *testing.T) {
@@ -36,17 +37,17 @@ func TestDivRendererCorpusParity(t *testing.T) {
 	actions := []action{
 		{
 			name: "default",
-			node: func(_ djot.Node, r djot.NodeRenderer) { r.Default() },
+			node: func(_ ast.Node, r djot.NodeRenderer) { r.Default() },
 			div:  func(_ djot.DivView, r djot.ElementRenderer) { r.Default() },
 		},
 		{
 			name: "stream children",
-			node: func(_ djot.Node, r djot.NodeRenderer) { r.Children() },
+			node: func(_ ast.Node, r djot.NodeRenderer) { r.Children() },
 			div:  func(_ djot.DivView, r djot.ElementRenderer) { r.Children() },
 		},
 		{
 			name: "replace wrapper",
-			node: func(node djot.Node, r djot.NodeRenderer) {
+			node: func(node ast.Node, r djot.NodeRenderer) {
 				r.Write(`<aside data-class="` + node.Attributes().Get("class") + `">`)
 				r.Children()
 				r.Write("</aside>")
@@ -59,7 +60,7 @@ func TestDivRendererCorpusParity(t *testing.T) {
 		},
 		{
 			name: "suppress",
-			node: func(djot.Node, djot.NodeRenderer) {},
+			node: func(ast.Node, djot.NodeRenderer) {},
 			div:  func(djot.DivView, djot.ElementRenderer) {},
 		},
 	}
@@ -68,7 +69,7 @@ func TestDivRendererCorpusParity(t *testing.T) {
 		for _, action := range actions {
 			t.Run(input.name+"/"+action.name, func(t *testing.T) {
 				nodeDoc := djot.Parse(input.input)
-				want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(djot.KindDiv, action.node))
+				want := djot.RenderHTML(nodeDoc, djot.WithNodeRenderer(ast.KindDiv, action.node))
 
 				tapeDoc := djot.Parse(input.input)
 				got := djot.RenderHTML(tapeDoc, djot.WithDivRenderer(action.div))
@@ -110,7 +111,7 @@ func TestDivRendererDeepNesting(t *testing.T) {
 func TestDivRendererOptionOrder(t *testing.T) {
 	doc := djot.Parse("::: note\ntext\n:::\n")
 	tapeLast := djot.RenderHTML(doc,
-		djot.WithNodeRenderer(djot.KindDiv, func(djot.Node, djot.NodeRenderer) {
+		djot.WithNodeRenderer(ast.KindDiv, func(ast.Node, djot.NodeRenderer) {
 			t.Fatal("replaced Node hook ran")
 		}),
 		djot.WithDivRenderer(func(_ djot.DivView, r djot.ElementRenderer) { r.Children() }),
@@ -123,7 +124,7 @@ func TestDivRendererOptionOrder(t *testing.T) {
 		djot.WithDivRenderer(func(djot.DivView, djot.ElementRenderer) {
 			t.Fatal("replaced Div hook ran")
 		}),
-		djot.WithNodeRenderer(djot.KindDiv, func(_ djot.Node, r djot.NodeRenderer) { r.Children() }),
+		djot.WithNodeRenderer(ast.KindDiv, func(_ ast.Node, r djot.NodeRenderer) { r.Children() }),
 	)
 	if nodeLast != "<p>text</p>\n" {
 		t.Fatalf("Node-last output = %q", nodeLast)
@@ -213,7 +214,7 @@ func TestDivRendererHTMLToParityAndAttributeEdges(t *testing.T) {
 			t.Fatal("missing attribute reported present")
 		}
 		visited := 0
-		div.Attributes().Range(func(djot.Attribute) bool {
+		div.Attributes().Range(func(ast.Attribute) bool {
 			visited++
 			return false
 		})

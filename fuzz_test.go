@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func FuzzParse(f *testing.F) {
@@ -77,8 +78,8 @@ func FuzzWalk(f *testing.F) {
 	f.Add("*_interleaved **emphasis**_*")
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := djot.Parse(input)
-		djot.Walk(doc.Root(), func(n djot.Node) djot.Action {
-			return djot.Continue
+		ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+			return ast.Continue
 		})
 	})
 }
