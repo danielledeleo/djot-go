@@ -68,6 +68,55 @@ djot.js reads enumerators with `parseInt`, so it has no explicit bound and
 accepts larger values, exactly up to 2^53 and with rounding above that. Alpha
 and Roman enumerators are far below any of these limits and are unaffected.
 
+### Generated heading identifiers
+
+Headings without an explicit `#id` get one derived from their text. djot-go and
+djot.js derive it differently, and djot-go keeps its own rule:
+
+| Heading | djot-go | djot.js |
+|------------------|---------------|---------------|
+| `# foo: bar`     | `foo-bar`     | `foo:-bar`    |
+| `# Section 1.2`  | `Section-12`  | `Section-1-2` |
+| `# a(b)c`        | `abc`         | `a-b-c`       |
+| `# 50% off & more` | `50-off--more` | `50-off-more` |
+| `# a---b`        | `ab`          | `a---b`       |
+
+djot-go keeps letters, digits, `-`, and `_`, turns each run of whitespace into a
+single `-`, and drops everything else. djot.js instead replaces runs of
+``][~!@#$%^&*(){}`,.<>\|=+/?`` and whitespace with a separator, preserves the
+punctuation outside that set (`:`, `;`, `'`, `"`), and reads the heading before
+smart punctuation is applied, so `---` survives as three hyphens.
+
+Headings whose text is entirely letters, digits, and spaces get the same
+identifier from both. The identifiers are otherwise not interchangeable, so
+anchors written against one implementation may not resolve under the other.
+
+## Known divergences
+
+The differential suite described in [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests)
+compares generated edge cases against djot.js. Ten still diverge, in five
+groups. All but the heading identifiers need unbalanced or invalid delimiters;
+the equivalent well-formed inputs agree.
+
+- **Generated heading identifiers**, as above. A deliberate difference.
+- **An unpaired opening `"` inside emphasis or strong.** `*"x*` renders the
+  quote literally rather than as `“`. A paired quote (`_"x" y_`), an unpaired
+  quote outside a span (`"x`), and a closing quote after a digit (`*a 5" pipe*`)
+  all agree.
+- **A superscript that swallows a footnote reference.** In `^x [^1]` djot-go
+  pairs the opening `^` with the one inside `[^1]`, where djot.js gives the
+  footnote reference precedence. Requires an unclosed `^`; `x^2^ and a note[^1]`
+  agrees.
+- **Smart punctuation inside an unterminated attribute block.** `a{#id---`
+  converts the dashes; djot.js leaves them literal. Closed specifiers agree.
+- **An escaped `$` before a verbatim span**, in one generated case that does not
+  reduce to a smaller input.
+
+One further difference runs the other way and is not treated as a divergence to
+fix: for `[link](url_(with_(nested)_parens))` djot-go keeps the whole
+destination, while djot.js truncates it at the first unbalanced `)` and emits
+the remainder as text.
+
 ## Output formats
 
 The library and CLI produce:
