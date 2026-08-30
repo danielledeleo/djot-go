@@ -12,7 +12,7 @@ package main
 import (
 	"os"
 
-	"github.com/danielledeleo/djot-go/cli"
+	"github.com/danielledeleo/djot-go/internal/cli"
 )
 
 func main() {

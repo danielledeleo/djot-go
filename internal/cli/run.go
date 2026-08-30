@@ -2,6 +2,12 @@
 // reads djot from stdin or files, and renders to HTML, the text AST, or JSON.
 // The logic lives here, behind a testable [Run] function, so the cmd/djot
 // entry point stays a thin wrapper around os streams.
+//
+// It is internal deliberately. [Run] is shaped for a process entry point --
+// argv in, exit code out -- rather than for callers, and [version] reads the
+// main module's build info, which only names djot-go when cmd/djot is the
+// binary being built. Programs that want to render djot should use the root
+// package's Parse and RenderHTML instead.
 package cli
 
 import (
