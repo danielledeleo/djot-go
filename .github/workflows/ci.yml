@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # Release tags run the full suite against the exact tagged commit. The
+    # paths filter below does not apply here: GitHub does not evaluate path
+    # filters for tag pushes, so a tag always runs regardless of what changed.
+    tags: ['v*']
     paths:
       - '**.go'
       - go.mod

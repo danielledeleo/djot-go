@@ -126,9 +126,10 @@ func readInput(files []string, in io.Reader) (string, error) {
 	return b.String(), nil
 }
 
-// openOutput returns the writer to render into and a close function. When path
-// is empty it renders to fallback (stdout) and close is a no-op.
 // openOutput returns the writer to render into and a function to finish with.
+// An empty path renders to fallback, normally stdout, and the finish function
+// only flushes; otherwise it creates the named file, and finishing flushes and
+// closes it.
 //
 // The renderers write in small pieces — a tag, a run of text, a tag — so the
 // destination is buffered. Handing them an unbuffered os.Stdout turns each of
