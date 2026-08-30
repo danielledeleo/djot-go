@@ -7,309 +7,99 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/danielledeleo/djot-go)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
 
-A Go parser and HTML renderer for [djot](https://djot.net), a light markup
-language designed by John MacFarlane as a successor to Markdown.
+A zero-dependency Go parser and HTML renderer for
+[djot](https://djot.net), John MacFarlane's light markup language.
 
-Designed for Go applications that embed Djot in publishing systems,
-documentation services, wikis, and developer tools: ordinary HTML rendering
-stays compact, while a typed mutable AST remains available for transformations
-and open-ended analysis.
+djot-go provides a compact direct-to-HTML path for ordinary rendering and a
+typed, mutable [`ast`](https://pkg.go.dev/github.com/danielledeleo/djot-go/ast)
+package for inspection and transformation.
 
-- Passes the official djot spec test suite (the Lua-only `filters` tests excepted)
-- Zero dependencies
-- Compact direct-to-HTML rendering
-- Typed mutable AST with source positions
-- Streaming, subtree, document-index, and full-Node render hooks
-- `djot` command-line tool (HTML, AST, and JSON output)
-
-## Compatibility
-
-djot-go targets compatibility with djot.js, the reference implementation, and
-passes the official syntax and rendering tests. Where the prose syntax
-reference and djot.js differ, djot-go follows djot.js unless documented
-otherwise.
+- Compatible with djot.js and the official syntax and rendering tests
+- Streaming HTML, text-AST, and JSON output
+- Source positions and ordered attributes
+- Compact render hooks for elements, subtrees, and document indexes
+- Full mutable-tree hooks when arbitrary inspection is needed
+- A `djot` command-line tool
 
 ## Install
 
-As a library:
+Requires Go 1.22 or later.
 
-```
+```sh
 go get github.com/danielledeleo/djot-go
 ```
 
-As a command-line tool:
+For the command-line tool:
 
-```
+```sh
 go install github.com/danielledeleo/djot-go/cmd/djot@latest
 ```
 
-Requires Go 1.22+.
-
-## Usage
+## Quick start
 
 ```go
+package main
+
 import (
+    "fmt"
+
     "github.com/danielledeleo/djot-go"
-    "github.com/danielledeleo/djot-go/ast"
 )
+
+func main() {
+    doc := djot.Parse("Hello *world*!")
+    fmt.Println(djot.RenderHTML(doc))
+}
 ```
 
-### Parse and render
+Output:
+
+```html
+<p>Hello <strong>world</strong>!</p>
+```
+
+Render directly to an `io.Writer` when building a response or file:
 
 ```go
-doc := djot.Parse(input)
-html := djot.RenderHTML(doc)
+if err := djot.RenderHTMLTo(w, doc); err != nil {
+    return err
+}
 ```
 
-### Write to an existing buffer
+The CLI reads files or standard input and emits HTML by default:
 
-```go
-var buf strings.Builder
-djot.RenderHTMLTo(&buf, doc)
-```
-
-### Walk the AST
-
-```go
-ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
-    if link, ok := n.(*ast.Link); ok {
-        fmt.Println(link.Destination)
-    }
-    return ast.Continue
-})
-```
-
-The walker supports `ast.Continue`, `ast.SkipChildren`, `ast.Remove`, and
-`ast.Replace(node)` actions. `ast.WalkBottomUp` visits children before parents.
-
-Use `djot.NewDoc(root)` to render an externally constructed AST. To replace a
-document's root, call `doc.SetRoot(root)`; parsed documents otherwise materialize
-their mutable AST only when `doc.Root()` is requested.
-
-### Custom rendering
-
-Override the HTML output for specific node kinds:
-
-```go
-rendered := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindCodeBlock, func(n ast.Node, r djot.NodeRenderer) {
-    code := n.(*ast.CodeBlock)
-    r.Write(`<pre class="highlight"><code>`)
-    r.Write(html.EscapeString(code.Text))
-    r.Write("</code></pre>")
-}))
-```
-
-Inside a hook, `r.Default()` emits the built-in rendering and `r.Children()`
-renders child nodes without the wrapper element.
-
-For a common container customization, `WithDivRenderer` reads the Div directly
-from the compact representation. It exposes read-only attributes and streams
-children without materializing the AST:
-
-```go
-html := djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
-    if div.Attributes().Get("class") != "warning" {
-        r.Default()
-        return
-    }
-    r.Write(`<aside class="warning">`)
-    r.Children()
-    r.Write(`</aside>`)
-}))
-```
-
-`r.Default()` retains the built-in `<div>` wrapper. `r.Children()` renders the
-existing children without that wrapper, while returning without writing or
-rendering children suppresses the Div and its contents. Parsed, unmodified
-documents stay on the compact rendering path; mutated and externally built
-trees receive the same callback through the tree renderer.
-
-`WithDivRenderer` can inspect the Div itself but deliberately cannot inspect
-its children before rendering. When the wrapper depends on descendant content,
-use a bounded, read-only subtree view:
-
-```go
-html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv,
-    func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-        if subtree.Contains(ast.KindCodeBlock) {
-            r.Write(`<section class="contains-code">`)
-            r.Children()
-            r.Write(`</section>`)
-            return
-        }
-        r.Default()
-    },
-))
-```
-
-Subtree inspection scans only that element's contiguous tape range. It remains
-read-only and does not construct Nodes. `Preorder` and `Descendants` provide
-full traversal when `Contains` is not sufficient. Since every inspection is a
-scan, avoid repeatedly scanning heavily nested overlapping subtrees. Use Nodes
-when an extension requires a general whole-document traversal.
-
-For decisions that require a focused index over the entire document,
-`WithDocumentRenderer` can inspect headings before output begins. This example
-builds a table of contents before emitting the normal document:
-
-```go
-rendered := djot.RenderHTML(doc, djot.WithDocumentRenderer(
-    func(document djot.DocumentView, r djot.DocumentRenderer) {
-        r.Write(`<nav><ol>`)
-        for _, heading := range document.Headings() {
-            r.Write(`<li><a href="#` + html.EscapeString(heading.ID()) + `">`)
-            r.Write(html.EscapeString(heading.Plaintext()))
-            r.Write(`</a></li>`)
-        }
-        r.Write(`</ol></nav>`)
-        r.Default()
-    },
-))
-```
-
-`Headings()` is built lazily and reused within that render. `r.Default()` emits
-the complete normal document, including endnotes and other registered hooks, so
-output written before and after it properly wraps everything. Heading inspection
-remains tape-backed and does not materialize the AST unless another option or
-prior mutation requires the tree.
-
-`DocumentRenderer.Write` writes raw HTML, so derived text and attribute values
-must be escaped as shown above.
-
-`Contains(kind)` and `Count(kind)` share a lazy document-kind index. They are
-useful for inexpensive feature detection—for example, wrapping documents that
-contain math or loading syntax-highlighting assets only when a code block is
-present.
-
-`Footnotes()` exposes compact render metadata for footnotes, including their
-labels, assigned numbers, reference counts, and whether a definition exists.
-Referenced footnotes appear in render order, followed by unused definitions in
-source order. Footnote block contents remain part of the full Node API.
-
-`References()` lists resolved reference definitions in normalized-label order,
-including the implicit references generated for headings. Each entry exposes
-its destination and ordered attributes without materializing Nodes.
-
-`Anchors()` lists elements with non-empty `id` attributes in document order.
-Duplicates are preserved for validation. The index includes section and heading
-anchors but not footnote IDs synthesized by the HTML renderer.
-
-Symbols have a compact rendering hook that does not materialize the AST for an
-ordinary parsed document:
-
-```go
-html := djot.RenderHTML(doc, djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
-    if symbol.Name == "youtube" {
-        r.Write(`<span class="youtube-icon"></span>`)
-        return
-    }
-    r.Default()
-}))
-```
-
-Symbols (`:name:`) render literally by default, making them natural extension
-points for icons and shortcodes. `r.Default()` retains that built-in rendering;
-returning without writing suppresses the symbol. If the typed AST has been
-modified, the same hook runs through the tree renderer and sees those changes.
-
-`WithRenderFunc` remains available as a concise Node-based hook for other kinds.
-Registering any Node-based hook selects the typed-tree renderer for that entire
-render, even when the requested kind does not occur. Compact symbol, Div,
-subtree, document, and footnote options can be freely combined without doing
-so.
-
-### Footnote backlinks
-
-A footnote referenced more than once carries its `id` on the first reference
-only (matching djot.js), with a single `↩︎` linking back to it.
-`WithMultiBacklinks` switches to MediaWiki-style backlinks — every reference
-gets a unique `id` and the footnote links back to each with lettered labels
-(`a`, `b`, `c`, …):
-
-```go
-html := djot.RenderHTML(doc, djot.WithMultiBacklinks())
-```
-
-The footnote id and label scheme is overridable — for example to namespace ids
-when embedding output in a larger page, or to use numeric backlinks:
-
-```go
-html := djot.RenderHTML(doc,
-    djot.WithFootnotePrefix("post42-"), // post42-fn1, post42-fnref1, …
-    djot.WithFootnoteBacklinkLabel(func(num, k, total int) string {
-        return strconv.Itoa(k)
-    }),
-)
-```
-
-`WithFootnoteID`, `WithFootnoteRefID`, and `WithFootnoteBacklinkLabel` set the
-pieces individually; `WithFootnotePrefix` is shorthand for namespacing the ids.
-These options stay on the compact rendering path for an unmodified parsed
-document. Their returned values are escaped as HTML attribute values or visible
-text as appropriate.
-
-Footnote numbering and endnotes describe the logical parsed document and are
-computed before render hooks run. Suppressing a subtree does not remove its
-footnotes, while replaying children containing footnote references can repeat
-reference anchors. Use the mutable Node tree when an extension needs to change
-the document's footnote structure rather than only its presentation.
-
-### Inspect the AST
-
-```go
-fmt.Println(djot.RenderAST(doc, false)) // set true for source positions
-```
-
-## Command-line tool
-
-The `djot` command converts djot to HTML (default), the text AST, or JSON. It
-reads from the given files, or from stdin when none are given:
-
-```
+```console
 $ echo 'Hello *world*' | djot
 <p>Hello <strong>world</strong></p>
-
-$ djot -t json doc.dj
-$ djot --to ast --sourcepos doc.dj
-$ djot -o out.html doc.dj
 ```
 
-| Option | Description |
+## Documentation
+
+| Guide | What it covers |
 | --- | --- |
-| `-t`, `--to FORMAT` | Output format: `html`, `ast`, or `json` (default `html`). |
-| `-o`, `--output FILE` | Write to `FILE` instead of stdout. |
-| `-p`, `--sourcepos` | Include source positions (`ast` and `json` formats). |
-| `--version` | Print version and exit. |
-| `-h`, `--help` | Show help and exit. |
+| [Getting started](docs/getting-started.md) | Parsing, writers, output formats, the CLI, and common workflows |
+| [Working with the AST](docs/ast.md) | Traversal, mutation, construction, attributes, and source positions |
+| [Rendering and extensions](docs/rendering.md) | Choosing hooks, compact rendering, custom HTML, document indexes, and footnotes |
+| [Compatibility](docs/compatibility.md) | djot.js policy, supported syntax, conformance tests, and security |
 
-The `json` format mirrors djot-go's own AST (the same tag and field names as the
-text AST), making it convenient for tooling and diffing.
+API references: [`djot`](https://pkg.go.dev/github.com/danielledeleo/djot-go)
+and [`djot/ast`](https://pkg.go.dev/github.com/danielledeleo/djot-go/ast).
 
-## Supported features
+## Compatibility
 
-Blocks: paragraphs, headings (1-6), code blocks (with language), raw blocks
-(`=format`), block quotes, divs, bullet/ordered/task/definition lists, tables with
-alignments and captions, footnotes, thematic breaks, reference link
-definitions.
-
-Inline: emphasis, strong, superscript, subscript, insert, delete, mark,
-links, images, autolinks, spans, verbatim, inline/display math, raw inline,
-smart quotes, em/en dashes, ellipses, symbols, hard/soft breaks,
-non-breaking spaces, footnote references.
-
-Block attributes (`{.class #id key="value"}`) can be attached to any block
-element. Inline attributes work on spans and other inline elements.
-
-Sections are automatically generated from headings with auto-ID slugification.
+djot-go targets djot.js, the reference implementation. Where djot.js and the
+prose syntax reference differ, djot-go follows djot.js unless documented
+otherwise. See the [compatibility guide](docs/compatibility.md) for details.
 
 ## Security
 
-This package does not sanitize HTML output. If you render untrusted input,
-pass the output through an HTML sanitizer such as
-[bluemonday](https://github.com/microcosm-cc/bluemonday). This is the same
-approach taken by [goldmark](https://github.com/yuin/goldmark),
-[blackfriday](https://github.com/russross/blackfriday), and other Go markup
-libraries.
+HTML output is not sanitized. Pass rendered output through an HTML sanitizer
+when processing untrusted input; see [Security](docs/compatibility.md#security).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for tests, fuzzing, benchmarks, and the
+djot.js differential test workflow.
 
 ## License
 
