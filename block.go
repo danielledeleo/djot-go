@@ -848,6 +848,8 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 		padding := strings.Repeat(" ", contentIndent-stripAmount)
 		content.add(padding+after,
 			line.start+prefixLen+contentIndent, line.end)
+		// As for bullet items: an empty item has no paragraph to continue.
+		itemEmpty := strings.TrimSpace(after) == ""
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -891,6 +893,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 				// can differ from its column count when tabs are present.
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
+				itemEmpty = false
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
@@ -904,6 +907,9 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 					break
 				}
 				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
+					break
+				}
+				if itemEmpty {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
@@ -1224,10 +1230,11 @@ func orderedListMarker(s string) (start int, style ast.ListStyle, after string, 
 	// Try parenthesized form: (num), (a), (A), (i), (I)
 	if len(s) > 0 && s[0] == '(' {
 		closeParen := strings.IndexByte(s, ')')
-		if closeParen > 1 && closeParen+1 < len(s) && s[closeParen+1] == ' ' {
+		// A space follows the marker, unless the marker ends the line.
+		if closeParen > 1 && (closeParen+1 == len(s) || s[closeParen+1] == ' ') {
 			inner := s[1:closeParen]
 			if num, sty, ok2 := parseOrderedEnum(inner); ok2 {
-				return num, sty, s[closeParen+2:], true
+				return num, sty, afterMarker(s, closeParen+2), true
 			}
 		}
 		return 0, 0, "", false
@@ -1244,7 +1251,7 @@ func orderedListMarker(s string) (start int, style ast.ListStyle, after string, 
 	if s[i] != '.' && s[i] != ')' {
 		return 0, 0, "", false
 	}
-	if i+1 >= len(s) || s[i+1] != ' ' {
+	if i+1 < len(s) && s[i+1] != ' ' {
 		return 0, 0, "", false
 	}
 
@@ -1253,7 +1260,16 @@ func orderedListMarker(s string) (start int, style ast.ListStyle, after string, 
 	if !ok2 {
 		return 0, 0, "", false
 	}
-	return num, sty, s[i+2:], true
+	return num, sty, afterMarker(s, i+2), true
+}
+
+// afterMarker returns the content following a list marker. The marker may end
+// the line, in which case the content index is past the end and there is none.
+func afterMarker(s string, i int) string {
+	if i > len(s) {
+		return ""
+	}
+	return s[i:]
 }
 
 func isSuffixDelim(c byte) bool {
