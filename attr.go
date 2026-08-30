@@ -41,7 +41,6 @@ func (p *attrParser) parse() (map[string]string, []string) {
 	state := attrScanning
 	var key string
 	var buf []byte
-	var quoteChar byte
 
 	for p.pos < len(p.input) {
 		c := p.input[p.pos]
@@ -104,8 +103,10 @@ func (p *attrParser) parse() (map[string]string, []string) {
 			}
 
 		case attrScanningValue:
-			if c == '"' || c == '\'' {
-				quoteChar = c
+			// Only double quotes quote a value. The syntax reference allows
+			// key="value" or a bare value, so a single-quoted value is not an
+			// attribute at all and the whole specifier is literal text.
+			if c == '"' {
 				buf = buf[:0]
 				state = attrScanningQuoted
 			} else if isBareValueChar(c) {
@@ -130,7 +131,7 @@ func (p *attrParser) parse() (map[string]string, []string) {
 		case attrScanningQuoted:
 			if c == '\\' {
 				state = attrScanningEscape
-			} else if c == quoteChar {
+			} else if c == '"' {
 				p.setAttr(key, string(buf))
 				state = attrScanning
 			} else {

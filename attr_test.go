@@ -39,9 +39,12 @@ func TestParseAttrs(t *testing.T) {
 			expected: map[string]string{"key": "value"},
 		},
 		{
-			name:     "quoted value single",
+			// Only double quotes quote a value. djot.js rejects single quotes
+			// too, and accepting them made the whole specifier vanish from the
+			// output instead of staying literal text.
+			name:     "single quotes do not quote a value",
 			input:    `key='value'`,
-			expected: map[string]string{"key": "value"},
+			expected: nil,
 		},
 		{
 			name:     "bare value",
@@ -69,9 +72,9 @@ func TestParseAttrs(t *testing.T) {
 			expected: map[string]string{"key": "value #not-an-id"},
 		},
 		{
-			name:     "dot in single quoted value",
+			name:     "dot in single quoted value is still not a value",
 			input:    `include='note.dj'`,
-			expected: map[string]string{"include": "note.dj"},
+			expected: nil,
 		},
 
 		// Bare values must only contain [a-zA-Z0-9:_-].
@@ -204,5 +207,25 @@ func TestParseAttrs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The syntax reference allows key="value" or a bare value; single quotes do
+// not quote a value. A specifier using them is not an attribute, so it stays
+// literal text rather than being consumed. Accepting it silently swallowed the
+// line, since an attribute block that attaches to nothing renders as nothing.
+func TestSingleQuotedAttributeValueIsNotAnAttribute(t *testing.T) {
+	if got := ParseAttrs("key='single quoted'"); got != nil {
+		t.Errorf("ParseAttrs accepted a single-quoted value: %v", got)
+	}
+	if got := ParseAttrs(`key="double quoted"`); got["key"] != "double quoted" {
+		t.Errorf("ParseAttrs(double quoted) = %v, want key=\"double quoted\"", got)
+	}
+
+	// The line survives instead of disappearing. Expected output is djot.js's.
+	const in = "text\n{key='single quoted'}\nmore\n"
+	const want = "<p>text\n{key=\u2019single quoted\u2019\nmore</p>\n"
+	if got := RenderHTML(Parse(in)); got != want {
+		t.Errorf("input %q:\nwant: %q\n got: %q", in, want, got)
 	}
 }
