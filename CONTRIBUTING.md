@@ -42,9 +42,17 @@ any spec tests change status.
 implementation inside Docker. To run:
 
 ```
-docker build -t djot-diff testdata/difftest/
+docker build -f testdata/difftest/Dockerfile -t djot-diff .
 docker run --rm djot-diff
 ```
+
+The build context is the repository root, not the difftest directory: the
+Dockerfile copies `go.mod` and the package sources from the root.
+
+These cases are machine-generated punctuation soup used to probe edge cases, and
+a handful diverge from djot.js. They are not part of `go test ./...` or CI --
+the test sits behind a `difftest` build tag. The official conformance fixtures
+in `testdata/official` are the compatibility gate, and those run by default.
 
 ## Making changes
 
