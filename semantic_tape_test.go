@@ -185,18 +185,23 @@ func TestDocumentLazyStateConcurrentFirstAccess(t *testing.T) {
 	}
 }
 
+// The largest accepted enumerator round-trips through the tape, and the first
+// value past the bound is not a list at all. Both hold on every platform:
+// maxOrderedEnum is MaxInt32, so neither case depends on the int width.
 func TestSemanticTapePreservesWideOrderedListStart(t *testing.T) {
-	if strconv.IntSize < 64 {
-		t.Skip("requires a 64-bit int")
-	}
-	const start = 2147483648
-	doc := Parse("2147483648. item\n")
-	if got, want := RenderHTML(doc), "<ol start=\"2147483648\">\n<li>\nitem\n</li>\n</ol>\n"; got != want {
+	const start = 2147483647
+	doc := Parse("2147483647. item\n")
+	if got, want := RenderHTML(doc), "<ol start=\"2147483647\">\n<li>\nitem\n</li>\n</ol>\n"; got != want {
 		t.Fatalf("wide ordered-list render differs\nwant: %q\n got: %q", want, got)
 	}
 	list := findTypedNode[*OrderedList](doc.Root())
 	if list == nil || list.Start != start {
 		t.Fatalf("materialized ListStart = %v, want %d", list, start)
+	}
+
+	past := Parse("2147483648. item\n")
+	if got := RenderHTML(past); strings.Contains(got, "<ol") {
+		t.Fatalf("enumerator past maxOrderedEnum became a list: %q", got)
 	}
 }
 
@@ -221,11 +226,16 @@ func TestSemanticTapeCheckedLimitsPanicInsteadOfCorrupting(t *testing.T) {
 		fn()
 	}
 	assertPanic("negative uint32", func() { checkedSemanticUint32(-1, "test") })
-	assertPanic("text high bit", func() { checkedSemanticTextIndex(int(semanticStoredText), "test") })
+	assertPanic("negative text index", func() { checkedSemanticTextIndex(-1, "test") })
+	// Both upper limits sit at or above MaxInt32, so on a 32-bit build no int
+	// can reach them and only the negative cases above are exercisable. The
+	// values go through variables so the conversions stay runtime ones: as
+	// constant expressions they would not compile for a 32-bit int.
 	if strconv.IntSize == 64 {
-		assertPanic("uint32 overflow", func() {
-			checkedSemanticUint32(int(uint64(^uint32(0))+1), "test")
-		})
+		highBit := uint64(semanticStoredText)
+		assertPanic("text high bit", func() { checkedSemanticTextIndex(int(highBit), "test") })
+		pastUint32 := uint64(^uint32(0)) + 1
+		assertPanic("uint32 overflow", func() { checkedSemanticUint32(int(pastUint32), "test") })
 	}
 }
 

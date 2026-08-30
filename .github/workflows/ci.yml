@@ -39,6 +39,27 @@ jobs:
       - run: go test -race -count=1 ./...
       - run: go vet ./...
 
+  # Guards against 32-bit regressions. The library has no unsafe, binary
+  # encoding, or 64-bit atomics, so int width is the only thing that varies
+  # here -- but it varies silently, which is exactly why it needs a gate.
+  # 386 binaries run natively on the amd64 runner, so this needs no emulation.
+  cross-arch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      # vet typechecks test files too, so it catches constants that overflow a
+      # 32-bit int even when the library itself compiles fine.
+      - run: GOARCH=386 go vet ./...
+      # No -race: the detector has no 386 support. The race job above covers
+      # that on amd64, and the concurrency being tested is not width-sensitive.
+      - run: GOARCH=386 go test -count=1 ./...
+      # arm has the same word size but stricter alignment. Compile-only,
+      # since running it would need QEMU for no coverage 386 does not give.
+      - run: GOARCH=arm GOARM=7 go vet ./...
+
   # Publishes the coverage number to the "badges" branch, which is what the
   # README badge reads. Only on main: pull requests have no business pushing.
   coverage:

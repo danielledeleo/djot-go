@@ -155,15 +155,17 @@ func TestBreakAfterHeading(t *testing.T) {
 	}
 }
 
-// Decimal enumerators beyond parser or platform limits are rejected.
+// Decimal enumerators beyond the parser limit are rejected. The bound is the
+// widest value an HTML ol start attribute holds, so it is the same on every
+// platform rather than tracking the int width.
 func TestOrderedEnumOverflow(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 		list bool
 	}{
-		{"at-bound", "100000000000000000) x\n", true},
-		{"past-bound", "1000000000000000000) x\n", false},
+		{"at-bound", "2147483647) x\n", true},
+		{"past-bound", "2147483648) x\n", false},
 		{"way-past", "999999999999999999999999999) x\n", false},
 	}
 	for _, tc := range cases {

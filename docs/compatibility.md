@@ -47,6 +47,27 @@ Block attributes can be attached to block elements. Inline attributes apply to
 spans and other supported inline elements. Ordered attributes are retained in
 the typed AST and renderer views.
 
+## Documented differences
+
+### Ordered list enumerator bound
+
+djot-go accepts decimal ordered-list enumerators up to 2147483647. A line whose
+enumerator exceeds that is not a list; it stays a paragraph:
+
+```
+2147483647. item    ->  <ol start="2147483647">
+2147483648. item    ->  <p>2147483648. item</p>
+```
+
+The bound is the widest value an HTML `ol` `start` attribute can carry, so a
+larger start would not survive rendering in any case. Fixing it to that value
+rather than to the platform `int` maximum also keeps parsing identical on 32-
+and 64-bit builds.
+
+djot.js reads enumerators with `parseInt`, so it has no explicit bound and
+accepts larger values, exactly up to 2^53 and with rounding above that. Alpha
+and Roman enumerators are far below any of these limits and are unaffected.
+
 ## Output formats
 
 The library and CLI produce:

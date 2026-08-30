@@ -1286,11 +1286,14 @@ func extractOrderedMarkerParts(s string) (enum string, delim orderedDelim, ok bo
 	return "", 0, false
 }
 
-// maxOrderedEnum bounds decimal enumerators independently of int width.
-const maxOrderedEnum uint64 = 100_000_000_000_000_000
+// maxOrderedEnum bounds decimal enumerators at the widest value an HTML ol
+// start attribute can carry. Capping here rather than at the platform int
+// maximum keeps parsing identical on 32- and 64-bit builds; a larger start
+// would not survive the output format anyway.
+const maxOrderedEnum uint64 = math.MaxInt32
 
 // parseDecimalEnum parses an all-digit enumerator, rejecting values past
-// maxOrderedEnum or the platform int maximum.
+// maxOrderedEnum.
 func parseDecimalEnum(s string) (int, bool) {
 	n := uint64(0)
 	for _, c := range s {
@@ -1303,9 +1306,7 @@ func parseDecimalEnum(s string) (int, bool) {
 			return 0, false
 		}
 	}
-	if n > uint64(math.MaxInt) {
-		return 0, false
-	}
+	// maxOrderedEnum fits every platform's int, so this conversion is exact.
 	return int(n), true
 }
 
