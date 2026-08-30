@@ -621,6 +621,10 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 		prefixLen := len(prefix)
 		content.add(padding+after,
 			line.start+prefixLen+contentIndent, line.end)
+		// A marker alone on its line opens an item with no content. Lazy
+		// continuation only ever extends an open paragraph, so until the item
+		// has taken a line there is nothing for an unindented line to continue.
+		itemEmpty := strings.TrimSpace(after) == ""
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -664,6 +668,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 				rest := stripIndent(nextText, stripAmount)
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
+				itemEmpty = false
 				bp.pos++
 			} else {
 				// Check if it's a new list item at the SAME indent.
@@ -680,6 +685,9 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 				// Not a same-level item. Could be lazy continuation
 				// only if it doesn't look like a block element.
 				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
+					break
+				}
+				if itemEmpty {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
