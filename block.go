@@ -1665,8 +1665,14 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 }
 
 func isTaskListItem(after string) bool {
-	return (strings.HasPrefix(after, "[ ] ") || strings.HasPrefix(after, "[x] ") ||
-		strings.HasPrefix(after, "[X] "))
+	if len(after) < 3 || after[0] != '[' || after[2] != ']' {
+		return false
+	}
+	if after[1] != ' ' && after[1] != 'x' && after[1] != 'X' {
+		return false
+	}
+	// A space follows the checkbox, unless the marker ends the line.
+	return len(after) == 3 || after[3] == ' '
 }
 
 func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int, prefix string) {
@@ -1723,7 +1729,11 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		}
 
 		checked := after[1] == 'x' || after[1] == 'X'
-		afterCheckbox := after[4:] // skip "[ ] " or "[x] "
+		// Skip "[ ] " or "[x] ". A bare checkbox has nothing after it.
+		afterCheckbox := ""
+		if len(after) > 3 {
+			afterCheckbox = after[4:]
+		}
 
 		item := bp.arena.new(parseNodeSpec{Kind: ast.KindTaskListItem, Checked: checked})
 		item.Start = ast.Pos{Offset: line.start}
@@ -1736,6 +1746,8 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		// afterCheckbox starts after "- [ ] " = marker(2) + checkbox(4) = 6 chars from stripped
 		content.add(afterCheckbox,
 			line.start+prefixLen+contentIndent+4, line.end)
+		// As for bullet items: an empty item has no paragraph to continue.
+		itemEmpty := strings.TrimSpace(afterCheckbox) == ""
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -1777,11 +1789,15 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 				rest := stripIndent(nextText, contentIndent)
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
+				itemEmpty = false
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
 				_, _, isItem := bulletListMarker(ns)
 				if isItem {
+					break
+				}
+				if itemEmpty {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
