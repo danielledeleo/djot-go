@@ -273,6 +273,14 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 	if r.err != nil {
 		return
 	}
+	// Tightness applies to list-item paragraphs, not nested block containers.
+	switch r.kind(i) {
+	case ast.KindBlockQuote, ast.KindDiv, ast.KindSection:
+		previous := r.tight
+		r.tight = false
+		defer func() { r.tight = previous }()
+	}
+
 	switch r.kind(i) {
 	case ast.KindSymbol:
 		if r.hooks != nil && r.hooks.elements.symbol != nil {
@@ -604,21 +612,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 }
 
 func (r *semanticHTMLRenderer) collectText(i int) string {
-	var out strings.Builder
-	r.appendText(&out, i)
-	return out.String()
-}
-
-func (r *semanticHTMLRenderer) appendText(out *strings.Builder, i int) {
-	switch r.kind(i) {
-	case ast.KindText:
-		out.WriteString(r.tape.text(r.tape.records[i].payload))
-		return
-	case ast.KindSoftBreak, ast.KindHardBreak, ast.KindNonBreakingSpace:
-		out.WriteByte(' ')
-		return
-	}
-	r.children(i, func(child int) { r.appendText(out, child) })
+	return collectDocumentText(ElementView{tape: r.tape, record: i})
 }
 
 func (r *semanticHTMLRenderer) renderFootnotes() {

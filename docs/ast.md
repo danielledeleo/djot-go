@@ -170,7 +170,12 @@ fmt.Printf("%s:%d:%d\n", file, line, column)
 ```
 
 Line and column are one-based. `ast.Pos.Offset` is a byte offset, which matters
-for UTF-8 input.
+for UTF-8 input. The text and JSON AST output retain the djot.js convention
+of inclusive inline end offsets; use `Span` when slicing source text.
+
+Position lookups and positioned AST rendering support concurrent reads.
+`ast.FileInfo` caches its line index on first use: do not copy a `FileInfo`
+after calling `Position`, or change its `Source` after lookups begin.
 
 ## References and footnotes
 

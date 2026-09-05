@@ -232,7 +232,7 @@ func (t *semanticTape) addText(node *parseNode, value string) uint32 {
 	if value == "" {
 		return 0
 	}
-	start, end := node.Start.Offset, node.End.Offset+1
+	start, end := node.Start.Offset, node.End.Offset
 	if start >= 0 && end >= start && end <= len(t.source) && t.source[start:end] == value {
 		index := checkedSemanticTextIndex(len(t.textSpans), "source-text index")
 		t.textSpans = append(t.textSpans, semanticSourceSpan{start: uint32(start), end: uint32(end)})

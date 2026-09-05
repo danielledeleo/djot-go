@@ -97,6 +97,10 @@ func (p *inlineParser) parse() []*parseNode {
 		c := p.input[p.pos]
 		startPos := p.pos
 		nodesBefore := len(p.nodes)
+		var previousLast *parseNode
+		if nodesBefore > 0 {
+			previousLast = p.nodes[nodesBefore-1]
+		}
 
 		switch c {
 		case '\\':
@@ -150,12 +154,18 @@ func (p *inlineParser) parse() []*parseNode {
 		}
 
 		endPos := p.pos
+		// Literal punctuation and escapes can extend the existing text node.
+		// Use the consumed source range, which may be longer than its text.
+		if previousLast != nil && len(p.nodes) == nodesBefore &&
+			p.nodes[nodesBefore-1] == previousLast && previousLast.Kind == ast.KindText {
+			previousLast.End = p.srcPos(endPos)
+		}
 		for i := nodesBefore; i < len(p.nodes); i++ {
 			n := p.nodes[i]
 			if n.Start.Offset == 0 && n.End.Offset == 0 {
 				n.Start = p.srcPos(startPos)
 				if endPos > 0 {
-					n.End = p.srcPos(endPos - 1)
+					n.End = p.srcPos(endPos)
 				}
 			}
 		}
@@ -252,7 +262,7 @@ func (p *inlineParser) parseVerbatim() {
 			content = stripVerbatimSpaces(content)
 			node := p.arena.new(parseNodeSpec{Kind: ast.KindVerbatim, Text: content})
 			node.Start = p.srcPos(start)
-			node.End = p.srcPos(endAfter - 1)
+			node.End = p.srcPos(endAfter)
 			p.addNode(node)
 			p.pos = endAfter
 			return
@@ -357,7 +367,7 @@ func (p *inlineParser) parseDelimiterPair(char byte, kind ast.Kind) {
 					p.nodes = p.nodes[:op.nodeIdx]
 					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos)
-					node.End = p.srcPos(p.pos - 1)
+					node.End = p.srcPos(p.pos)
 					p.addNode(node)
 					return
 				}
@@ -490,7 +500,7 @@ func (p *inlineParser) parseDelimiter(char byte) {
 
 					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos)
-					node.End = p.srcPos(p.pos - 1)
+					node.End = p.srcPos(p.pos)
 					p.addNode(node)
 					return
 				}
@@ -602,7 +612,7 @@ func (p *inlineParser) parseBracketClose() {
 		if !strings.Contains(label, "[") {
 			p.invalidateOpenersFrom(op.nodeIdx)
 			p.nodes = p.nodes[:op.nodeIdx]
-			p.add(parseNodeSpec{Kind: ast.KindFootnoteReference, Label: label})
+			p.add(parseNodeSpec{Kind: ast.KindFootnoteReference, Label: label, Start: p.srcPos(op.pos), End: p.srcPos(p.pos)})
 			return
 		}
 	}
@@ -631,7 +641,7 @@ func (p *inlineParser) parseBracketClose() {
 			target = processBackslashEscapes(target)
 			linkStart := p.srcPos(op.pos)
 			p.pos = end + 1
-			linkEnd := p.srcPos(p.pos - 1)
+			linkEnd := p.srcPos(p.pos)
 			if isImage {
 				node := p.arena.new(parseNodeSpec{Kind: ast.KindImage, Target: target, HasTarget: true, Children: childCopy})
 				node.Start = linkStart
@@ -653,17 +663,19 @@ func (p *inlineParser) parseBracketClose() {
 			refLabel := p.input[p.pos+1 : p.pos+refEnd]
 			refLabel = collapseWhitespace(refLabel)
 			if refLabel == "" {
-				refLabel = linkText
+				refLabel = collapseWhitespace(linkText)
 			}
 			p.pos = p.pos + refEnd + 1
-			if p.resolveReference(refLabel, childCopy, isImage) {
-				return
+			if !p.resolveReference(refLabel, childCopy, isImage) {
+				kind := ast.KindLink
+				if isImage {
+					kind = ast.KindImage
+				}
+				p.add(parseNodeSpec{Kind: kind, Label: refLabel, Children: childCopy})
 			}
-			if isImage {
-				p.add(parseNodeSpec{Kind: ast.KindImage, Children: childCopy})
-			} else {
-				p.add(parseNodeSpec{Kind: ast.KindLink, Children: childCopy})
-			}
+			node := p.nodes[len(p.nodes)-1]
+			node.Start = p.srcPos(op.pos)
+			node.End = p.srcPos(p.pos)
 			return
 		}
 	}
@@ -674,7 +686,7 @@ func (p *inlineParser) parseBracketClose() {
 			inner := p.input[p.pos+1 : end]
 			attrs, attrOrder := parseAttrsOrdered(inner)
 			if attrs != nil {
-				node := p.arena.new(parseNodeSpec{Kind: ast.KindSpan, Children: childCopy, Attrs: attrs, attrOrder: attrOrder})
+				node := p.arena.new(parseNodeSpec{Kind: ast.KindSpan, Children: childCopy, Attrs: attrs, attrOrder: attrOrder, Start: p.srcPos(op.pos), End: p.srcPos(end + 1)})
 				p.addNode(node)
 				p.pos = end + 1
 				return
@@ -827,7 +839,7 @@ func (p *inlineParser) parseCloseBrace() {
 							// op.pos points to the char after {, so start at op.pos-1.
 							node.Start = p.srcPos(op.pos - 1)
 							p.pos++ // skip }
-							node.End = p.srcPos(p.pos - 1)
+							node.End = p.srcPos(p.pos)
 							p.addNode(node)
 							return
 						}
@@ -988,7 +1000,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind ast.Kind) {
 					node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 					node.Start = p.srcPos(op.pos - 1)
 					p.pos++ // skip }
-					node.End = p.srcPos(p.pos - 1)
+					node.End = p.srcPos(p.pos)
 					p.addNode(node)
 					return
 				}
@@ -1028,7 +1040,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind ast.Kind) {
 				p.nodes = p.nodes[:op.nodeIdx]
 				node := p.arena.new(parseNodeSpec{Kind: kind, Children: childCopy})
 				node.Start = p.srcPos(op.pos)
-				node.End = p.srcPos(p.pos - 1)
+				node.End = p.srcPos(p.pos)
 				p.addNode(node)
 				return
 			}

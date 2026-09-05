@@ -289,7 +289,7 @@ func TestPositionSubParsers(t *testing.T) {
     str (1:20:19-1:40:39) text=" at column ten and a "
     link (1:41:40-1:67:66) destination="https://example.com"
       str (1:42:41-1:45:44) text="link"
-    str (1:68:67-1:81:80) text=" further along."`,
+    str (1:68:67-1:82:81) text=" further along."`,
 		},
 	}
 

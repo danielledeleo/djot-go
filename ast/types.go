@@ -1,5 +1,7 @@
 package ast
 
+import "sync"
+
 // Kind identifies the type of a syntax-tree node.
 type Kind int
 
@@ -76,10 +78,13 @@ type Pos struct {
 type FileID uint16
 
 // FileInfo describes a source file used during parsing.
+// It must not be copied after the first call to Position. Source must not be
+// modified after position lookup begins.
 type FileInfo struct {
-	Path       string
-	Source     []byte
-	lineStarts []int // lazily computed
+	Path           string
+	Source         []byte
+	lineStarts     []int // lazily computed
+	lineStartsOnce sync.Once
 }
 
 // Position resolves a byte offset to a 1-based line and column.
@@ -101,15 +106,14 @@ func (fi *FileInfo) Position(offset int) (line, col int) {
 }
 
 func (fi *FileInfo) ensureLineStarts() {
-	if fi.lineStarts != nil {
-		return
-	}
-	fi.lineStarts = []int{0}
-	for i, b := range fi.Source {
-		if b == '\n' {
-			fi.lineStarts = append(fi.lineStarts, i+1)
+	fi.lineStartsOnce.Do(func() {
+		fi.lineStarts = []int{0}
+		for i, b := range fi.Source {
+			if b == '\n' {
+				fi.lineStarts = append(fi.lineStarts, i+1)
+			}
 		}
-	}
+	})
 }
 
 // ListStyle describes the marker type for an ordered list.

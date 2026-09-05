@@ -10,7 +10,8 @@ import (
 
 // RenderAST renders a parsed document to the djot AST text format,
 // compatible with the official djot.js test suite. If positions is true,
-// source positions are included in the output.
+// source positions are included in the output. Inline end offsets are inclusive
+// in this format, unlike the half-open ranges returned by ast.Node.Span.
 func RenderAST(doc *Doc, positions bool) string {
 	var b strings.Builder
 	_ = RenderASTTo(&b, doc, positions)
@@ -61,10 +62,21 @@ func (r *astRenderer) renderPos(n ast.Node) {
 	span := n.Span()
 	fi := &r.doc.Files[span.Start.File]
 	sLine, sCol := fi.Position(span.Start.Offset)
-	eLine, eCol := astEndPosition(fi, span.End.Offset)
+	endOffset := astOutputEnd(n)
+	eLine, eCol := astEndPosition(fi, endOffset)
 	r.write(fmt.Sprintf(" (%d:%d:%d-%d:%d:%d)",
 		sLine, sCol, span.Start.Offset,
-		eLine, eCol, span.End.Offset))
+		eLine, eCol, endOffset))
+}
+
+// astOutputEnd preserves the text/JSON AST format's inclusive inline ends.
+// Public source spans remain half-open for both block and inline nodes.
+func astOutputEnd(n ast.Node) int {
+	span := n.Span()
+	if _, inline := n.(ast.Inline); inline && span.End.Offset > span.Start.Offset {
+		return span.End.Offset - 1
+	}
+	return span.End.Offset
 }
 
 // astEndPosition resolves an end offset to line:col using the djot.js

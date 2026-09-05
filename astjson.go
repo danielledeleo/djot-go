@@ -14,7 +14,9 @@ import (
 // used by [RenderAST]), its kind-specific fields, an optional "attributes"
 // object, an optional "pos" object, and a "children" array. If positions is
 // true, every node except the document root carries a "pos" object with start
-// and end line, column, and offset. The output ends with a newline.
+// and end line, column, and offset. Inline end offsets are inclusive in this
+// format, unlike the half-open ranges returned by ast.Node.Span. The output
+// ends with a newline.
 //
 // The shape follows djot-go's own AST rather than reproducing djot.js's
 // reference-resolution tables, so it is convenient for tooling and diffing but
@@ -79,7 +81,8 @@ func astJSONPos(doc *Doc, n ast.Node) *jsonObj {
 	span := n.Span()
 	fi := &doc.Files[span.Start.File]
 	sLine, sCol := fi.Position(span.Start.Offset)
-	eLine, eCol := astEndPosition(fi, span.End.Offset)
+	endOffset := astOutputEnd(n)
+	eLine, eCol := astEndPosition(fi, endOffset)
 
 	start := &jsonObj{}
 	start.set("line", sLine)
@@ -89,7 +92,7 @@ func astJSONPos(doc *Doc, n ast.Node) *jsonObj {
 	end := &jsonObj{}
 	end.set("line", eLine)
 	end.set("col", eCol)
-	end.set("offset", span.End.Offset)
+	end.set("offset", endOffset)
 
 	pos := &jsonObj{}
 	pos.set("start", start)

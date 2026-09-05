@@ -811,6 +811,14 @@ func (r *htmlRenderer) renderNode(n ast.Node) {
 	if r.err != nil {
 		return
 	}
+	// Tightness applies to list-item paragraphs, not nested block containers.
+	switch n.Kind() {
+	case ast.KindBlockQuote, ast.KindDiv, ast.KindSection:
+		previous := r.tight
+		r.tight = false
+		defer func() { r.tight = previous }()
+	}
+
 	if fn, ok := r.hooks[n.Kind()]; ok {
 		fn(n, &nodeRendererImpl{r: r, n: n})
 		return
@@ -1418,19 +1426,5 @@ func escapeAttrSlow(s string, first int) string {
 
 // collectText extracts visible text from a materialized public node tree.
 func collectText(n ast.Node) string {
-	var b strings.Builder
-	appendNodeText(&b, n)
-	return b.String()
-}
-
-func appendNodeText(b *strings.Builder, n ast.Node) {
-	switch n.Kind() {
-	case ast.KindText:
-		b.WriteString(n.(*ast.Text).Value)
-		return
-	case ast.KindSoftBreak, ast.KindHardBreak, ast.KindNonBreakingSpace:
-		b.WriteByte(' ')
-		return
-	}
-	ast.ForEachChild(n, func(child ast.Node) { appendNodeText(b, child) })
+	return collectDocumentText(ElementView{node: n})
 }

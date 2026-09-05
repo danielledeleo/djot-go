@@ -1536,7 +1536,7 @@ func isReferenceDefinition(s string) bool {
 
 func (bp *blockParser) parseReferenceDefinition(parent *parseNode, stripped string, indent int, prefix string) {
 	closeBracket := strings.IndexByte(stripped, ']')
-	label := stripped[1:closeBracket]
+	label := collapseWhitespace(stripped[1:closeBracket])
 
 	after := ""
 	if closeBracket+2 < len(stripped) {

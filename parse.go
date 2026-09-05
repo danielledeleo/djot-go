@@ -37,26 +37,29 @@ func Parse(input string) *Doc {
 // registerHeadingRefs creates implicit reference definitions for headings,
 // mapping the heading's text content to the section's (or heading's) ID.
 func registerHeadingRefs(doc *Doc) {
-	walkParse(doc.parseRoot, func(n *parseNode) {
-		if n.Kind == ast.KindSection {
-			id := n.Attr("id")
-			if id == "" {
-				return
+	register := func(heading *parseNode, id string) {
+		label := collapseWhitespace(collectParseText(heading))
+		if id == "" || label == "" {
+			return
+		}
+		if _, exists := doc.parseReferences[label]; !exists {
+			doc.parseReferences[label] = &parseNode{
+				Kind:         ast.KindLink,
+				parsePayload: &parsePayload{Target: "#" + id, HasTarget: true, Label: label},
 			}
+		}
+	}
+	walkParse(doc.parseRoot, func(n *parseNode) {
+		switch n.Kind {
+		case ast.KindSection:
 			for _, child := range n.Children {
 				if child.Kind == ast.KindHeading {
-					label := collectParseText(child)
-					if label != "" {
-						if _, exists := doc.parseReferences[label]; !exists {
-							doc.parseReferences[label] = &parseNode{
-								Kind:         ast.KindLink,
-								parsePayload: &parsePayload{Target: "#" + id, Label: label},
-							}
-						}
-					}
+					register(child, n.Attr("id"))
 					break
 				}
 			}
+		case ast.KindHeading:
+			register(n, n.Attr("id"))
 		}
 	})
 }
@@ -67,7 +70,7 @@ func registerHeadingRefs(doc *Doc) {
 func resolveUnresolvedRefs(doc *Doc) {
 	walkParse(doc.parseRoot, func(n *parseNode) {
 		if (n.Kind == ast.KindLink || n.Kind == ast.KindImage) && n.Target == "" && !n.HasTarget {
-			label := collectParseText(n)
+			label := n.Label
 			if ref, ok := doc.parseReferences[label]; ok {
 				n.Target = ref.Target
 				n.HasTarget = true

@@ -13,13 +13,11 @@ import (
 // document root level. Headings inside block containers (blockquotes, divs,
 // list items) get their auto-ID placed directly on the heading element.
 func wrapSections(root *parseNode, arena *parseNodeArena) {
-	// Pre-populate ID set with any explicitly-set IDs on non-heading nodes.
+	// Reserve every explicit ID before assigning any generated IDs.
 	usedIDs := make(map[string]int)
 	walkParse(root, func(n *parseNode) {
-		if n.Kind != ast.KindHeading {
-			if id := n.Attr("id"); id != "" {
-				usedIDs[id]++
-			}
+		if id := n.Attr("id"); id != "" {
+			usedIDs[id]++
 		}
 	})
 	// Assign IDs to headings inside block containers (no section wrapping).
@@ -28,26 +26,12 @@ func wrapSections(root *parseNode, arena *parseNodeArena) {
 	root.Children = buildSections(root.Children, usedIDs, arena)
 }
 
-// isBlockContainer returns true for node kinds that are block containers
-// where headings should NOT be wrapped in sections.
-func isBlockContainer(kind ast.Kind) bool {
-	switch kind {
-	case ast.KindBlockQuote, ast.KindDiv, ast.KindListItem, ast.KindTaskListItem:
-		return true
-	}
-	return false
-}
-
-// assignContainerHeadingIDs walks into block containers and assigns auto-IDs
-// directly to headings found inside them (without section wrapping).
+// assignContainerHeadingIDs assigns IDs below every top-level block. Only
+// direct children of the document are left for section wrapping.
 func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
 	for _, child := range node.Children {
-		if isBlockContainer(child.Kind) {
+		if child.Kind != ast.KindHeading {
 			assignHeadingIDsInContainer(child, idCounts)
-		} else if child.Kind != ast.KindHeading {
-			// Recurse into non-heading, non-container nodes too
-			// (e.g. the document root itself on first call).
-			assignContainerHeadingIDs(child, idCounts)
 		}
 	}
 }
@@ -62,11 +46,9 @@ func assignHeadingIDsInContainer(node *parseNode, idCounts map[string]int) {
 			if !explicit {
 				id = autoID(child)
 				id = uniqueID(id, idCounts)
-			} else {
-				idCounts[id]++
 			}
 			child.SetAttr("id", id)
-		} else if isBlockContainer(child.Kind) {
+		} else {
 			assignHeadingIDsInContainer(child, idCounts)
 		}
 	}
@@ -96,9 +78,6 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 		// Only deduplicate auto-generated IDs.
 		if !explicit {
 			id = uniqueID(id, idCounts)
-		} else {
-			// Register explicit ID so auto-IDs won't collide.
-			idCounts[id]++
 		}
 
 		section.SetAttr("id", id)
@@ -205,13 +184,12 @@ func appendParseText(b *strings.Builder, n *parseNode) {
 // uniqueID deduplicates an ID by appending -1, -2, etc.
 // Anonymous section IDs (base "s") always get a counter.
 func uniqueID(id string, counts map[string]int) string {
-	if id == "s" {
-		counts[id]++
-		return id + "-" + itoa(counts[id])
-	}
-	if counts[id] > 0 {
+	if id == "s" || counts[id] > 0 {
 		// Already used. Find the next available suffix.
 		suffix := counts[id]
+		if suffix < 1 {
+			suffix = 1
+		}
 		for {
 			candidate := id + "-" + itoa(suffix)
 			if counts[candidate] == 0 {
