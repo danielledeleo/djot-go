@@ -418,6 +418,7 @@ func (bp *blockParser) parseBlockQuote(parent *parseNode, indent int, outerPrefi
 	bp.attachPendingAttrs(node)
 
 	var content contentLines
+	var tip paragraphTip // is a paragraph open for lazy continuation?
 	lastEnd := startLine.start
 	prefixLen := len(outerPrefix)
 
@@ -443,14 +444,20 @@ func (bp *blockParser) parseBlockQuote(parent *parseNode, indent int, outerPrefi
 		if len(stripped) > 0 && stripped[0] == '>' && (len(stripped) == 1 || stripped[1] == ' ') {
 			if len(stripped) == 1 {
 				content.addBlank(line.start+prefixLen+leadingWS+1, line.end)
+				tip.feed("")
 			} else {
 				content.add(stripped[2:],
 					line.start+prefixLen+leadingWS+2, line.end)
+				tip.feed(stripped[2:])
 			}
-		} else {
-			// Lazy continuation.
+		} else if tip.open && !startsBlock(stripped) {
+			// Lazy continuation of an open paragraph; a block start or a
+			// closed tip ends the quote, as in djot.js.
 			content.add(stripped,
 				line.start+prefixLen+leadingWS, line.end)
+			tip.feed(stripped)
+		} else {
+			break
 		}
 		lastEnd = line.end
 		bp.pos++
@@ -614,6 +621,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 		bp.pos++
 
 		var content contentLines
+		var tip paragraphTip // is a paragraph open for lazy continuation?
 		var itemBlanks []int // offsets of blank lines taken into the item
 		// Strip all continuation lines by stripAmount (markerIndent + 1),
 		// which preserves relative indentation for sublists at varying depths.
@@ -624,10 +632,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 		prefixLen := len(prefix)
 		content.add(padding+after,
 			line.start+prefixLen+contentIndent, line.end)
-		// A marker alone on its line opens an item with no content. Lazy
-		// continuation only ever extends an open paragraph, so until the item
-		// has taken a line there is nothing for an unindented line to continue.
-		itemEmpty := strings.TrimSpace(after) == ""
+		tip.feed(after)
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -659,6 +664,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
+						tip.feed("")
 						bp.pos++
 						continue
 					}
@@ -671,21 +677,19 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 				rest := stripIndent(nextText, stripAmount)
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
-				itemEmpty = false
+				tip.feed(rest)
 				bp.pos++
 			} else {
 				// A block start at or left of the marker ends the item; only
 				// text can lazily continue it.
 				ns := strings.TrimLeft(nextText, " \t")
-				if startsBlock(ns) {
-					break
-				}
-				if itemEmpty {
+				if startsBlock(ns) || !tip.open {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
 				content.add(trimmedNext,
 					nextLine.start+prefixLen+(len(nextText)-len(trimmedNext)), nextLine.end)
+				tip.feed(trimmedNext)
 				bp.pos++
 			}
 		}
@@ -829,6 +833,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 		bp.pos++
 
 		var content contentLines
+		var tip paragraphTip // is a paragraph open for lazy continuation?
 		var itemBlanks []int // offsets of blank lines taken into the item
 		prefixLen := len(prefix)
 
@@ -847,8 +852,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 		padding := strings.Repeat(" ", contentIndent-stripAmount)
 		content.add(padding+after,
 			line.start+prefixLen+contentIndent, line.end)
-		// As for bullet items: an empty item has no paragraph to continue.
-		itemEmpty := strings.TrimSpace(after) == ""
+		tip.feed(after)
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -878,6 +882,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
+						tip.feed("")
 						bp.pos++
 						continue
 					}
@@ -892,19 +897,17 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 				// can differ from its column count when tabs are present.
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
-				itemEmpty = false
+				tip.feed(rest)
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
-				if startsBlock(ns) {
-					break
-				}
-				if itemEmpty {
+				if startsBlock(ns) || !tip.open {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
 				content.add(trimmedNext,
 					nextLine.start+prefixLen+(len(nextText)-len(trimmedNext)), nextLine.end)
+				tip.feed(trimmedNext)
 				bp.pos++
 			}
 		}
@@ -1737,6 +1740,33 @@ func isAttributeLine(s string) bool {
 	return attrs != nil
 }
 
+// stripContainerMarkers removes leading list, task, quote and definition
+// markers, leaving the text that would open the innermost block.
+func stripContainerMarkers(s string) string {
+	for {
+		s = strings.TrimLeft(s, " \t")
+		switch {
+		case s == ">" || strings.HasPrefix(s, "> "):
+			s = strings.TrimPrefix(s[1:], " ")
+		case s == ":" || strings.HasPrefix(s, ": "):
+			s = strings.TrimPrefix(s[1:], " ")
+		default:
+			if _, after, ok := bulletListMarker(s); ok {
+				if isTaskListItem(after) {
+					after = strings.TrimPrefix(after[3:], " ")
+				}
+				s = after
+				continue
+			}
+			if _, _, after, ok := orderedListMarker(s); ok {
+				s = after
+				continue
+			}
+			return s
+		}
+	}
+}
+
 // paragraphTip tracks whether the lines fed so far leave a paragraph open for
 // lazy continuation: the last line was text (a fence, table row, break, or
 // attribute line is not) and no code fence is open.
@@ -1747,7 +1777,7 @@ type paragraphTip struct {
 }
 
 func (t *paragraphTip) feed(line string) {
-	s := strings.TrimLeft(line, " \t")
+	s := stripContainerMarkers(strings.TrimLeft(line, " \t"))
 	if t.fenceLen > 0 {
 		if isClosingCodeFence(s, t.fenceChar, t.fenceLen) {
 			t.fenceLen = 0
@@ -1843,6 +1873,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		bp.pos++
 
 		var content contentLines
+		var tip paragraphTip // is a paragraph open for lazy continuation?
 		var itemBlanks []int // offsets of blank lines taken into the item
 		prefixLen := len(prefix)
 
@@ -1850,8 +1881,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		// afterCheckbox starts after "- [ ] " = marker(2) + checkbox(4) = 6 chars from stripped
 		content.add(afterCheckbox,
 			line.start+prefixLen+contentIndent+4, line.end)
-		// As for bullet items: an empty item has no paragraph to continue.
-		itemEmpty := strings.TrimSpace(afterCheckbox) == ""
+		tip.feed(afterCheckbox)
 
 		for bp.pos < len(bp.lines) {
 			nextLine := bp.currentLine()
@@ -1881,6 +1911,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
+						tip.feed("")
 						bp.pos++
 						continue
 					}
@@ -1893,16 +1924,17 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 				rest := stripIndent(nextText, contentIndent)
 				content.add(rest,
 					nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
-				itemEmpty = false
+				tip.feed(rest)
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
-				if startsBlock(ns) || itemEmpty {
+				if startsBlock(ns) || !tip.open {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
 				content.add(trimmedNext,
 					nextLine.start+prefixLen+(len(nextText)-len(trimmedNext)), nextLine.end)
+				tip.feed(trimmedNext)
 				bp.pos++
 			}
 		}
