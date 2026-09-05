@@ -2097,6 +2097,7 @@ func (bp *blockParser) parseTable(parent *parseNode, stripped string, indent int
 			if len(node.Children) > 0 {
 				lastRow := node.Children[len(node.Children)-1]
 				if lastRow.Kind == ast.KindTableRow {
+					lastRow.IsHeader = true
 					for i, cell := range lastRow.Children {
 						cell.IsHeader = true
 						if i < len(aligns) {
