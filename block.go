@@ -678,11 +678,11 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 				ns := strings.TrimLeft(nextText, " \t")
 				ni := len(nextText) - len(ns)
 				_, _, isItem := bulletListMarker(ns)
-				if isItem && ni == markerIndent {
+				if isItem && ni <= markerIndent {
 					break
 				}
 				_, _, _, isOrdItem := orderedListMarker(ns)
-				if isOrdItem && ni == markerIndent {
+				if isOrdItem && ni <= markerIndent {
 					break
 				}
 				// Not a same-level item. Could be lazy continuation
@@ -1664,6 +1664,11 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 	// Footnote continuation lines must be indented. Use a fixed indent
 	// of 2 spaces (like list item continuation in djot).
 	contentIndent := indent + 2
+	// An unindented line may lazily continue the footnote only while its
+	// last line left a paragraph open (not a fence, table, break, or
+	// attribute line), as djot.js's lazy rule requires an inline tip.
+	tip := paragraphTip{}
+	tip.feed(after)
 
 	for bp.pos < len(bp.lines) {
 		nextLine := bp.currentLine()
@@ -1685,6 +1690,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 				peekIndent := countLeadingSpaces(peekText)
 				if peekIndent >= contentIndent && !isBlankLine(peekText) {
 					content.addBlank(nextLine.start, nextLine.end)
+					tip.feed("")
 					bp.pos++
 					continue
 				}
@@ -1693,10 +1699,18 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 		}
 
 		nextIndent := countLeadingSpaces(nextText)
+		lazy := strings.TrimLeft(nextText, " \t")
 		if nextIndent >= contentIndent {
 			rest := stripIndent(nextText, contentIndent)
 			content.add(rest,
 				nextLine.start+prefixLen+(len(nextText)-len(rest)), nextLine.end)
+			tip.feed(rest)
+			bp.pos++
+		} else if tip.open && !startsBlock(lazy) {
+			// An unindented line continues the paragraph lazily, as in list
+			// items; any block start ends the footnote instead.
+			content.add(lazy, nextLine.start+prefixLen+(len(nextText)-len(lazy)), nextLine.end)
+			tip.feed(lazy)
 			bp.pos++
 		} else {
 			break
@@ -1712,6 +1726,64 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 		node.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
 	}
 	parent.Children = append(parent.Children, node)
+}
+
+// startsBlock reports whether a line (already stripped of indentation) opens
+// a block other than a paragraph, and so cannot lazily continue one.
+func startsBlock(s string) bool {
+	if s == "" {
+		return false
+	}
+	if _, _, ok := bulletListMarker(s); ok {
+		return true
+	}
+	if _, _, _, ok := orderedListMarker(s); ok {
+		return true
+	}
+	return s == ">" || strings.HasPrefix(s, "> ") || isAttributeLine(s) ||
+		headingLevel(s) > 0 || isThematicBreak(s) || isCodeFenceOpen(s) ||
+		isDivFenceOpen(s) || isReferenceDefinition(s) || isFootnoteDefinition(s) ||
+		isDefinitionListMarker(s) || isTableRow(s)
+}
+
+// isAttributeLine reports whether s is a complete, valid block attribute on
+// one line; an unfinished "{..." is paragraph text.
+func isAttributeLine(s string) bool {
+	if len(s) < 2 || s[0] != '{' || s[len(s)-1] != '}' {
+		return false
+	}
+	attrs, _ := parseAttrsOrdered(s[1 : len(s)-1])
+	return attrs != nil
+}
+
+// paragraphTip tracks whether the lines fed so far leave a paragraph open for
+// lazy continuation: the last line was text (a fence, table row, break, or
+// attribute line is not) and no code fence is open.
+type paragraphTip struct {
+	open      bool
+	fenceChar byte
+	fenceLen  int
+}
+
+func (t *paragraphTip) feed(line string) {
+	s := strings.TrimLeft(line, " \t")
+	if t.fenceLen > 0 {
+		if isClosingCodeFence(s, t.fenceChar, t.fenceLen) {
+			t.fenceLen = 0
+		}
+		t.open = false
+		return
+	}
+	if isCodeFenceOpen(s) {
+		t.fenceChar = s[0]
+		for t.fenceLen < len(s) && s[t.fenceLen] == t.fenceChar {
+			t.fenceLen++
+		}
+		t.open = false
+		return
+	}
+	t.open = s != "" && !isTableRow(s) && !isThematicBreak(s) && !isDivFenceOpen(s) &&
+		!isAttributeLine(s) && !isReferenceDefinition(s) && !isFootnoteDefinition(s)
 }
 
 func isTaskListItem(after string) bool {
