@@ -1799,8 +1799,12 @@ func (t *paragraphTip) feed(line string) {
 		t.open = false
 		return
 	}
+	if isFootnoteDefinition(s) {
+		// The note's own first paragraph is open when text follows the colon.
+		s = strings.TrimSpace(s[strings.IndexByte(s, ']')+2:])
+	}
 	t.open = s != "" && !isTableRow(s) && !isThematicBreak(s) && !isDivFenceOpen(s) &&
-		!isAttributeLine(s) && !isReferenceDefinition(s) && !isFootnoteDefinition(s)
+		!isAttributeLine(s) && !isReferenceDefinition(s)
 }
 
 func isTaskListItem(after string) bool {

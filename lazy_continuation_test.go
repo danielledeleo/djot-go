@@ -61,3 +61,18 @@ func TestLazyContinuationKeepsOpenParagraph(t *testing.T) {
 		}
 	}
 }
+
+// A footnote definition nested in an item or quote opens a paragraph when
+// text follows its colon, so the next unindented line continues that note
+// rather than ending the container. Expected HTML is djot.js's.
+func TestLazyContinuationIntoNestedFootnote(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"- a\n\n  [^f]: n\nlazy\n", "<ul>\n<li>\n<p>a</p>\n</li>\n</ul>\n"},
+		{"> a\n>\n> [^f]: n\nlazy\n", "<blockquote>\n<p>a</p>\n</blockquote>\n"},
+	}
+	for _, tc := range cases {
+		if got := djot.RenderHTML(djot.Parse(tc.in)); got != tc.want {
+			t.Errorf("%q:\ngot\n%s\nwant\n%s", tc.in, got, tc.want)
+		}
+	}
+}
