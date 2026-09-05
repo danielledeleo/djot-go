@@ -1339,17 +1339,15 @@ func isUnicodeWhitespace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
-// stripVerbatimSpaces strips one leading and one trailing space from verbatim
-// content, but only when the content starts or ends with a backtick after
-// stripping. This allows backticks at the edges of code spans.
+// stripVerbatimSpaces removes the single space that separates a delimiter
+// from content beginning or ending with a backtick. Each end is judged on its
+// own, so "` `a `" keeps its trailing space.
 func stripVerbatimSpaces(s string) string {
-	if len(s) < 2 || s[0] != ' ' || s[len(s)-1] != ' ' {
-		return s
+	if len(s) >= 2 && s[0] == ' ' && s[1] == '`' {
+		s = s[1:]
 	}
-	// Only strip if content after stripping would start or end with backtick.
-	inner := s[1 : len(s)-1]
-	if len(inner) > 0 && (inner[0] == '`' || inner[len(inner)-1] == '`') {
-		return inner
+	if n := len(s); n >= 2 && s[n-1] == ' ' && s[n-2] == '`' {
+		s = s[:n-1]
 	}
 	return s
 }
