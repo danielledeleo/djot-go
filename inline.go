@@ -57,6 +57,7 @@ func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBrac
 	p.nodes = p.scratch[:0]
 	clear(p.openers)
 	clear(p.openerIdx)
+	p.closeBracketValid = false // offsets are relative to the previous input
 	p.doc = doc
 	p.baseOffset = baseOffset
 	p.plainBracesUntil = plainBracesUntil
