@@ -229,7 +229,9 @@ func (bp *blockParser) currentLine() blockLine {
 }
 
 func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, prefix string) {
-	content := strings.TrimSpace(stripped[level:])
+	// Only the marker's spaces and tabs and the line's trailing spaces are
+	// syntax; a tab or other Unicode whitespace at either edge is text.
+	content := trimHeadingLine(stripped[level:])
 
 	startLine := bp.currentLine()
 	node := bp.arena.new(parseNodeSpec{Kind: ast.KindHeading, Level: level})
@@ -296,9 +298,9 @@ func (bp *blockParser) parseHeading(parent *parseNode, level int, stripped, pref
 		// Same-level heading markers continue the heading.
 		var line_content string
 		if headingLevel(s) == level {
-			line_content = strings.TrimSpace(s[level:])
+			line_content = trimHeadingLine(s[level:])
 		} else {
-			line_content = strings.TrimRight(s, " \t")
+			line_content = strings.TrimRight(s, " ")
 		}
 		// A bare marker line contributes no content, and no newline either:
 		// the lines around it join as if it weren't there.
@@ -975,7 +977,8 @@ func (bp *blockParser) parseParagraph(parent *parseNode, prefix string, literalL
 	}
 
 	if textBuf.Len() > 0 {
-		text := strings.TrimRight(textBuf.String(), " \t")
+		// Only trailing spaces go with the line end; a tab is text.
+		text := strings.TrimRight(textBuf.String(), " ")
 		// If the paragraph broke off early, everything it took is literal.
 		if literalLines > 0 && taken < literalLines {
 			literalBytes = len(text)
@@ -1083,6 +1086,12 @@ func countLeadingSpaces(text string) int {
 	return n
 }
 
+// trimHeadingLine strips the whitespace a heading marker owns (spaces and
+// tabs after it) and the trailing spaces every line sheds.
+func trimHeadingLine(s string) string {
+	return strings.TrimRight(strings.TrimLeft(s, " \t"), " ")
+}
+
 func headingLevel(s string) int {
 	n := 0
 	for n < len(s) && s[n] == '#' {
@@ -1091,8 +1100,8 @@ func headingLevel(s string) int {
 	if n == 0 || n > 6 {
 		return 0
 	}
-	// Must be followed by space or end of line.
-	if n < len(s) && s[n] != ' ' {
+	// Must be followed by a space, a tab, or the end of the line.
+	if n < len(s) && s[n] != ' ' && s[n] != '\t' {
 		return 0
 	}
 	return n
@@ -1608,7 +1617,7 @@ func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped strin
 
 	after := ""
 	if closeBracket+2 < len(stripped) {
-		after = strings.TrimSpace(stripped[closeBracket+2:])
+		after = strings.TrimLeft(stripped[closeBracket+2:], " \t")
 	}
 
 	node := bp.arena.new(parseNodeSpec{Kind: ast.KindFootnote, Label: label})
