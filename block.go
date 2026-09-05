@@ -614,6 +614,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 		bp.pos++
 
 		var content contentLines
+		var itemBlanks []int // offsets of blank lines taken into the item
 		// Strip all continuation lines by stripAmount (markerIndent + 1),
 		// which preserves relative indentation for sublists at varying depths.
 		// Prepend padding to `after` so it aligns with content at contentIndent.
@@ -655,7 +656,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 						_, _, isBullet := bulletListMarker(peekStripped)
 						_, _, _, isOrd := orderedListMarker(peekStripped)
 						if !isBullet && !isOrd && !isDefinitionListMarker(peekStripped) {
-							hasBlankWithinItem = true
+							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
 						bp.pos++
@@ -701,6 +702,11 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 
 		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
+		for _, offset := range itemBlanks {
+			if blankLoosensItem(item, offset) {
+				hasBlankWithinItem = true
+			}
+		}
 
 		// Set item end past the newline that terminates the last consumed
 		// line. For the last line in the input (no trailing newline), end
@@ -833,6 +839,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 		bp.pos++
 
 		var content contentLines
+		var itemBlanks []int // offsets of blank lines taken into the item
 		prefixLen := len(prefix)
 
 		// Find the column where content starts.
@@ -878,7 +885,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 						_, _, isBullet := bulletListMarker(peekStripped)
 						_, _, _, isOrd := orderedListMarker(peekStripped)
 						if !isBullet && !isOrd && !isDefinitionListMarker(peekStripped) {
-							hasBlankWithinItem = true
+							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
 						bp.pos++
@@ -923,6 +930,11 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 
 		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
+		for _, offset := range itemBlanks {
+			if blankLoosensItem(item, offset) {
+				hasBlankWithinItem = true
+			}
+		}
 
 		if bp.pos > 0 {
 			item.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
@@ -1199,6 +1211,19 @@ func isClosingDivFence(s string, minLen int) bool {
 	}
 	rest := strings.TrimSpace(s[n:])
 	return rest == ""
+}
+
+// blankLoosensItem reports whether the blank line at offset separates two of
+// the item's direct child blocks. A blank inside a child, such as between the
+// blocks of a nested list's item, belongs to that child and does not make this
+// list loose.
+func blankLoosensItem(item *parseNode, offset int) bool {
+	for _, child := range item.Children {
+		if child.Start.Offset <= offset && offset < child.End.Offset {
+			return false
+		}
+	}
+	return true
 }
 
 // blankCountsBetweenItems reports whether a blank line before the next item
@@ -1765,6 +1790,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		bp.pos++
 
 		var content contentLines
+		var itemBlanks []int // offsets of blank lines taken into the item
 		prefixLen := len(prefix)
 
 		contentIndent := len(text) - len(stripped) + 2 // marker + space
@@ -1799,7 +1825,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 						_, _, isBullet := bulletListMarker(peekStripped)
 						_, _, _, isOrd := orderedListMarker(peekStripped)
 						if !isBullet && !isOrd && !isDefinitionListMarker(peekStripped) {
-							tight = false
+							itemBlanks = append(itemBlanks, nextLine.start)
 						}
 						content.addBlank(nextLine.start, nextLine.end)
 						bp.pos++
@@ -1834,6 +1860,11 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 
 		subBP := content.subParser(bp.references, bp.arena)
 		subBP.parseBlocks(item, 0, "")
+		for _, offset := range itemBlanks {
+			if blankLoosensItem(item, offset) {
+				tight = false
+			}
+		}
 
 		if bp.pos > 0 {
 			item.End = ast.Pos{Offset: bp.lines[bp.pos-1].end}
