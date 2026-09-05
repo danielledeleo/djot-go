@@ -94,7 +94,7 @@ anchors written against one implementation may not resolve under the other.
 ## Known divergences
 
 The differential suite described in [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests)
-compares generated edge cases against djot.js. Ten still diverge, in five
+compares generated edge cases against djot.js. Nine still diverge, in four
 groups. All but the heading identifiers need unbalanced or invalid delimiters;
 the equivalent well-formed inputs agree.
 
@@ -103,10 +103,6 @@ the equivalent well-formed inputs agree.
   quote literally rather than as `“`. A paired quote (`_"x" y_`), an unpaired
   quote outside a span (`"x`), and a closing quote after a digit (`*a 5" pipe*`)
   all agree.
-- **A superscript that swallows a footnote reference.** In `^x [^1]` djot-go
-  pairs the opening `^` with the one inside `[^1]`, where djot.js gives the
-  footnote reference precedence. Requires an unclosed `^`; `x^2^ and a note[^1]`
-  agrees.
 - **Smart punctuation inside an unterminated attribute block.** `a{#id---`
   converts the dashes; djot.js leaves them literal. Closed specifiers agree.
 - **An escaped `$` before a verbatim span**, in one generated case that does not
