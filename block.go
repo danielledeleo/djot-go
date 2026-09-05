@@ -598,7 +598,7 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 		stripped := strings.TrimLeft(text, " \t")
 		itemIndent := len(text) - len(stripped)
 		m, after, ok := bulletListMarker(stripped)
-		if !ok || m != marker || itemIndent != markerIndent {
+		if !ok || m != marker || itemIndent > markerIndent {
 			// Put back the blank lines we consumed.
 			bp.pos -= blanksBefore
 			break
@@ -674,20 +674,10 @@ func (bp *blockParser) parseBulletList(parent *parseNode, marker byte, afterMark
 				itemEmpty = false
 				bp.pos++
 			} else {
-				// Check if it's a new list item at the SAME indent.
+				// A block start at or left of the marker ends the item; only
+				// text can lazily continue it.
 				ns := strings.TrimLeft(nextText, " \t")
-				ni := len(nextText) - len(ns)
-				_, _, isItem := bulletListMarker(ns)
-				if isItem && ni <= markerIndent {
-					break
-				}
-				_, _, _, isOrdItem := orderedListMarker(ns)
-				if isOrdItem && ni <= markerIndent {
-					break
-				}
-				// Not a same-level item. Could be lazy continuation
-				// only if it doesn't look like a block element.
-				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
+				if startsBlock(ns) {
 					break
 				}
 				if itemEmpty {
@@ -795,7 +785,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 		stripped := strings.TrimLeft(text, " \t")
 		itemIndent := len(text) - len(stripped)
 		_, itemStyle, after, ok := orderedListMarker(stripped)
-		if !ok || itemIndent != markerIndent {
+		if !ok || itemIndent > markerIndent {
 			bp.pos -= blanksBefore
 			break
 		}
@@ -906,16 +896,7 @@ func (bp *blockParser) parseOrderedList(parent *parseNode, start int, style ast.
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
-				ni := len(nextText) - len(ns)
-				_, _, _, isItem := orderedListMarker(ns)
-				if isItem && ni == markerIndent {
-					break
-				}
-				_, _, isBulletItem := bulletListMarker(ns)
-				if isBulletItem && ni == markerIndent {
-					break
-				}
-				if headingLevel(ns) > 0 || isCodeFenceOpen(ns) {
+				if startsBlock(ns) {
 					break
 				}
 				if itemEmpty {
@@ -1841,7 +1822,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 		stripped := strings.TrimLeft(text, " \t")
 		itemIndent := len(text) - len(stripped)
 		m, after, ok := bulletListMarker(stripped)
-		if !ok || m != marker || !isTaskListItem(after) || itemIndent != markerIndent {
+		if !ok || m != marker || !isTaskListItem(after) || itemIndent > markerIndent {
 			bp.pos -= blanksBefore
 			break
 		}
@@ -1916,11 +1897,7 @@ func (bp *blockParser) parseTaskList(parent *parseNode, marker byte, indent int,
 				bp.pos++
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
-				_, _, isItem := bulletListMarker(ns)
-				if isItem {
-					break
-				}
-				if itemEmpty {
+				if startsBlock(ns) || itemEmpty {
 					break
 				}
 				trimmedNext := strings.TrimLeft(nextText, " \t")
@@ -2057,7 +2034,7 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 		}
 		stripped := strings.TrimLeft(text, " \t")
 		itemIndent := len(text) - len(stripped)
-		if !isDefinitionListMarker(stripped) || itemIndent != markerIndent {
+		if !isDefinitionListMarker(stripped) || itemIndent > markerIndent {
 			bp.pos -= blanksBefore
 			break
 		}
@@ -2118,7 +2095,7 @@ func (bp *blockParser) parseDefinitionList(parent *parseNode, indent int, prefix
 			} else {
 				ns := strings.TrimLeft(nextText, " \t")
 				ni := len(nextText) - len(ns)
-				if isDefinitionListMarker(ns) && ni == markerIndent {
+				if isDefinitionListMarker(ns) && ni <= markerIndent {
 					break
 				}
 				// Lazy continuation (indented beyond marker but less than content).
