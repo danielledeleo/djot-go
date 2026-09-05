@@ -34,3 +34,30 @@ func TestLazyContinuationNeedsOpenParagraph(t *testing.T) {
 		}
 	}
 }
+
+// Only a blank line ends a paragraph: a line that merely looks like a table
+// row, fence, break, div fence, or attribute list inside an open paragraph
+// is paragraph text, and the paragraph stays open for lazy continuation.
+// After a blank the same lines do open blocks. Expected HTML is djot.js's.
+func TestLazyContinuationKeepsOpenParagraph(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"> a\n> |t|\nlazy\n", "<blockquote>\n<p>a\n|t|\nlazy</p>\n</blockquote>\n"},
+		{"> a\n> ```\nlazy\n", "<blockquote>\n<p>a\n<code>\nlazy</code></p>\n</blockquote>\n"},
+		{"> a\n> ***\nlazy\n", "<blockquote>\n<p>a\n***\nlazy</p>\n</blockquote>\n"},
+		{"> a\n> :::\nlazy\n", "<blockquote>\n<p>a\n:::\nlazy</p>\n</blockquote>\n"},
+		{"> a\n> {.c}\nlazy\n", "<blockquote>\n<p>a\n\nlazy</p>\n</blockquote>\n"},
+		{"- a\n  |t|\nlazy\n", "<ul>\n<li>\na\n|t|\nlazy\n</li>\n</ul>\n"},
+		{"- a\n  ```\nlazy\n", "<ul>\n<li>\na\n<code>\nlazy</code>\n</li>\n</ul>\n"},
+		{"- a\n  ***\nlazy\n", "<ul>\n<li>\na\n***\nlazy\n</li>\n</ul>\n"},
+		{"x[^a]\n\n[^a]: a\n  |t|\nlazy\n", "<p>x<a id=\"fnref1\" href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a></p>\n<section role=\"doc-endnotes\">\n<hr>\n<ol>\n<li id=\"fn1\">\n<p>a\n|t|\nlazy<a href=\"#fnref1\" role=\"doc-backlink\">↩︎</a></p>\n</li>\n</ol>\n</section>\n"},
+		{"x[^a]\n\n[^a]: a\n  ```\nlazy\n", "<p>x<a id=\"fnref1\" href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a></p>\n<section role=\"doc-endnotes\">\n<hr>\n<ol>\n<li id=\"fn1\">\n<p>a\n<code>\nlazy</code><a href=\"#fnref1\" role=\"doc-backlink\">↩︎</a></p>\n</li>\n</ol>\n</section>\n"},
+		{"> a\n>\n> |t|\nlazy\n", "<blockquote>\n<p>a</p>\n<table>\n<tr>\n<td>t</td>\n</tr>\n</table>\n</blockquote>\n<p>lazy</p>\n"},
+		{"> a\n>\n> ```\nlazy\n", "<blockquote>\n<p>a</p>\n<pre><code></code></pre>\n</blockquote>\n<p>lazy</p>\n"},
+		{"- a\n\n  |t|\nlazy\n", "<ul>\n<li>\n<p>a</p>\n<table>\n<tr>\n<td>t</td>\n</tr>\n</table>\n</li>\n</ul>\n<p>lazy</p>\n"},
+	}
+	for _, tc := range cases {
+		if got := djot.RenderHTML(djot.Parse(tc.in)); got != tc.want {
+			t.Errorf("%q:\ngot\n%s\nwant\n%s", tc.in, got, tc.want)
+		}
+	}
+}

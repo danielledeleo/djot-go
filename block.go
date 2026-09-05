@@ -1768,8 +1768,10 @@ func stripContainerMarkers(s string) string {
 }
 
 // paragraphTip tracks whether the lines fed so far leave a paragraph open for
-// lazy continuation: the last line was text (a fence, table row, break, or
-// attribute line is not) and no code fence is open.
+// lazy continuation. Only a blank line ends a paragraph, so while one is open
+// every non-blank line is its text, however block-like it looks; otherwise
+// the line opens a block, and only text (not a fence, table row, break, div
+// fence, attribute line, or definition) opens a paragraph.
 type paragraphTip struct {
 	open      bool
 	fenceChar byte
@@ -1778,6 +1780,10 @@ type paragraphTip struct {
 
 func (t *paragraphTip) feed(line string) {
 	s := stripContainerMarkers(strings.TrimLeft(line, " \t"))
+	if t.open {
+		t.open = s != ""
+		return
+	}
 	if t.fenceLen > 0 {
 		if isClosingCodeFence(s, t.fenceChar, t.fenceLen) {
 			t.fenceLen = 0
