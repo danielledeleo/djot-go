@@ -1779,17 +1779,22 @@ type paragraphTip struct {
 }
 
 func (t *paragraphTip) feed(line string) {
-	s := stripContainerMarkers(strings.TrimLeft(line, " \t"))
 	if t.open {
-		t.open = s != ""
+		// Markers inside paragraph text are literal, not empty containers.
+		t.open = !isBlankLine(line)
 		return
 	}
+	s := stripContainerMarkers(strings.TrimLeft(line, " \t"))
 	if t.fenceLen > 0 {
 		if isClosingCodeFence(s, t.fenceChar, t.fenceLen) {
 			t.fenceLen = 0
 		}
 		t.open = false
 		return
+	}
+	if isFootnoteDefinition(s) {
+		// Classify the note's body before checking for an opening fence.
+		s = strings.TrimLeft(s[strings.IndexByte(s, ']')+2:], " \t")
 	}
 	if isCodeFenceOpen(s) {
 		t.fenceChar = s[0]
@@ -1798,10 +1803,6 @@ func (t *paragraphTip) feed(line string) {
 		}
 		t.open = false
 		return
-	}
-	if isFootnoteDefinition(s) {
-		// The note's own first paragraph is open when text follows the colon.
-		s = strings.TrimSpace(s[strings.IndexByte(s, ']')+2:])
 	}
 	t.open = s != "" && !isTableRow(s) && !isThematicBreak(s) && !isDivFenceOpen(s) &&
 		!isAttributeLine(s) && !isReferenceDefinition(s)

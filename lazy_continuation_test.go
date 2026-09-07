@@ -76,3 +76,25 @@ func TestLazyContinuationIntoNestedFootnote(t *testing.T) {
 		}
 	}
 }
+
+// Expected HTML comes from djot.js 0.3.2. Keep marker-only paragraph
+// text open, but do not lazily continue a nested footnote code block.
+func TestLazyContinuationMarkerTextAndNestedFootnoteFence(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"> a\n> -\nlazy\n", "<blockquote>\n<p>a\n-\nlazy</p>\n</blockquote>\n"},
+		{"> a\n> - - -\nlazy\n", "<blockquote>\n<p>a\n- - -\nlazy</p>\n</blockquote>\n"},
+		{"- a\n  -\nlazy\n", "<ul>\n<li>\na\n-\nlazy\n</li>\n</ul>\n"},
+		{"1. a\n   -\nlazy\n", "<ol>\n<li>\na\n-\nlazy\n</li>\n</ol>\n"},
+		{"- [ ] a\n  -\nlazy\n", "<ul class=\"task-list\">\n<li>\n<input disabled=\"\" type=\"checkbox\"/>\na\n-\nlazy\n</li>\n</ul>\n"},
+		{"> [^f]: ```\nlazy\n\nx[^f]\n", "<blockquote>\n</blockquote>\n<p>lazy</p>\n<p>x<a id=\"fnref1\" href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a></p>\n<section role=\"doc-endnotes\">\n<hr>\n<ol>\n<li id=\"fn1\">\n<pre><code></code></pre>\n<p><a href=\"#fnref1\" role=\"doc-backlink\">↩︎</a></p>\n</li>\n</ol>\n</section>\n"},
+		{"- [^f]: ```\nlazy\n\nx[^f]\n", "<ul>\n<li>\n</li>\n</ul>\n<p>lazy</p>\n<p>x<a id=\"fnref1\" href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a></p>\n<section role=\"doc-endnotes\">\n<hr>\n<ol>\n<li id=\"fn1\">\n<pre><code></code></pre>\n<p><a href=\"#fnref1\" role=\"doc-backlink\">↩︎</a></p>\n</li>\n</ol>\n</section>\n"},
+		{"> [^f]: ```\n>   code\n>   ```\nlazy\n\nx[^f]\n", "<blockquote>\n</blockquote>\n<p>lazy</p>\n<p>x<a id=\"fnref1\" href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a></p>\n<section role=\"doc-endnotes\">\n<hr>\n<ol>\n<li id=\"fn1\">\n<pre><code>code\n</code></pre>\n<p><a href=\"#fnref1\" role=\"doc-backlink\">↩︎</a></p>\n</li>\n</ol>\n</section>\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			if got := djot.RenderHTML(djot.Parse(tc.in)); got != tc.want {
+				t.Errorf("got\n%s\nwant\n%s", got, tc.want)
+			}
+		})
+	}
+}
