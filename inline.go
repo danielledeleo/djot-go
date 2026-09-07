@@ -57,6 +57,7 @@ func (p *inlineParser) parseInline(input string, doc *Doc, baseOffset, plainBrac
 	p.nodes = p.scratch[:0]
 	clear(p.openers)
 	clear(p.openerIdx)
+	p.closeBracketValid = false // offsets are relative to the previous input
 	p.doc = doc
 	p.baseOffset = baseOffset
 	p.plainBracesUntil = plainBracesUntil
@@ -73,16 +74,23 @@ type opener struct {
 }
 
 type inlineParser struct {
-	input      string
-	pos        int
-	nodes      []*parseNode
-	openers    map[byte][]opener
-	openerIdx  map[int]bool // set of nodeIdx values that are opener placeholders
-	doc        *Doc
-	baseOffset int             // source byte offset corresponding to input[0]
-	arena      *parseNodeArena // shared node allocator for the whole document
-	slices     nodeSliceArena  // shared allocator for child slices
-	scratch    []*parseNode    // reused node buffer across blocks
+	// closeBracketFrom/closeBracketAt memoize nextCloseBracket: for every
+	// start in [closeBracketFrom, closeBracketAt] the first ']' is at
+	// closeBracketAt (-1: none after closeBracketFrom). Without it a run of
+	// "[^" openers rescans the input once per opener.
+	closeBracketFrom  int
+	closeBracketAt    int
+	closeBracketValid bool
+	input             string
+	pos               int
+	nodes             []*parseNode
+	openers           map[byte][]opener
+	openerIdx         map[int]bool // set of nodeIdx values that are opener placeholders
+	doc               *Doc
+	baseOffset        int             // source byte offset corresponding to input[0]
+	arena             *parseNodeArena // shared node allocator for the whole document
+	slices            nodeSliceArena  // shared allocator for child slices
+	scratch           []*parseNode    // reused node buffer across blocks
 
 	plainBracesUntil int
 }
@@ -569,6 +577,19 @@ func (p *inlineParser) invalidateOpenersFrom(fromIdx int) {
 }
 
 func (p *inlineParser) parseBracketOpen() {
+	// "[^label]" is a footnote reference as soon as the opening bracket is
+	// seen, before any delimiter inside the label can pair with an earlier
+	// opener. The empty label and a label holding "[" keep the bracket path.
+	if p.pos+1 < len(p.input) && p.input[p.pos+1] == '^' {
+		if close := p.nextCloseBracket(p.pos + 2); close > p.pos+2 {
+			raw := p.input[p.pos+2 : close]
+			if !strings.Contains(raw, "[") {
+				p.add(parseNodeSpec{Kind: ast.KindFootnoteReference, Label: collapseWhitespace(raw), Start: p.srcPos(p.pos), End: p.srcPos(close + 1)})
+				p.pos = close + 1
+				return
+			}
+		}
+	}
 	idx := len(p.nodes)
 	p.add(parseNodeSpec{Kind: ast.KindText, Text: "["})
 	p.openerIdx[idx] = true
@@ -578,6 +599,20 @@ func (p *inlineParser) parseBracketOpen() {
 		nodeIdx: idx,
 	})
 	p.pos++
+}
+
+// nextCloseBracket returns the index of the first ']' at or after from, or -1.
+func (p *inlineParser) nextCloseBracket(from int) int {
+	if p.closeBracketValid && from >= p.closeBracketFrom &&
+		(p.closeBracketAt < 0 || from <= p.closeBracketAt) {
+		return p.closeBracketAt
+	}
+	at := strings.IndexByte(p.input[from:], ']')
+	if at >= 0 {
+		at += from
+	}
+	p.closeBracketFrom, p.closeBracketAt, p.closeBracketValid = from, at, true
+	return at
 }
 
 func (p *inlineParser) parseBracketClose() {
@@ -1339,17 +1374,15 @@ func isUnicodeWhitespace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
-// stripVerbatimSpaces strips one leading and one trailing space from verbatim
-// content, but only when the content starts or ends with a backtick after
-// stripping. This allows backticks at the edges of code spans.
+// stripVerbatimSpaces removes the single space that separates a delimiter
+// from content beginning or ending with a backtick. Each end is judged on its
+// own, so "` `a `" keeps its trailing space.
 func stripVerbatimSpaces(s string) string {
-	if len(s) < 2 || s[0] != ' ' || s[len(s)-1] != ' ' {
-		return s
+	if len(s) >= 2 && s[0] == ' ' && s[1] == '`' {
+		s = s[1:]
 	}
-	// Only strip if content after stripping would start or end with backtick.
-	inner := s[1 : len(s)-1]
-	if len(inner) > 0 && (inner[0] == '`' || inner[len(inner)-1] == '`') {
-		return inner
+	if n := len(s); n >= 2 && s[n-1] == ' ' && s[n-2] == '`' {
+		s = s[:n-1]
 	}
 	return s
 }
