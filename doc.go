@@ -18,6 +18,10 @@
 //	doc := djot.Parse(input)
 //	html := djot.RenderHTML(doc)
 //
+// [Parse] uses the default configuration. [NewParser] returns a [Parser]
+// configured by [ParseOption] values; a Parser is immutable and safe for
+// concurrent use.
+//
 // # Traversing the AST
 //
 // Package ast provides the mutable tree and traversal API. ast.Walk visits

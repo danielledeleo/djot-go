@@ -45,6 +45,15 @@ if err := djot.RenderHTMLTo(&output, doc); err != nil {
 fmt.Print(output.String())
 ```
 
+`Parse` uses the default configuration. To configure parsing, create a
+`Parser` with `NewParser` and call its `Parse` method. A `Parser` cannot be
+changed after it is created, so one can be shared across goroutines:
+
+```go
+parser := djot.NewParser()
+doc := parser.Parse(source)
+```
+
 Documents can be rendered repeatedly. An untouched parsed document uses the
 compact representation directly. `Root` materializes the typed tree; unchanged
 trees can still use compact rendering, while mutations become authoritative.

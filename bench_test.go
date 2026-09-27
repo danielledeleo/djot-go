@@ -425,28 +425,6 @@ func BenchmarkParseAndRender(b *testing.B) {
 }
 
 // ---------------------------------------------------------------------------
-// BenchmarkParseAttrs — attribute parsing
-// ---------------------------------------------------------------------------
-
-func BenchmarkParseAttrs(b *testing.B) {
-	for _, tc := range []struct {
-		name  string
-		input string
-	}{
-		{"Simple", `.class`},
-		{"Complex", `.class1 .class2 #id key1="val1" key2="val2"`},
-	} {
-		b.Run(tc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				_ = djot.ParseAttrs(tc.input)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
 // BenchmarkWalk — walk a parsed AST
 // ---------------------------------------------------------------------------
 

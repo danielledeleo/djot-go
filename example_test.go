@@ -16,6 +16,17 @@ func ExampleParse() {
 	// <p>Hello <strong>world</strong>!</p>
 }
 
+func ExampleNewParser() {
+	parser := djot.NewParser()
+	for _, source := range []string{"Hello *world*!", "Goodbye _world_."} {
+		fmt.Println(djot.RenderHTML(parser.Parse(source)))
+	}
+	// Output:
+	// <p>Hello <strong>world</strong>!</p>
+	//
+	// <p>Goodbye <em>world</em>.</p>
+}
+
 func ExampleRenderHTML() {
 	doc := djot.Parse("# Heading\n\nA paragraph with a [link](https://djot.net).\n")
 	fmt.Println(djot.RenderHTML(doc))

@@ -6,9 +6,40 @@ import (
 	"github.com/danielledeleo/djot-go/ast"
 )
 
+// ParseOption configures a [Parser]. Pass to [NewParser].
+type ParseOption func(*parseConfig)
+
+// parseConfig holds the settings a Parser applies. It has no fields yet; it
+// exists so that parsing settings can be added without changing the API.
+type parseConfig struct{}
+
+// Parser parses djot documents with a fixed configuration. A Parser is
+// immutable once created and safe for concurrent use by multiple goroutines.
+// The zero value parses with the default configuration, as [Parse] does.
+type Parser struct {
+	config parseConfig
+}
+
+// NewParser returns a Parser configured by opts.
+func NewParser(opts ...ParseOption) *Parser {
+	p := &Parser{}
+	for _, opt := range opts {
+		opt(&p.config)
+	}
+	return p
+}
+
+var defaultParser = NewParser()
+
+// Parse parses a djot document with the default configuration. It is
+// shorthand for NewParser().Parse(input); see [Parser.Parse].
+func Parse(input string) *Doc {
+	return defaultParser.Parse(input)
+}
+
 // Parse parses a djot document with resolved references, footnotes, and
 // auto-generated section IDs. The mutable AST is materialized lazily by Root.
-func Parse(input string) *Doc {
+func (p *Parser) Parse(input string) *Doc {
 	input = strings.ReplaceAll(input, "\r\n", "\n")
 	input = strings.ReplaceAll(input, "\r", "\n")
 

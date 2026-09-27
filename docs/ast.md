@@ -149,13 +149,6 @@ Available operations include `Get`, `Lookup`, `Set`, `Delete`, `AddClass`,
 `Len`, `Range`, `Entries`, and `Clone`. `Set` rejects keys outside the djot
 attribute-name grammar and leaves the collection unchanged.
 
-Use `djot.ParseAttrs` to parse djot attribute syntax without parsing a complete
-document:
-
-```go
-values := djot.ParseAttrs(`.warning #notice role="note"`)
-```
-
 ## Source positions
 
 Node spans are half-open byte ranges. Resolve a position through the document's

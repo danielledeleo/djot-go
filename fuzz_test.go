@@ -49,27 +49,6 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
-func FuzzParseAttrs(f *testing.F) {
-	seeds := []string{
-		".class",
-		"#id",
-		"key=value",
-		`key="quoted value"`,
-		".class #id key=val",
-		"",
-		"%%%",
-		`key="unclosed`,
-		".a .b .c #d #e",
-		"key=bare",
-	}
-	for _, s := range seeds {
-		f.Add(s)
-	}
-	f.Fuzz(func(t *testing.T, input string) {
-		_ = djot.ParseAttrs(input)
-	})
-}
-
 func FuzzWalk(f *testing.F) {
 	f.Add("# Hello\n\n*world*\n\n- a\n- b")
 	f.Add("| a | b |\n|---|---|\n| c | d |\n\ntext[^1]\n\n[^1]: footnote")

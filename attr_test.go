@@ -4,6 +4,12 @@ import (
 	"testing"
 )
 
+// parseAttrs returns just the attribute map from parseAttrsOrdered.
+func parseAttrs(input string) map[string]string {
+	attrs, _ := parseAttrsOrdered(input)
+	return attrs
+}
+
 func TestParseAttrs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -183,7 +189,7 @@ func TestParseAttrs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ParseAttrs(tt.input)
+			got := parseAttrs(tt.input)
 
 			if tt.expected == nil {
 				if got != nil {
@@ -215,11 +221,11 @@ func TestParseAttrs(t *testing.T) {
 // literal text rather than being consumed. Accepting it silently swallowed the
 // line, since an attribute block that attaches to nothing renders as nothing.
 func TestSingleQuotedAttributeValueIsNotAnAttribute(t *testing.T) {
-	if got := ParseAttrs("key='single quoted'"); got != nil {
-		t.Errorf("ParseAttrs accepted a single-quoted value: %v", got)
+	if got := parseAttrs("key='single quoted'"); got != nil {
+		t.Errorf("parseAttrs accepted a single-quoted value: %v", got)
 	}
-	if got := ParseAttrs(`key="double quoted"`); got["key"] != "double quoted" {
-		t.Errorf("ParseAttrs(double quoted) = %v, want key=\"double quoted\"", got)
+	if got := parseAttrs(`key="double quoted"`); got["key"] != "double quoted" {
+		t.Errorf("parseAttrs(double quoted) = %v, want key=\"double quoted\"", got)
 	}
 
 	// The line survives instead of disappearing. Expected output is djot.js's.
@@ -227,5 +233,44 @@ func TestSingleQuotedAttributeValueIsNotAnAttribute(t *testing.T) {
 	const want = "<p>text\n{key=\u2019single quoted\u2019\nmore</p>\n"
 	if got := RenderHTML(Parse(in)); got != want {
 		t.Errorf("input %q:\nwant: %q\n got: %q", in, want, got)
+	}
+}
+
+func FuzzParseAttrs(f *testing.F) {
+	seeds := []string{
+		".class",
+		"#id",
+		"key=value",
+		`key="quoted value"`,
+		".class #id key=val",
+		"",
+		"%%%",
+		`key="unclosed`,
+		".a .b .c #d #e",
+		"key=bare",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _ = parseAttrsOrdered(input)
+	})
+}
+
+func BenchmarkParseAttrs(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"Simple", `.class`},
+		{"Complex", `.class1 .class2 #id key1="val1" key2="val2"`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, _ = parseAttrsOrdered(tc.input)
+			}
+		})
 	}
 }

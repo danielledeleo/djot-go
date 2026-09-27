@@ -1,15 +1,8 @@
 package djot
 
-// ParseAttrs parses a djot attribute string like `.class #id key="value"`.
-// The input should NOT include the surrounding braces.
-// Returns the parsed attributes, or nil if the input is invalid.
-func ParseAttrs(input string) map[string]string {
-	attrs, _ := parseAttrsOrdered(input)
-	return attrs
-}
-
-// parseAttrsOrdered parses a djot attribute string and returns both the
-// attribute map and the key insertion order.
+// parseAttrsOrdered parses a djot attribute string like `.class #id key="value"`,
+// without the surrounding braces, and returns both the attribute map and the
+// key insertion order. The map is nil if the input is invalid.
 func parseAttrsOrdered(input string) (map[string]string, []string) {
 	p := attrParser{input: input}
 	return p.parse()
