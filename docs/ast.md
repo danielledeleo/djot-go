@@ -151,24 +151,25 @@ attribute-name grammar and leaves the collection unchanged.
 
 ## Source positions
 
-Node spans are half-open byte ranges. Resolve a position through the document's
-source-file table:
+Node spans are half-open byte ranges. Resolve a position to a line and column
+through the document:
 
 ```go
 doc := djot.Parse("# Heading")
 section := doc.Root().Children[0].(*ast.Section)
 heading := section.Children[0].(*ast.Heading)
-file, line, column := doc.Position(heading.Span().Start)
-fmt.Printf("%s:%d:%d\n", file, line, column)
+pos := doc.Position(heading.Span().Start)
+fmt.Printf("%d:%d\n", pos.Line, pos.Column)
 ```
 
 Line and column are one-based. `ast.Pos.Offset` is a byte offset, which matters
 for UTF-8 input. The text and JSON AST output retain the djot.js convention
 of inclusive inline end offsets; use `Span` when slicing source text.
 
-Position lookups and positioned AST rendering support concurrent reads.
-`ast.FileInfo` caches its line index on first use: do not copy a `FileInfo`
-after calling `Position`, or change its `Source` after lookups begin.
+`Position` returns the zero `ast.Position` when the offset is outside the
+source, or when the document has no source text, as for one built with
+`djot.NewDoc`. Position lookups and positioned AST rendering support concurrent
+reads.
 
 ## References and footnotes
 

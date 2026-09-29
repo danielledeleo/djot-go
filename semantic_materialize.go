@@ -227,8 +227,7 @@ func (t *semanticTape) matchNode(node ast.Node, index int) (int, bool) {
 	}
 	position := t.positions[index]
 	span := node.Span()
-	if span.Start.File != 0 || span.End.File != 0 ||
-		span.Start.Offset != int(position.start) || span.End.Offset != int(position.end) {
+	if span.Start.Offset != int(position.start) || span.End.Offset != int(position.end) {
 		return index, false
 	}
 

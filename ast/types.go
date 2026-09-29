@@ -1,7 +1,5 @@
 package ast
 
-import "sync"
-
 // Kind identifies the type of a syntax-tree node.
 type Kind int
 
@@ -67,53 +65,17 @@ const (
 	KindEnDash   // KindEnDash represents a smart en-dash (--).
 )
 
-// Pos identifies a byte position in a source file. Use djot.Doc.Position to
-// resolve it to a human-readable filename, line, and column.
+// Pos identifies a byte offset in the parsed source. Use djot.Doc.Position to
+// resolve it to a line and column.
 type Pos struct {
-	File   FileID
 	Offset int
 }
 
-// FileID identifies a source file in the document's file table.
-type FileID uint16
-
-// FileInfo describes a source file used during parsing.
-// It must not be copied after the first call to Position. Source must not be
-// modified after position lookup begins.
-type FileInfo struct {
-	Path           string
-	Source         []byte
-	lineStarts     []int // lazily computed
-	lineStartsOnce sync.Once
-}
-
-// Position resolves a byte offset to a 1-based line and column.
-func (fi *FileInfo) Position(offset int) (line, col int) {
-	fi.ensureLineStarts()
-	// Binary search for the line containing offset.
-	lo, hi := 0, len(fi.lineStarts)
-	for lo < hi {
-		mid := lo + (hi-lo)/2
-		if fi.lineStarts[mid] <= offset {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-	line = lo // 1-based: lineStarts[0] is line 1
-	col = offset - fi.lineStarts[line-1] + 1
-	return line, col
-}
-
-func (fi *FileInfo) ensureLineStarts() {
-	fi.lineStartsOnce.Do(func() {
-		fi.lineStarts = []int{0}
-		for i, b := range fi.Source {
-			if b == '\n' {
-				fi.lineStarts = append(fi.lineStarts, i+1)
-			}
-		}
-	})
+// Position is a human-readable source location. Line and Column are one-based;
+// Column counts bytes. The zero Position means the location is unknown.
+type Position struct {
+	Line   int
+	Column int
 }
 
 // ListStyle describes the marker type for an ordered list.

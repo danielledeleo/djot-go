@@ -225,8 +225,8 @@ func TestDivRenderer(t *testing.T) {
 	t.Run("mutated span is authoritative", func(t *testing.T) {
 		doc := djot.Parse("::: note\ntext\n:::\n")
 		want := ast.SourceSpan{
-			Start: ast.Pos{File: 1, Offset: 7},
-			End:   ast.Pos{File: 1, Offset: 19},
+			Start: ast.Pos{Offset: 7},
+			End:   ast.Pos{Offset: 19},
 		}
 		ast.Preorder(doc.Root(), func(node ast.Node) bool {
 			if _, ok := node.(*ast.Div); ok {

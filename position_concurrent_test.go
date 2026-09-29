@@ -20,9 +20,8 @@ func TestConcurrentPositionReads(t *testing.T) {
 			<-start
 			switch i % 3 {
 			case 0:
-				_, line, col := doc.Position(ast.Pos{Offset: 3000})
-				if line != 501 || col != 1 {
-					t.Errorf("position = %d:%d, want 501:1", line, col)
+				if got := doc.Position(ast.Pos{Offset: 3000}); got != (ast.Position{Line: 501, Column: 1}) {
+					t.Errorf("position = %d:%d, want 501:1", got.Line, got.Column)
 				}
 			case 1:
 				djot.RenderAST(doc, true)

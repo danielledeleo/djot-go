@@ -10,7 +10,7 @@ import (
 // rendered directly; Root, Footnotes, and References materialize typed views on
 // demand.
 type Doc struct {
-	Files []ast.FileInfo
+	source *sourceFile
 
 	mu            sync.RWMutex
 	root          *ast.Document
@@ -64,11 +64,15 @@ func (d *Doc) semanticRenderSnapshot() (tape *semanticTape, root *ast.Document, 
 	return d.semantic, d.root, false
 }
 
-// Position resolves a source position to a filename, line, and column.
-func (d *Doc) Position(position ast.Pos) (file string, line, col int) {
-	info := &d.Files[position.File]
-	line, col = info.Position(position.Offset)
-	return info.Path, line, col
+// Position resolves a source position to a line and column. It returns the
+// zero Position when the document has no source text, as for one built with
+// NewDoc, or when the offset lies outside the source.
+func (d *Doc) Position(position ast.Pos) ast.Position {
+	if d.source == nil || position.Offset < 0 || position.Offset > len(d.source.text) {
+		return ast.Position{}
+	}
+	line, col := d.source.position(position.Offset)
+	return ast.Position{Line: line, Column: col}
 }
 
 // Footnotes returns a newly built footnote-definition index for the current

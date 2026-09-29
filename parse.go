@@ -49,7 +49,7 @@ func (p *Parser) Parse(input string) *Doc {
 
 	doc := &Doc{
 		parseRoot:       root,
-		Files:           []ast.FileInfo{{Path: "<input>", Source: []byte(input)}},
+		source:          &sourceFile{text: input},
 		parseReferences: bp.references,
 	}
 

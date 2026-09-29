@@ -75,14 +75,14 @@ func astJSONNode(doc *Doc, n ast.Node, positions bool) *jsonObj {
 }
 
 func astJSONPos(doc *Doc, n ast.Node) *jsonObj {
-	if doc == nil || len(doc.Files) == 0 {
+	if doc == nil || doc.source == nil {
 		return nil
 	}
 	span := n.Span()
-	fi := &doc.Files[span.Start.File]
-	sLine, sCol := fi.Position(span.Start.Offset)
+	src := doc.source
+	sLine, sCol := src.position(span.Start.Offset)
 	endOffset := astOutputEnd(n)
-	eLine, eCol := astEndPosition(fi, endOffset)
+	eLine, eCol := astEndPosition(src, endOffset)
 
 	start := &jsonObj{}
 	start.set("line", sLine)

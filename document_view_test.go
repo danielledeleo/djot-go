@@ -286,9 +286,9 @@ func TestDocumentViewAnchorParityAndDuplicates(t *testing.T) {
 
 func TestDocumentViewUsesMutatedSpans(t *testing.T) {
 	doc := djot.Parse("# heading\n\n{#box}\n::: note\ntext\n:::\n\nreference[^a]\n\n[^a]: body\n")
-	wantHeading := ast.SourceSpan{Start: ast.Pos{File: 1, Offset: 10}, End: ast.Pos{File: 1, Offset: 20}}
-	wantDiv := ast.SourceSpan{Start: ast.Pos{File: 2, Offset: 30}, End: ast.Pos{File: 2, Offset: 40}}
-	wantFootnote := ast.SourceSpan{Start: ast.Pos{File: 3, Offset: 50}, End: ast.Pos{File: 3, Offset: 60}}
+	wantHeading := ast.SourceSpan{Start: ast.Pos{Offset: 10}, End: ast.Pos{Offset: 20}}
+	wantDiv := ast.SourceSpan{Start: ast.Pos{Offset: 30}, End: ast.Pos{Offset: 40}}
+	wantFootnote := ast.SourceSpan{Start: ast.Pos{Offset: 50}, End: ast.Pos{Offset: 60}}
 	ast.Preorder(doc.Root(), func(node ast.Node) bool {
 		switch node.(type) {
 		case *ast.Heading:
@@ -502,7 +502,7 @@ func FuzzDocumentViewMatchesTree(f *testing.F) {
 		render := func(doc *djot.Doc, forceTree bool) (string, summary) {
 			var result summary
 			if forceTree {
-				ast.SetSpan(doc.Root(), ast.SourceSpan{Start: ast.Pos{File: 1}})
+				ast.SetSpan(doc.Root(), ast.SourceSpan{Start: ast.Pos{Offset: 1}})
 			}
 			options := []djot.RenderOption{djot.WithDocumentRenderer(func(document djot.DocumentView, r djot.DocumentRenderer) {
 				for kind := ast.KindDocument; kind <= ast.KindEnDash; kind++ {

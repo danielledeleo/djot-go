@@ -19,8 +19,8 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 		case ast.KindParagraph, ast.KindHeading, ast.KindTerm, ast.KindTableCell, ast.KindCaption:
 			if n.Text != "" {
 				baseOffset := n.Start.Offset
-				if n.Kind == ast.KindHeading && doc != nil && len(doc.Files) > 0 {
-					src := doc.Files[0].Source
+				if n.Kind == ast.KindHeading && doc != nil && doc.source != nil {
+					src := doc.source.text
 					off := n.Start.Offset
 					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
 						off++
@@ -32,8 +32,8 @@ func parseAllInlines(root *parseNode, doc *Doc, arena *parseNodeArena) {
 						off++
 					}
 					baseOffset = off
-				} else if n.Kind == ast.KindParagraph && doc != nil && len(doc.Files) > 0 {
-					src := doc.Files[0].Source
+				} else if n.Kind == ast.KindParagraph && doc != nil && doc.source != nil {
+					src := doc.source.text
 					off := n.Start.Offset
 					for off < len(src) && (src[off] == ' ' || src[off] == '\t') {
 						off++

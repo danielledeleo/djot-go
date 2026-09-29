@@ -5,17 +5,34 @@ import (
 	"testing"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/ast"
 )
 
 func TestDocPosition(t *testing.T) {
 	doc := djot.Parse("hello\nworld\nthird")
-	// "world" starts at offset 6, which is line 2, col 1.
-	file, line, col := doc.Position(doc.Root().Children[0].Span().Start)
-	if file != "<input>" {
-		t.Errorf("file = %q, want <input>", file)
+	for _, tt := range []struct {
+		offset int
+		want   ast.Position
+	}{
+		{0, ast.Position{Line: 1, Column: 1}},
+		{6, ast.Position{Line: 2, Column: 1}}, // "world"
+		{8, ast.Position{Line: 2, Column: 3}},
+		{17, ast.Position{Line: 3, Column: 6}}, // end of input
+		{18, ast.Position{}},                   // past the end
+		{-1, ast.Position{}},
+	} {
+		if got := doc.Position(ast.Pos{Offset: tt.offset}); got != tt.want {
+			t.Errorf("Position(%d) = %+v, want %+v", tt.offset, got, tt.want)
+		}
 	}
-	if line != 1 || col != 1 {
-		t.Errorf("position = %d:%d, want 1:1", line, col)
+}
+
+// A document built from a tree has no source text. Position used to index an
+// empty file table and panic here.
+func TestDocPositionWithoutSource(t *testing.T) {
+	doc := djot.NewDoc(&ast.Document{})
+	if got := doc.Position(ast.Pos{}); got != (ast.Position{}) {
+		t.Errorf("Position = %+v, want the zero Position", got)
 	}
 }
 
