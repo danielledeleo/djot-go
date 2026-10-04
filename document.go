@@ -22,9 +22,15 @@ type Doc struct {
 	parseReferences map[string]*parseNode
 }
 
-// NewDoc constructs a document from an existing mutable typed tree.
+// NewDoc constructs a document from an existing mutable typed tree. The tree
+// is compiled into the compact form, so an unchanged tree renders without the
+// typed-tree renderer.
 func NewDoc(root *ast.Document) *Doc {
-	return &Doc{root: root, rootRequested: true}
+	d := &Doc{root: root, rootRequested: true}
+	if root != nil {
+		d.semantic = compileSemanticTape(root, nil)
+	}
+	return d
 }
 
 // Root returns the shared mutable typed tree, materializing it on first use.
