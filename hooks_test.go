@@ -269,13 +269,7 @@ func TestElementHooksRejectSyntheticRoots(t *testing.T) {
 	}{
 		{"node document", func() { djot.WithNodeRenderer(ast.KindDocument, func(ast.Node, djot.NodeRenderer) {}) }},
 		{"node footnote", func() { djot.WithNodeRenderer(ast.KindFootnote, func(ast.Node, djot.NodeRenderer) {}) }},
-		{"subtree document", func() { djot.WithSubtreeRenderer(ast.KindDocument, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
-		{"subtree footnote", func() { djot.WithSubtreeRenderer(ast.KindFootnote, func(djot.SubtreeView, djot.ElementRenderer) {}) }},
 		{"nil node", func() { djot.WithNodeRenderer(ast.KindParagraph, nil) }},
-		{"nil subtree", func() { djot.WithSubtreeRenderer(ast.KindParagraph, nil) }},
-		{"nil symbol", func() { djot.WithSymbolRenderer(nil) }},
-		{"nil div", func() { djot.WithDivRenderer(nil) }},
-		{"nil document", func() { djot.WithDocumentRenderer(nil) }},
 		{"nil footnote id", func() { djot.WithFootnoteID(nil) }},
 		{"nil footnote ref id", func() { djot.WithFootnoteRefID(nil) }},
 		{"nil backlink label", func() { djot.WithFootnoteBacklinkLabel(nil) }},

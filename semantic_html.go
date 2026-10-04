@@ -47,10 +47,6 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 }
 
 type semanticRenderHooks struct {
-	elements              elementHooks
-	subtrees              map[ast.Kind]SubtreeRenderFunc
-	document              DocumentRenderFunc
-	doc                   *Doc
 	multiBacklinks        bool
 	footnoteID            func(int) string
 	footnoteRefID         func(int, int) string
@@ -109,18 +105,6 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 }
 
 func (r *semanticHTMLRenderer) renderDocument() {
-	if r.hooks == nil || r.hooks.document == nil {
-		r.renderDocumentDefault()
-		return
-	}
-	state := documentViewState{root: ElementView{tape: r.tape, record: 0}, semantic: r, doc: r.hooks.doc}
-	r.hooks.document(
-		DocumentView{state: &state},
-		DocumentRenderer{semantic: r},
-	)
-}
-
-func (r *semanticHTMLRenderer) renderDocumentDefault() {
 	clear(r.fnrefSeen)
 	r.tight = false
 	r.renderChildren(0)
@@ -281,43 +265,6 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		defer func() { r.tight = previous }()
 	}
 
-	switch r.kind(i) {
-	case ast.KindSymbol:
-		if r.hooks != nil && r.hooks.elements.symbol != nil {
-			r.hooks.elements.symbol(
-				SymbolView{Name: r.tape.text(r.tape.records[i].payload)},
-				ElementRenderer{semantic: r, record: i},
-			)
-			return
-		}
-	case ast.KindDiv:
-		if r.hooks != nil && r.hooks.elements.div != nil {
-			record := r.tape.records[i]
-			position := r.tape.positions[i]
-			r.hooks.elements.div(
-				DivView{
-					attributes: AttributeView{
-						tape: r.tape, start: record.attrStart, end: r.tape.records[i+1].attrStart,
-					},
-					span: ast.SourceSpan{
-						Start: ast.Pos{Offset: int(position.start)},
-						End:   ast.Pos{Offset: int(position.end)},
-					},
-				},
-				ElementRenderer{semantic: r, record: i},
-			)
-			return
-		}
-	}
-	if r.hooks != nil {
-		if fn, ok := r.hooks.subtrees[r.kind(i)]; ok {
-			fn(
-				SubtreeView{root: ElementView{tape: r.tape, record: i}},
-				ElementRenderer{semantic: r, record: i},
-			)
-			return
-		}
-	}
 	r.renderDefault(i)
 }
 
@@ -612,7 +559,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 }
 
 func (r *semanticHTMLRenderer) collectText(i int) string {
-	return collectDocumentText(ElementView{tape: r.tape, record: i})
+	return collectDocumentText(textElement{tape: r.tape, record: i})
 }
 
 func (r *semanticHTMLRenderer) renderFootnotes() {

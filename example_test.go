@@ -2,7 +2,6 @@ package djot_test
 
 import (
 	"fmt"
-	"html"
 	"os"
 
 	"github.com/danielledeleo/djot-go"
@@ -96,130 +95,6 @@ func ExampleWithNodeRenderer() {
 	fmt.Println(html)
 	// Output:
 	// <p>Visit <a href="https://djot.net" target="_blank">djot</a>.</p>
-}
-
-func ExampleWithSymbolRenderer() {
-	doc := djot.Parse("Launch :rocket: or keep :unknown:.")
-	html := djot.RenderHTML(doc, djot.WithSymbolRenderer(func(symbol djot.SymbolView, r djot.ElementRenderer) {
-		if symbol.Name == "rocket" {
-			r.Write("🚀")
-			return
-		}
-		r.Default()
-	}))
-	fmt.Println(html)
-	// Output:
-	// <p>Launch 🚀 or keep :unknown:.</p>
-}
-
-func ExampleWithDivRenderer() {
-	doc := djot.Parse("::: warning\nBe careful.\n:::\n")
-	html := djot.RenderHTML(doc, djot.WithDivRenderer(func(div djot.DivView, r djot.ElementRenderer) {
-		if div.Attributes().Get("class") != "warning" {
-			r.Default()
-			return
-		}
-		r.Write(`<aside class="warning">`)
-		r.Children()
-		r.Write("</aside>")
-	}))
-	fmt.Println(html)
-	// Output:
-	// <aside class="warning"><p>Be careful.</p>
-	// </aside>
-}
-
-func ExampleWithSubtreeRenderer() {
-	doc := djot.Parse("::: example\n``` go\nfmt.Println()\n```\n:::\n")
-	html := djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindDiv,
-		func(subtree djot.SubtreeView, r djot.ElementRenderer) {
-			if subtree.Contains(ast.KindCodeBlock) {
-				r.Write(`<section class="contains-code">`)
-				r.Children()
-				r.Write("</section>")
-				return
-			}
-			r.Default()
-		},
-	))
-	fmt.Println(html)
-	// Output:
-	// <section class="contains-code"><pre><code class="language-go">fmt.Println()
-	// </code></pre>
-	// </section>
-}
-
-func ExampleWithDocumentRenderer() {
-	doc := djot.Parse("# One\n")
-	rendered := djot.RenderHTML(doc, djot.WithDocumentRenderer(
-		func(document djot.DocumentView, r djot.DocumentRenderer) {
-			heading := document.Headings()[0]
-			r.Write(`<nav><a href="#` + html.EscapeString(heading.ID()) + `">`)
-			r.Write(html.EscapeString(heading.Plaintext()) + `</a></nav>`)
-			r.Write("\n")
-			r.Default()
-		},
-	))
-	fmt.Println(rendered)
-	// Output:
-	// <nav><a href="#One">One</a></nav>
-	// <section id="One">
-	// <h1>One</h1>
-	// </section>
-}
-
-func ExampleDocumentView_Count() {
-	doc := djot.Parse("# One\n\n## Two\n")
-	var headings int
-	var hasCode bool
-	djot.RenderHTML(doc, djot.WithDocumentRenderer(
-		func(document djot.DocumentView, _ djot.DocumentRenderer) {
-			headings = document.Count(ast.KindHeading)
-			hasCode = document.Contains(ast.KindCodeBlock)
-		},
-	))
-	fmt.Println(headings, hasCode)
-	// Output: 2 false
-}
-
-func ExampleDocumentView_Footnotes() {
-	doc := djot.Parse("one[^a] two[^a]\n\n[^a]: note\n")
-	var number, references int
-	djot.RenderHTML(doc, djot.WithDocumentRenderer(
-		func(document djot.DocumentView, _ djot.DocumentRenderer) {
-			footnote := document.Footnotes()[0]
-			number = footnote.Number()
-			references = footnote.ReferenceCount()
-		},
-	))
-	fmt.Println(number, references)
-	// Output: 1 2
-}
-
-func ExampleDocumentView_References() {
-	doc := djot.Parse("[project]: https://djot.net\n\n[Djot][project]\n")
-	var destination string
-	djot.RenderHTML(doc, djot.WithDocumentRenderer(
-		func(document djot.DocumentView, _ djot.DocumentRenderer) {
-			destination = document.References()[0].Destination()
-		},
-	))
-	fmt.Println(destination)
-	// Output: https://djot.net
-}
-
-func ExampleDocumentView_Anchors() {
-	doc := djot.Parse("# One\n\n## Two\n")
-	var anchors []string
-	djot.RenderHTML(doc, djot.WithDocumentRenderer(
-		func(document djot.DocumentView, _ djot.DocumentRenderer) {
-			for _, anchor := range document.Anchors() {
-				anchors = append(anchors, anchor.ID())
-			}
-		},
-	))
-	fmt.Println(anchors)
-	// Output: [One Two]
 }
 
 func ExampleRenderAST() {

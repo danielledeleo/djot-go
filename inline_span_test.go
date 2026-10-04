@@ -26,11 +26,6 @@ func TestInlineSpansAreHalfOpen(t *testing.T) {
 					t.Fatalf("source slice = %q, want %q", got, input)
 				}
 			}
-			// Inspect the compact backend before requesting the mutable tree.
-			djot.RenderHTML(doc, djot.WithSubtreeRenderer(ast.KindParagraph, func(view djot.SubtreeView, r djot.ElementRenderer) {
-				view.Descendants(func(element djot.ElementView) bool { check(element.Span()); return false })
-				r.Default()
-			}))
 			paragraph := doc.Root().Children[0].(*ast.Paragraph)
 			check(paragraph.Children[0].Span())
 		})

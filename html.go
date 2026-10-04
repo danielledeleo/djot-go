@@ -38,298 +38,12 @@ type NodeRenderer interface {
 	Default()
 }
 
-// SymbolView is a value view of a Djot symbol. Changing the value does not
-// modify the parsed document.
-type SymbolView struct {
-	Name string
-}
-
-// SymbolRenderFunc overrides rendering for a symbol without requiring callers
-// to materialize or traverse the typed AST. Use the renderer to write a
-// replacement or call [ElementRenderer.Default] to preserve the built-in
-// :name: rendering. Returning without doing either suppresses the symbol.
-type SymbolRenderFunc func(symbol SymbolView, renderer ElementRenderer)
-
-// AttributeView is a read-only, allocation-free view of ordered attributes on
-// an element or compact index entry. The view is valid only for the duration of
-// its render callback.
-type AttributeView struct {
-	tape                *semanticTape
-	referenceAttributes []semanticAttribute
-	attributes          *ast.Attributes
-	start               uint32
-	end                 uint32
-}
-
-// Len returns the number of attributes.
-func (a AttributeView) Len() int {
-	if a.tape != nil {
-		return int(a.end - a.start)
-	}
-	if a.referenceAttributes != nil {
-		return len(a.referenceAttributes)
-	}
-	return a.attributes.Len()
-}
-
-// Get returns the value associated with key, or an empty string when absent.
-func (a AttributeView) Get(key string) string {
-	value, _ := a.Lookup(key)
-	return value
-}
-
-// Lookup returns the value associated with key and whether it is present.
-func (a AttributeView) Lookup(key string) (string, bool) {
-	if a.tape != nil {
-		for i := a.start; i < a.end; i++ {
-			attribute := a.tape.attributes[i]
-			if attribute.key == key {
-				return attribute.value, true
-			}
-		}
-		return "", false
-	}
-	for _, attribute := range a.referenceAttributes {
-		if attribute.key == key {
-			return attribute.value, true
-		}
-	}
-	return a.attributes.Lookup(key)
-}
-
-// Range calls fn for each attribute in source order, stopping when fn returns
-// false.
-func (a AttributeView) Range(fn func(ast.Attribute) bool) {
-	if a.tape != nil {
-		for i := a.start; i < a.end; i++ {
-			attribute := a.tape.attributes[i]
-			if !fn(ast.Attribute{Key: attribute.key, Value: attribute.value}) {
-				return
-			}
-		}
-		return
-	}
-	for _, attribute := range a.referenceAttributes {
-		if !fn(ast.Attribute{Key: attribute.key, Value: attribute.value}) {
-			return
-		}
-	}
-	if a.referenceAttributes != nil {
-		return
-	}
-	a.attributes.Range(fn)
-}
-
-// DivView is a value view of a Djot div. It exposes local metadata while
-// [ElementRenderer.Children] streams the div's existing children.
-type DivView struct {
-	attributes AttributeView
-	span       ast.SourceSpan
-}
-
-// Attributes returns the div's read-only ordered attributes.
-func (d DivView) Attributes() AttributeView { return d.attributes }
-
-// Span returns the div's half-open source range.
-func (d DivView) Span() ast.SourceSpan { return d.span }
-
-// DivRenderFunc overrides rendering for a div without materializing the typed
-// AST. Call [ElementRenderer.Children] to render its children without the
-// built-in div wrapper, or [ElementRenderer.Default] to keep that wrapper.
-type DivRenderFunc func(div DivView, renderer ElementRenderer)
-
-// ElementView is a compact, read-only view used while inspecting a subtree.
-// It exposes metadata shared by every Djot element without exposing mutable
-// Nodes. The value is valid only during its subtree callback.
-type ElementView struct {
-	tape   *semanticTape
-	node   ast.Node
-	record int
-}
-
-// Kind returns the element kind.
-func (e ElementView) Kind() ast.Kind {
-	if e.tape != nil {
-		return ast.Kind(e.tape.records[e.record].kind)
-	}
-	if e.node == nil {
-		return ast.KindDocument
-	}
-	return e.node.Kind()
-}
-
-// Span returns the element's half-open source range.
-func (e ElementView) Span() ast.SourceSpan {
-	if e.tape != nil {
-		position := e.tape.positions[e.record]
-		return ast.SourceSpan{
-			Start: ast.Pos{Offset: int(position.start)},
-			End:   ast.Pos{Offset: int(position.end)},
-		}
-	}
-	if e.node == nil {
-		return ast.SourceSpan{}
-	}
-	return e.node.Span()
-}
-
-// Attributes returns the element's read-only ordered attributes.
-func (e ElementView) Attributes() AttributeView {
-	if e.tape != nil {
-		record := e.tape.records[e.record]
-		return AttributeView{
-			tape: e.tape, start: record.attrStart, end: e.tape.records[e.record+1].attrStart,
-		}
-	}
-	if e.node == nil {
-		return AttributeView{}
-	}
-	return AttributeView{attributes: e.node.Attributes()}
-}
-
-// Symbol returns the symbol view when the element is a symbol.
-func (e ElementView) Symbol() (SymbolView, bool) {
-	if e.Kind() != ast.KindSymbol {
-		return SymbolView{}, false
-	}
-	if e.tape != nil {
-		return SymbolView{Name: e.tape.text(e.tape.records[e.record].payload)}, true
-	}
-	return SymbolView{Name: e.node.(*ast.Symbol).Name}, true
-}
-
-// SubtreeView is a bounded, read-only view of one element and all its
-// descendants. Traversal reads the compact semantic tape when possible and
-// never materializes Nodes solely for inspection. The view is valid only for
-// the duration of its render callback.
-type SubtreeView struct {
-	root ElementView
-}
-
-// Root returns the element at the root of the bounded subtree.
-func (s SubtreeView) Root() ElementView { return s.root }
-
-// Preorder visits the root and its descendants in document order. Returning
-// false stops the traversal.
-func (s SubtreeView) Preorder(visit func(ElementView) bool) {
-	if s.root.tape != nil {
-		end := int(s.root.tape.records[s.root.record].subtreeEnd)
-		for i := s.root.record; i < end; i++ {
-			if !visit(ElementView{tape: s.root.tape, record: i}) {
-				return
-			}
-		}
-		return
-	}
-	if s.root.node != nil {
-		ast.Preorder(s.root.node, func(node ast.Node) bool {
-			return visit(ElementView{node: node})
-		})
-	}
-}
-
-// Descendants visits descendants in document order, excluding the subtree
-// root. Returning false stops the traversal.
-func (s SubtreeView) Descendants(visit func(ElementView) bool) {
-	if s.root.tape != nil {
-		end := int(s.root.tape.records[s.root.record].subtreeEnd)
-		for i := s.root.record + 1; i < end; i++ {
-			if !visit(ElementView{tape: s.root.tape, record: i}) {
-				return
-			}
-		}
-		return
-	}
-	if s.root.node != nil {
-		keepGoing := true
-		ast.ForEachChild(s.root.node, func(child ast.Node) {
-			if keepGoing {
-				ast.Preorder(child, func(node ast.Node) bool {
-					keepGoing = visit(ElementView{node: node})
-					return keepGoing
-				})
-			}
-		})
-	}
-}
-
-// Contains reports whether a descendant has kind. The subtree root itself is
-// excluded.
-func (s SubtreeView) Contains(kind ast.Kind) bool {
-	if s.root.tape != nil {
-		end := int(s.root.tape.records[s.root.record].subtreeEnd)
-		for i := s.root.record + 1; i < end; i++ {
-			if ast.Kind(s.root.tape.records[i].kind) == kind {
-				return true
-			}
-		}
-		return false
-	}
-	found := false
-	s.Descendants(func(element ElementView) bool {
-		found = element.Kind() == kind
-		return !found
-	})
-	return found
-}
-
-// SubtreeRenderFunc overrides rendering after inspecting a bounded subtree.
-// The view is read-only; use [ElementRenderer.Children] to replay its children
-// through the complete hook pipeline.
-type SubtreeRenderFunc func(subtree SubtreeView, renderer ElementRenderer)
-
-// ElementRenderer controls output from a compact element rendering hook. It
-// uses the semantic tape when possible and the typed tree when required. The
-// value is valid only during its callback; its zero value emits no output.
-type ElementRenderer struct {
-	semantic *semanticHTMLRenderer
-	tree     *htmlRenderer
-	record   int
-	node     ast.Node
-}
-
-// Write emits raw HTML.
-func (r ElementRenderer) Write(s string) {
-	if r.semantic != nil {
-		r.semantic.write(s)
-	} else if r.tree != nil {
-		r.tree.write(s)
-	}
-}
-
-// Children renders the element's children through the complete hook pipeline.
-func (r ElementRenderer) Children() {
-	if r.semantic != nil {
-		r.semantic.renderChildren(r.record)
-	} else if r.tree != nil && r.node != nil {
-		ast.ForEachChild(r.node, r.tree.renderNode)
-	}
-}
-
-// Default renders the element using the built-in renderer without invoking
-// its hook again.
-func (r ElementRenderer) Default() {
-	if r.semantic != nil {
-		r.semantic.renderDefault(r.record)
-	} else if r.tree != nil && r.node != nil {
-		r.tree.renderDefault(r.node)
-	}
-}
-
 type renderConfig struct {
 	hooks                 map[ast.Kind]NodeRenderFunc
-	elements              elementHooks
-	subtrees              map[ast.Kind]SubtreeRenderFunc
-	document              DocumentRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
 	footnoteBacklinkLabel func(num, k, total int) string
-}
-
-type elementHooks struct {
-	symbol SymbolRenderFunc
-	div    DivRenderFunc
 }
 
 // Default footnote id/label producers. Callers can override each independently
@@ -424,79 +138,6 @@ func WithNodeRenderer(kind ast.Kind, fn NodeRenderFunc) RenderOption {
 			cfg.hooks = make(map[ast.Kind]NodeRenderFunc)
 		}
 		cfg.hooks[kind] = fn
-		delete(cfg.subtrees, kind)
-		switch kind {
-		case ast.KindSymbol:
-			cfg.elements.symbol = nil
-		case ast.KindDiv:
-			cfg.elements.div = nil
-		}
-	}
-}
-
-// WithSymbolRenderer registers a symbol rendering hook. Parser-produced,
-// unmodified documents invoke the hook directly from the compact semantic
-// representation. If a caller has changed the typed tree, the same hook runs
-// against that tree so mutations remain authoritative.
-//
-// Hooks write raw HTML. Call [ElementRenderer.Default] to retain the built-in
-// rendering for a symbol. If multiple symbol or node hooks for [ast.KindSymbol] are
-// registered, the last one wins.
-func WithSymbolRenderer(fn SymbolRenderFunc) RenderOption {
-	requireRenderCallback(fn != nil, "WithSymbolRenderer")
-	return func(cfg *renderConfig) {
-		cfg.elements.symbol = fn
-		delete(cfg.hooks, ast.KindSymbol)
-		delete(cfg.subtrees, ast.KindSymbol)
-	}
-}
-
-// WithDivRenderer registers a streaming div rendering hook. The callback can
-// inspect the div's attributes and source span, write a replacement wrapper,
-// and call [ElementRenderer.Children] to stream its children through all
-// registered hooks. Call [ElementRenderer.Default] to retain the built-in div
-// wrapper. Returning without writing or rendering children suppresses the div
-// and its contents.
-//
-// Parser-produced, unmodified documents invoke the hook directly from the
-// compact semantic representation. Mutated or externally constructed trees
-// use the same hook through the tree renderer. If multiple Div, subtree, or
-// Node hooks for [ast.KindDiv] are registered, the last one wins.
-func WithDivRenderer(fn DivRenderFunc) RenderOption {
-	requireRenderCallback(fn != nil, "WithDivRenderer")
-	return func(cfg *renderConfig) {
-		cfg.elements.div = fn
-		delete(cfg.hooks, ast.KindDiv)
-		delete(cfg.subtrees, ast.KindDiv)
-	}
-}
-
-// WithSubtreeRenderer registers a read-only subtree rendering hook for kind.
-// Unlike a streaming element hook, the callback may inspect descendants before
-// emitting output. Inspection traverses a bounded semantic-tape range and does
-// not materialize the typed AST for an otherwise untouched parsed document.
-//
-// Call [ElementRenderer.Default] for built-in rendering or
-// [ElementRenderer.Children] to stream the existing children without their
-// root wrapper. Returning without either suppresses the complete subtree. A
-// later subtree, specialized element, or node hook for the same kind wins.
-// WithSubtreeRenderer panics for [ast.KindDocument], [ast.KindFootnote], an invalid kind,
-// or a nil callback; those kinds are synthetic rendering roots rather than
-// ordinary bounded elements.
-func WithSubtreeRenderer(kind ast.Kind, fn SubtreeRenderFunc) RenderOption {
-	requireElementHook(kind, fn != nil, "WithSubtreeRenderer")
-	return func(cfg *renderConfig) {
-		if cfg.subtrees == nil {
-			cfg.subtrees = make(map[ast.Kind]SubtreeRenderFunc)
-		}
-		cfg.subtrees[kind] = fn
-		delete(cfg.hooks, kind)
-		switch kind {
-		case ast.KindSymbol:
-			cfg.elements.symbol = nil
-		case ast.KindDiv:
-			cfg.elements.div = nil
-		}
 	}
 }
 
@@ -513,23 +154,6 @@ func requireElementHook(kind ast.Kind, callbackPresent bool, option string) {
 func requireRenderCallback(present bool, option string) {
 	if !present {
 		panic("djot: " + option + " requires a non-nil callback")
-	}
-}
-
-// WithDocumentRenderer registers a whole-document rendering hook. The callback
-// can inspect focused indexes and summaries such as [DocumentView.Headings] and
-// [DocumentView.Contains] before writing.
-// Call [DocumentRenderer.Default] to emit the normal document, including
-// endnotes, through the remaining hooks. Returning without writing or calling
-// Default suppresses all output.
-//
-// Parser-produced, unmodified documents use the compact semantic tape. Mutated
-// or externally constructed trees provide the same view through the tree
-// backend. If registered more than once, the last document hook wins.
-func WithDocumentRenderer(fn DocumentRenderFunc) RenderOption {
-	requireRenderCallback(fn != nil, "WithDocumentRenderer")
-	return func(cfg *renderConfig) {
-		cfg.document = fn
 	}
 }
 
@@ -580,8 +204,8 @@ func WithRenderFunc(kind ast.Kind, fn func(n ast.Node) string) RenderOption {
 }
 
 // RenderHTML renders a parsed document to an HTML string. Optional
-// [RenderOption] values can customize rendering through element, subtree,
-// document, and node hooks.
+// [RenderOption] values customize rendering through node hooks and footnote
+// options.
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
 	if len(opts) == 0 {
 		tape, root, direct := doc.semanticRenderSnapshot()
@@ -594,7 +218,6 @@ func RenderHTML(doc *Doc, opts ...RenderOption) string {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLWithHooks(tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
 				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
 				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
 			})
@@ -623,7 +246,6 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 		tape, root, direct := doc.semanticRenderSnapshot()
 		if tape != nil && (direct || tape.matchesAST(root)) {
 			return renderSemanticHTMLToWithHooks(w, tape, semanticRenderHooks{
-				elements: cfg.elements, subtrees: cfg.subtrees, document: cfg.document, doc: doc,
 				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
 				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
 			})
@@ -657,10 +279,7 @@ type htmlRenderer struct {
 	err error
 	doc *Doc
 
-	hooks    map[ast.Kind]NodeRenderFunc
-	elements elementHooks
-	subtrees map[ast.Kind]SubtreeRenderFunc
-	document DocumentRenderFunc
+	hooks map[ast.Kind]NodeRenderFunc
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -699,9 +318,6 @@ func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRen
 		w:               w,
 		doc:             doc,
 		hooks:           cfg.hooks,
-		elements:        cfg.elements,
-		subtrees:        cfg.subtrees,
-		document:        cfg.document,
 		footnotes:       make(map[string]*ast.Footnote),
 		footnoteNums:    make(map[string]int),
 		nextFootnoteNum: 1,
@@ -823,44 +439,10 @@ func (r *htmlRenderer) renderNode(n ast.Node) {
 		fn(n, &nodeRendererImpl{r: r, n: n})
 		return
 	}
-	switch n := n.(type) {
-	case *ast.Symbol:
-		if r.elements.symbol != nil {
-			r.elements.symbol(SymbolView{Name: n.Name}, ElementRenderer{tree: r, node: n})
-			return
-		}
-	case *ast.Div:
-		if r.elements.div != nil {
-			r.elements.div(
-				DivView{attributes: AttributeView{attributes: n.Attributes()}, span: n.Span()},
-				ElementRenderer{tree: r, node: n},
-			)
-			return
-		}
-	}
-	if fn, ok := r.subtrees[n.Kind()]; ok {
-		fn(
-			SubtreeView{root: ElementView{node: n}},
-			ElementRenderer{tree: r, node: n},
-		)
-		return
-	}
 	r.renderDefault(n)
 }
 
 func (r *htmlRenderer) renderDocument() {
-	if r.document == nil {
-		r.renderDocumentDefault()
-		return
-	}
-	state := documentViewState{root: ElementView{node: r.doc.Root()}, tree: r, doc: r.doc}
-	r.document(
-		DocumentView{state: &state},
-		DocumentRenderer{tree: r},
-	)
-}
-
-func (r *htmlRenderer) renderDocumentDefault() {
 	clear(r.fnrefSeen)
 	r.tight = false
 	r.renderChildren(r.doc.Root())
@@ -1426,5 +1008,5 @@ func escapeAttrSlow(s string, first int) string {
 
 // collectText extracts visible text from a materialized public node tree.
 func collectText(n ast.Node) string {
-	return collectDocumentText(ElementView{node: n})
+	return collectDocumentText(textElement{node: n})
 }

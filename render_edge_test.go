@@ -46,7 +46,6 @@ func TestImageAltPreservesPresentationText(t *testing.T) {
 func TestTightListContainerHooks(t *testing.T) {
 	const input = "- > first\n  >\n  > second\n- last\n"
 	options := []djot.RenderOption{
-		djot.WithSubtreeRenderer(ast.KindBlockQuote, func(_ djot.SubtreeView, r djot.ElementRenderer) { r.Children() }),
 		djot.WithNodeRenderer(ast.KindBlockQuote, func(_ ast.Node, r djot.NodeRenderer) { r.Children() }),
 	}
 	for _, option := range options {
