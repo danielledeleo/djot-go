@@ -2,7 +2,7 @@ package djot
 
 import (
 	"strings"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/danielledeleo/djot-go/ast"
 )
@@ -13,48 +13,35 @@ import (
 // document root level. Headings inside block containers (blockquotes, divs,
 // list items) get their auto-ID placed directly on the heading element.
 func wrapSections(root *parseNode, arena *parseNodeArena) {
-	// Reserve every explicit ID before assigning any generated IDs.
-	usedIDs := make(map[string]int)
-	walkParse(root, func(n *parseNode) {
-		if id := n.Attr("id"); id != "" {
-			usedIDs[id]++
-		}
-	})
-	// Assign IDs to headings inside block containers (no section wrapping).
-	assignContainerHeadingIDs(root, usedIDs)
-	// Wrap top-level headings in sections.
-	root.Children = buildSections(root.Children, usedIDs, arena)
+	assignHeadingIDs(root, make(map[string]bool))
+	root.Children = buildSections(root.Children, arena)
 }
 
-// assignContainerHeadingIDs assigns IDs below every top-level block. Only
-// direct children of the document are left for section wrapping.
-func assignContainerHeadingIDs(node *parseNode, idCounts map[string]int) {
-	for _, child := range node.Children {
-		if child.Kind != ast.KindHeading {
-			assignHeadingIDsInContainer(child, idCounts)
-		}
-	}
-}
-
-// assignHeadingIDsInContainer assigns auto-IDs to all headings within a
-// block container, recursing into nested containers.
-func assignHeadingIDsInContainer(node *parseNode, idCounts map[string]int) {
+// assignHeadingIDs gives every heading without an explicit id one derived from
+// its text. Like djot.js, it works in document order, and an identifier is
+// taken only once it has appeared: an explicit id later in the document does
+// not affect an earlier heading.
+func assignHeadingIDs(node *parseNode, used map[string]bool) {
 	for _, child := range node.Children {
 		if child.Kind == ast.KindHeading {
+			// Identifiers inside the heading's own content come first.
+			assignHeadingIDs(child, used)
 			id := child.Attr("id")
-			explicit := id != ""
-			if !explicit {
-				id = autoID(child)
-				id = uniqueID(id, idCounts)
+			if id == "" {
+				id = uniqueID(autoID(child), used)
+				child.SetAttr("id", id)
 			}
-			child.SetAttr("id", id)
-		} else {
-			assignHeadingIDsInContainer(child, idCounts)
+			used[id] = true
+			continue
 		}
+		if id := child.Attr("id"); id != "" {
+			used[id] = true
+		}
+		assignHeadingIDs(child, used)
 	}
 }
 
-func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNodeArena) []*parseNode {
+func buildSections(nodes []*parseNode, arena *parseNodeArena) []*parseNode {
 	var result []*parseNode
 	i := 0
 
@@ -69,18 +56,8 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 		// Create a section wrapping this heading and subsequent content.
 		section := arena.new(parseNodeSpec{Kind: ast.KindSection})
 
-		// Generate or use provided ID.
-		id := node.Attr("id")
-		explicit := id != ""
-		if !explicit {
-			id = autoID(node)
-		}
-		// Only deduplicate auto-generated IDs.
-		if !explicit {
-			id = uniqueID(id, idCounts)
-		}
-
-		section.SetAttr("id", id)
+		// The heading's id, explicit or generated, moves to the section.
+		section.SetAttr("id", node.Attr("id"))
 
 		// Remove id from heading (it lives on the section now).
 		// All other attributes stay on the heading.
@@ -112,7 +89,7 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 		// Recursively build sub-sections within this section.
 		if len(section.Children) > 1 {
 			rest := section.Children[1:]
-			section.Children = append(section.Children[:1], buildSections(rest, idCounts, arena)...)
+			section.Children = append(section.Children[:1], buildSections(rest, arena)...)
 		}
 
 		// Set section position: start from heading, end from last child.
@@ -127,33 +104,41 @@ func buildSections(nodes []*parseNode, idCounts map[string]int, arena *parseNode
 	return result
 }
 
-// autoID generates a section ID from heading text content.
+// autoID derives an identifier from a heading's text the way djot.js does:
+// each run of whitespace or of the characters ][~!@#$%^&*(){}`,.<>\|=+/? becomes
+// a single separator, and other characters are kept.
 func autoID(heading *parseNode) string {
-	text := collectParseText(heading)
-	// Replace whitespace runs with single hyphen, keep letters, digits, and hyphens.
 	var b strings.Builder
-	prevWasSpace := false
-	for _, r := range text {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			if !prevWasSpace && b.Len() > 0 {
-				b.WriteByte('-')
-			}
-			prevWasSpace = true
-		} else if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
-			b.WriteRune(r)
-			prevWasSpace = false
-		} else {
-			prevWasSpace = false
+	pending := false
+	for _, r := range collectParseText(heading) {
+		if isJSSpace(r) || strings.ContainsRune("][~!@#$%^&*(){}`,.<>\\|=+/?", r) {
+			pending = b.Len() > 0
+			continue
 		}
+		if pending {
+			b.WriteByte('-')
+			pending = false
+		}
+		b.WriteRune(r)
 	}
-	id := strings.TrimRight(b.String(), "-")
-	if id == "" {
-		return "s"
-	}
-	return id
+	return b.String()
 }
 
-// collectText extracts all text content from a node and its children.
+// isJSSpace reports whether r is whitespace to a JavaScript regular
+// expression (\s), which is what djot.js uses for identifiers.
+func isJSSpace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029',
+		'\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	}
+	return r >= '\u2000' && r <= '\u200a'
+}
+
+// collectParseText returns a node's string content as djot.js computes it for
+// heading identifiers and reference labels: smart punctuation keeps its source
+// characters, line breaks become newlines, and footnote references, symbols,
+// and non-breaking spaces contribute nothing.
 func collectParseText(n *parseNode) string {
 	var b strings.Builder
 	appendParseText(&b, n)
@@ -163,13 +148,28 @@ func collectParseText(n *parseNode) string {
 func appendParseText(b *strings.Builder, n *parseNode) {
 	switch n.Kind {
 	case ast.KindText:
+		if n.parsePayload != nil && n.quote != 0 {
+			// The text starts with a smart quote; use the source quote instead.
+			_, size := utf8.DecodeRuneInString(n.Text)
+			b.WriteByte(n.quote)
+			b.WriteString(n.Text[size:])
+			return
+		}
 		b.WriteString(n.Text)
 		return
 	case ast.KindSoftBreak, ast.KindHardBreak:
-		b.WriteByte(' ')
+		b.WriteByte('\n')
 		return
-	case ast.KindNonBreakingSpace:
-		b.WriteByte(' ')
+	case ast.KindEmDash:
+		b.WriteString("---")
+		return
+	case ast.KindEnDash:
+		b.WriteString("--")
+		return
+	case ast.KindEllipsis:
+		b.WriteString("...")
+		return
+	case ast.KindNonBreakingSpace, ast.KindFootnoteReference, ast.KindSymbol:
 		return
 	}
 	start := b.Len()
@@ -181,26 +181,17 @@ func appendParseText(b *strings.Builder, n *parseNode) {
 	}
 }
 
-// uniqueID deduplicates an ID by appending -1, -2, etc.
-// Anonymous section IDs (base "s") always get a counter.
-func uniqueID(id string, counts map[string]int) string {
-	if id == "s" || counts[id] > 0 {
-		// Already used. Find the next available suffix.
-		suffix := counts[id]
-		if suffix < 1 {
-			suffix = 1
+// uniqueID returns base, or base-1, base-2, ... if base is already used. An
+// empty base becomes s-1, s-2, ...
+func uniqueID(base string, used map[string]bool) string {
+	id := base
+	for i := 1; id == "" || used[id]; i++ {
+		prefix := base
+		if prefix == "" {
+			prefix = "s"
 		}
-		for {
-			candidate := id + "-" + itoa(suffix)
-			if counts[candidate] == 0 {
-				counts[candidate]++
-				counts[id]++
-				return candidate
-			}
-			suffix++
-		}
+		id = prefix + "-" + itoa(i)
 	}
-	counts[id]++
 	return id
 }
 

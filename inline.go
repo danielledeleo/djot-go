@@ -802,7 +802,11 @@ func (p *inlineParser) parseOpenBrace() {
 			p.pos += 2
 
 			idx := len(p.nodes)
-			p.add(parseNodeSpec{Kind: ast.KindText, Text: string(char)})
+			spec := parseNodeSpec{Kind: ast.KindText, Text: string(char)}
+			if char == '"' || char == '\'' {
+				spec.quote = char
+			}
+			p.add(spec)
 			p.openerIdx[idx] = true
 			p.openers[char] = append(p.openers[char], opener{
 				char:    char,
@@ -1045,9 +1049,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind ast.Kind) {
 		// to close, and it applies only here: a later unmatched quote is
 		// unaffected and still opens.
 		if char == '\'' {
-			p.add(parseNodeSpec{Kind: ast.KindText, Text: "’"}) // right single quote
+			p.add(parseNodeSpec{Kind: ast.KindText, Text: "’", quote: char}) // right single quote
 		} else {
-			p.add(parseNodeSpec{Kind: ast.KindText, Text: "”"}) // right double quote
+			p.add(parseNodeSpec{Kind: ast.KindText, Text: "”", quote: char}) // right double quote
 		}
 		p.pos++ // skip }
 		return
@@ -1085,7 +1089,7 @@ func (p *inlineParser) parseSmartQuote(char byte, kind ast.Kind) {
 	// Record as potential opener if it can open.
 	if canOpen {
 		idx := len(p.nodes)
-		p.add(parseNodeSpec{Kind: ast.KindText, Text: string(char)})
+		p.add(parseNodeSpec{Kind: ast.KindText, Text: string(char), quote: char})
 		p.openerIdx[idx] = true
 		p.openers[char] = append(p.openers[char], opener{
 			char:    char,
@@ -1096,9 +1100,9 @@ func (p *inlineParser) parseSmartQuote(char byte, kind ast.Kind) {
 		// Could not open or close (or close with no matching opener).
 		// Single quotes become apostrophes; double quotes become left double quotes.
 		if char == '\'' {
-			p.add(parseNodeSpec{Kind: ast.KindText, Text: "\u2019"}) // right single quote / apostrophe
+			p.add(parseNodeSpec{Kind: ast.KindText, Text: "\u2019", quote: char}) // right single quote / apostrophe
 		} else {
-			p.add(parseNodeSpec{Kind: ast.KindText, Text: "\u201c"}) // left double quote
+			p.add(parseNodeSpec{Kind: ast.KindText, Text: "\u201c", quote: char}) // left double quote
 		}
 	}
 }

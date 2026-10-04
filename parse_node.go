@@ -32,6 +32,11 @@ type parsePayload struct {
 	CellAlign ast.CellAlign
 	IsHeader  bool
 	Label     string
+
+	// quote is set on text that begins with a smart quote. It holds the
+	// straight quote written in the source, which heading identifiers and
+	// reference labels use, as djot.js does.
+	quote byte
 }
 
 type parseNodeSpec struct {
@@ -58,6 +63,7 @@ type parseNodeSpec struct {
 	CellAlign        ast.CellAlign
 	IsHeader         bool
 	Label            string
+	quote            byte
 }
 
 func parseNodeNeedsPayload(kind ast.Kind) bool {
@@ -142,7 +148,7 @@ func (a *parseNodeArena) new(src parseNodeSpec) *parseNode {
 		dst.Attrs = src.Attrs
 		dst.attrOrder = src.attrOrder
 	}
-	if parseNodeNeedsPayload(src.Kind) {
+	if parseNodeNeedsPayload(src.Kind) || src.quote != 0 {
 		payload := a.payloads.alloc()
 		payload.Level = src.Level
 		payload.Target = src.Target
@@ -158,6 +164,7 @@ func (a *parseNodeArena) new(src parseNodeSpec) *parseNode {
 		payload.CellAlign = src.CellAlign
 		payload.IsHeader = src.IsHeader
 		payload.Label = src.Label
+		payload.quote = src.quote
 		dst.parsePayload = payload
 	}
 	return dst
