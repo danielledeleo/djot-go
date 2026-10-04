@@ -14,7 +14,7 @@ func checkBothHTML(t *testing.T, input, want string) {
 	var compact string
 	for _, tree := range []bool{false, true} {
 		if tree {
-			doc = djot.NewDoc(doc.Root())
+			doc = djot.NewDoc(doc.AST())
 		}
 		got := djot.RenderHTML(doc)
 		if tree && got != compact {

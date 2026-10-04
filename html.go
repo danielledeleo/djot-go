@@ -207,24 +207,12 @@ func WithRenderFunc(kind ast.Kind, fn func(n ast.Node) string) RenderOption {
 // [RenderOption] values customize rendering through node hooks and footnote
 // options.
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
-	if len(opts) == 0 {
-		tape, root, direct := doc.semanticRenderSnapshot()
-		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTML(tape)
-		}
-	}
 	cfg := makeRenderConfig(opts)
 	if cfg.canRenderSemantic() {
-		tape, root, direct := doc.semanticRenderSnapshot()
-		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTMLWithHooks(tape, semanticRenderHooks{
-				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
-				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
-			})
-		}
+		return renderSemanticHTMLWithHooks(doc.tape(), cfg.semanticHooks())
 	}
 	var b strings.Builder
-	r := newHTMLRendererWithConfig(&b, doc, cfg)
+	r := newHTMLRendererWithConfig(&b, doc.AST(), cfg)
 	r.renderDocument()
 	return b.String()
 }
@@ -235,23 +223,11 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 	if w == nil {
 		return errNilHTMLWriter
 	}
-	if len(opts) == 0 {
-		tape, root, direct := doc.semanticRenderSnapshot()
-		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTMLTo(w, tape)
-		}
-	}
 	cfg := makeRenderConfig(opts)
 	if cfg.canRenderSemantic() {
-		tape, root, direct := doc.semanticRenderSnapshot()
-		if tape != nil && (direct || tape.matchesAST(root)) {
-			return renderSemanticHTMLToWithHooks(w, tape, semanticRenderHooks{
-				multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
-				footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
-			})
-		}
+		return renderSemanticHTMLToWithHooks(w, doc.tape(), cfg.semanticHooks())
 	}
-	r := newHTMLRendererWithConfig(w, doc, cfg)
+	r := newHTMLRendererWithConfig(w, doc.AST(), cfg)
 	r.renderDocument()
 	return r.err
 }
@@ -268,6 +244,13 @@ func (cfg *renderConfig) canRenderSemantic() bool {
 	return len(cfg.hooks) == 0
 }
 
+func (cfg *renderConfig) semanticHooks() semanticRenderHooks {
+	return semanticRenderHooks{
+		multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
+		footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
+	}
+}
+
 type footnoteInfo struct {
 	num   int
 	label string
@@ -275,9 +258,9 @@ type footnoteInfo struct {
 }
 
 type htmlRenderer struct {
-	w   io.Writer
-	err error
-	doc *Doc
+	w    io.Writer
+	err  error
+	root *ast.Document
 
 	hooks map[ast.Kind]NodeRenderFunc
 
@@ -309,14 +292,10 @@ type htmlRenderer struct {
 	footnoteParagraphInfo *footnoteInfo
 }
 
-func newHTMLRenderer(w io.Writer, doc *Doc, opts ...RenderOption) *htmlRenderer {
-	return newHTMLRendererWithConfig(w, doc, makeRenderConfig(opts))
-}
-
-func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRenderer {
+func newHTMLRendererWithConfig(w io.Writer, root *ast.Document, cfg renderConfig) *htmlRenderer {
 	r := &htmlRenderer{
 		w:               w,
-		doc:             doc,
+		root:            root,
 		hooks:           cfg.hooks,
 		footnotes:       make(map[string]*ast.Footnote),
 		footnoteNums:    make(map[string]int),
@@ -341,19 +320,19 @@ func newHTMLRendererWithConfig(w io.Writer, doc *Doc, cfg renderConfig) *htmlRen
 	// Walk the entire AST (including footnote definitions) to assign numbers
 	// in document order. We need to process the main document first, then
 	// footnote contents are processed as we encounter them.
-	r.assignFootnoteNumbers(doc)
+	r.assignFootnoteNumbers()
 	return r
 }
 
 // assignFootnoteNumbers walks the AST to assign sequential numbers to footnote
 // references in document order. Footnote definitions' content is also walked
 // (in reference order) to find nested footnote references.
-func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
+func (r *htmlRenderer) assignFootnoteNumbers() {
 	// First pass: walk the main document tree (skipping footnote definition nodes)
 	// to find all footnote-reference nodes in order.
 	// Collect footnote definitions from the AST so rendering reflects mutations
 	// without allocating a separate public index.
-	ast.Preorder(doc.Root(), func(n ast.Node) bool {
+	ast.Preorder(r.root, func(n ast.Node) bool {
 		if footnote, ok := n.(*ast.Footnote); ok {
 			r.footnotes[footnote.Label] = footnote
 		}
@@ -371,7 +350,7 @@ func (r *htmlRenderer) assignFootnoteNumbers(doc *Doc) {
 		}
 		ast.ForEachChild(n, walkForRefs)
 	}
-	walkForRefs(doc.Root())
+	walkForRefs(r.root)
 
 	// Now process footnote contents in number order, which may introduce
 	// more footnote references (and thus more footnotes to process).
@@ -445,7 +424,7 @@ func (r *htmlRenderer) renderNode(n ast.Node) {
 func (r *htmlRenderer) renderDocument() {
 	clear(r.fnrefSeen)
 	r.tight = false
-	r.renderChildren(r.doc.Root())
+	r.renderChildren(r.root)
 	r.renderFootnotesSection()
 }
 

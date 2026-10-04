@@ -25,7 +25,7 @@ func TestNestedItemBlankDoesNotLoosenOuterList(t *testing.T) {
 		{"- a\n\n  - b\n\n  c\n", false, true},
 	}
 	for _, tc := range cases {
-		root := djot.Parse(tc.in).Root()
+		root := djot.Parse(tc.in).AST()
 		outer := root.Children[0].(*ast.BulletList)
 		item := outer.Items[0]
 		var inner *ast.BulletList

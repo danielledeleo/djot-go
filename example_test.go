@@ -51,7 +51,7 @@ func ExampleWalk() {
 
 	// Count strong and emphasis nodes.
 	strong, emphasis := 0, 0
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		switch n.Kind() {
 		case ast.KindStrong:
 			strong++
@@ -66,10 +66,10 @@ func ExampleWalk() {
 }
 
 func ExampleWalk_replace() {
-	doc := djot.Parse("Hello *world*!")
+	tree := djot.Parse("Hello *world*!").AST()
 
-	// Replace all Strong nodes with Emphasis.
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	// Replace all Strong nodes with Emphasis, then render the edited tree.
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if strong, ok := n.(*ast.Strong); ok {
 			replacement := &ast.Emphasis{Children: strong.Children}
 			ast.CopyMetadata(replacement, strong)
@@ -77,7 +77,7 @@ func ExampleWalk_replace() {
 		}
 		return ast.Continue
 	})
-	fmt.Println(djot.RenderHTML(doc))
+	fmt.Println(djot.RenderHTML(djot.NewDoc(tree)))
 	// Output:
 	// <p>Hello <em>world</em>!</p>
 }

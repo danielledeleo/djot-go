@@ -13,7 +13,7 @@ import (
 // The header flag was set on cells only; the row above a separator line is
 // itself a header row in djot.js's AST.
 func TestTableHeaderRowIsMarked(t *testing.T) {
-	root := djot.Parse("|a|\n|-|\n|b|\n").Root()
+	root := djot.Parse("|a|\n|-|\n|b|\n").AST()
 	table := root.Children[0].(*ast.Table)
 	var rows []*ast.TableRow
 	for _, child := range table.Children {

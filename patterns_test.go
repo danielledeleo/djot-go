@@ -116,7 +116,7 @@ func TestPatternDivAdmonition(t *testing.T) {
 func TestPatternWalkCollectHeadings(t *testing.T) {
 	doc := djot.Parse("# Intro\n\ntext\n\n## Methods\n\ntext\n\n## Results\n\ntext")
 	var headings []string
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		if heading, ok := n.(*ast.Heading); ok {
 			var text string
 			for _, inline := range heading.Children {
@@ -138,15 +138,15 @@ func TestPatternWalkCollectHeadings(t *testing.T) {
 }
 
 func TestPatternWalkRewriteImageURLs(t *testing.T) {
-	doc := djot.Parse("![photo](images/cat.png)")
+	tree := djot.Parse("![photo](images/cat.png)").AST()
 	base := "https://cdn.example.com/"
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if image, ok := n.(*ast.Image); ok && !strings.HasPrefix(image.Destination, "http") {
 			image.Destination = base + image.Destination
 		}
 		return ast.Continue
 	})
-	html := djot.RenderHTML(doc)
+	html := djot.RenderHTML(djot.NewDoc(tree))
 	if !strings.Contains(html, `src="https://cdn.example.com/images/cat.png"`) {
 		t.Errorf("expected rewritten URL, got:\n%s", html)
 	}
@@ -162,12 +162,12 @@ func TestPatternASTInclude(t *testing.T) {
 
 	// Splice the child's content into the parent AST.
 	// Wrap in a Div to replace a placeholder, simulating :include:.
-	parentRoot := parent.Root()
-	wrapper := &ast.Div{Children: child.Root().Children}
+	parentRoot := parent.AST()
+	wrapper := &ast.Div{Children: child.AST().Children}
 	parentRoot.Children = append(parentRoot.Children, wrapper)
 
 	// Render — footnotes should be derived from the combined AST.
-	html := djot.RenderHTML(parent)
+	html := djot.RenderHTML(djot.NewDoc(parentRoot))
 
 	if !strings.Contains(html, "Parent footnote") {
 		t.Errorf("expected parent footnote, got:\n%s", html)
@@ -184,20 +184,20 @@ func TestPatternASTInclude(t *testing.T) {
 func TestPatternASTIncludeViaWalk(t *testing.T) {
 	// Replace the block paragraph containing a standalone include symbol.
 	input := "Before.\n\n:include:\n\nAfter."
-	doc := djot.Parse(input)
+	tree := djot.Parse(input).AST()
 
 	included := djot.Parse("Included paragraph[^x].\n\n[^x]: Included note.")
 
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if paragraph, ok := n.(*ast.Paragraph); ok && len(paragraph.Children) == 1 {
 			if symbol, ok := paragraph.Children[0].(*ast.Symbol); ok && symbol.Name == "include" {
-				return ast.Replace(&ast.Div{Children: included.Root().Children})
+				return ast.Replace(&ast.Div{Children: included.AST().Children})
 			}
 		}
 		return ast.Continue
 	})
 
-	html := djot.RenderHTML(doc)
+	html := djot.RenderHTML(djot.NewDoc(tree))
 
 	if !strings.Contains(html, "Before.") {
 		t.Errorf("expected 'Before.', got:\n%s", html)

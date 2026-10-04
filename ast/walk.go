@@ -62,7 +62,7 @@ func preorder(node Node, visit func(Node) bool) bool {
 // Walk transforms a tree top-down and returns the possibly replaced root. The
 // supplied root is visited. Removing it returns nil. Callers replacing a
 // document root should type-assert the result to *Document before passing it
-// to djot.Doc.SetRoot.
+// to djot.NewDoc.
 func Walk(root Node, fn FilterFunc) Node {
 	if root == nil {
 		return nil

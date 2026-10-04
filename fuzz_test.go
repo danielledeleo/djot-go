@@ -57,7 +57,7 @@ func FuzzWalk(f *testing.F) {
 	f.Add("*_interleaved **emphasis**_*")
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := djot.Parse(input)
-		ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+		ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 			return ast.Continue
 		})
 	})

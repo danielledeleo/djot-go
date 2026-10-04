@@ -228,7 +228,7 @@ func BenchmarkASTShape(b *testing.B) {
 			nodes := 0
 			nodesWithAttrs := 0
 			attrs := 0
-			ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+			ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 				nodes++
 				if n.Attributes().Len() > 0 {
 					nodesWithAttrs++
@@ -254,7 +254,7 @@ func BenchmarkASTShape(b *testing.B) {
 func BenchmarkASTKindDistribution(b *testing.B) {
 	doc := djot.Parse(hugeDoc())
 	counts := make([]int, int(ast.KindEnDash)+1)
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		counts[n.Kind()]++
 		return ast.Continue
 	})
@@ -329,14 +329,14 @@ func BenchmarkRetainedMaterializedAST(b *testing.B) {
 
 func measureRetainedMaterializedAST(input string) uint64 {
 	warm := djot.Parse(input)
-	runtime.KeepAlive(warm.Root())
+	runtime.KeepAlive(warm.AST())
 	warm = nil
 	runtime.GC()
 
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	doc := djot.Parse(input)
-	root := doc.Root()
+	root := doc.AST()
 	runtime.GC()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
@@ -442,7 +442,7 @@ func BenchmarkWalk(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.doc)))
 			parsed := djot.Parse(tc.doc)
-			root := parsed.Root()
+			root := parsed.AST()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -468,7 +468,7 @@ func BenchmarkPreorder(b *testing.B) {
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.doc)))
-			root := djot.Parse(tc.doc).Root()
+			root := djot.Parse(tc.doc).AST()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {

@@ -10,8 +10,9 @@
 // and passes the official syntax and rendering tests; the Lua-only filter tests
 // do not apply to this Go implementation. Where the prose syntax reference and
 // djot.js differ, this package follows djot.js unless documented otherwise.
-// Parsed documents retain a compact semantic representation for rendering and
-// materialize a mutable AST only when [Doc.Root] is requested.
+// A [Doc] is immutable and renders from a compact representation. [Doc.AST]
+// returns a syntax tree the caller owns; [NewDoc] turns an edited tree back
+// into a Doc.
 //
 // # Quick start
 //
@@ -28,7 +29,8 @@
 // nodes top-down and supports continue, skip, remove, and replace actions;
 // ast.WalkBottomUp visits children before parents.
 //
-//	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+//	tree := doc.AST()
+//	ast.Walk(tree, func(n ast.Node) ast.Action {
 //	    if strong, ok := n.(*ast.Strong); ok {
 //	        replacement := &ast.Emphasis{Children: strong.Children}
 //	        ast.CopyMetadata(replacement, strong)
@@ -36,6 +38,7 @@
 //	    }
 //	    return ast.Continue
 //	})
+//	html := djot.RenderHTML(djot.NewDoc(tree))
 //
 // # Custom rendering
 //

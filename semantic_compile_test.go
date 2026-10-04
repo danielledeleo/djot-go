@@ -2,6 +2,7 @@ package djot
 
 import (
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -89,7 +90,7 @@ func mutateForTest(root *ast.Document, seed int64) *ast.Document {
 func TestCompiledTapeMatchesTreeRenderer(t *testing.T) {
 	for _, src := range compileSeeds {
 		for seed := int64(0); seed < 200; seed++ {
-			tree := mutateForTest(Parse(src).Root(), seed)
+			tree := mutateForTest(Parse(src).AST(), seed)
 			want := renderTreeHTMLForTest(NewDoc(tree))
 			if got := renderCompiledForTest(tree); got != want {
 				t.Fatalf("seed %d: compiled tape differs\ninput: %q\nwant: %q\n got: %q", seed, src, want, got)
@@ -98,14 +99,16 @@ func TestCompiledTapeMatchesTreeRenderer(t *testing.T) {
 	}
 }
 
-// Compiling must preserve everything the renderer depends on, so an unchanged
-// tree passed to NewDoc takes the compact path.
-func TestNewDocCompiledTapeMatchesTree(t *testing.T) {
+// Compiling and materializing are inverses: compiling a tree, building a tree
+// back, and compiling again gives an identical tape.
+func TestCompileMaterializeRoundTrip(t *testing.T) {
 	for _, src := range compileSeeds {
 		for seed := int64(0); seed < 50; seed++ {
-			tree := mutateForTest(Parse(src).Root(), seed)
-			if doc := NewDoc(tree); !doc.semantic.matchesAST(tree) {
-				t.Fatalf("seed %d: compiled tape does not match its tree\ninput: %q", seed, src)
+			tree := mutateForTest(Parse(src).AST(), seed)
+			first := compileSemanticTape(tree, tree.References)
+			rebuilt := first.materializeAST()
+			if second := compileSemanticTape(rebuilt, first.materializeReferences()); !reflect.DeepEqual(first, second) {
+				t.Fatalf("seed %d: round trip changed the tape\ninput: %q", seed, src)
 			}
 		}
 	}
@@ -127,9 +130,6 @@ func TestNewDocScratchTree(t *testing.T) {
 		&ast.Section{},
 	}}
 	doc := NewDoc(tree)
-	if !doc.semantic.matchesAST(tree) {
-		t.Fatal("compiled tape does not match a tree built by hand")
-	}
 	if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
 		t.Fatalf("hand-built tree differs\nwant: %q\n got: %q", want, got)
 	}
@@ -150,7 +150,7 @@ func FuzzCompiledTapeMatchesTreeRenderer(f *testing.F) {
 		f.Add(s, int64(i))
 	}
 	f.Fuzz(func(t *testing.T, src string, seed int64) {
-		tree := mutateForTest(Parse(src).Root(), seed)
+		tree := mutateForTest(Parse(src).AST(), seed)
 		want := renderTreeHTMLForTest(NewDoc(tree))
 		if got := renderCompiledForTest(tree); got != want {
 			t.Fatalf("compiled tape differs\ninput: %q seed %d\nwant: %q\n got: %q", src, seed, want, got)

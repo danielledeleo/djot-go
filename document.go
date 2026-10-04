@@ -1,73 +1,45 @@
 package djot
 
-import (
-	"sync"
+import "github.com/danielledeleo/djot-go/ast"
 
-	"github.com/danielledeleo/djot-go/ast"
-)
-
-// Doc is the top-level parsed document. Its compact semantic representation is
-// rendered directly; Root, Footnotes, and References materialize typed views on
-// demand.
+// Doc is a parsed document. It is immutable: rendering reads its compact form
+// directly, and AST returns a copy of its syntax tree for inspection or
+// editing. To render an edited tree, pass it to NewDoc.
 type Doc struct {
-	source *sourceFile
+	source   *sourceFile
+	semantic *semanticTape
 
-	mu            sync.RWMutex
-	root          *ast.Document
-	rootRequested bool
-	references    map[string]*ast.Reference
-	semantic      *semanticTape
-
+	// Parser working state, released before Parse returns.
 	parseRoot       *parseNode
 	parseReferences map[string]*parseNode
 }
 
-// NewDoc constructs a document from an existing mutable typed tree. The tree
-// is compiled into the compact form, so an unchanged tree renders without the
-// typed-tree renderer.
-func NewDoc(root *ast.Document) *Doc {
-	d := &Doc{root: root, rootRequested: true}
-	if root != nil {
-		d.semantic = compileSemanticTape(root, nil)
+// NewDoc returns a document compiled from tree, including tree.References.
+// Later changes to tree do not affect the document.
+func NewDoc(tree *ast.Document) *Doc {
+	if tree == nil {
+		tree = &ast.Document{}
 	}
-	return d
+	return &Doc{semantic: compileSemanticTape(tree, tree.References)}
 }
 
-// Root returns the shared mutable typed tree, materializing it on first use.
-// Repeated calls return the same root. Concurrent read-only materialization is
-// safe; callers must synchronize subsequent tree mutations with other users of
-// the document.
-func (d *Doc) Root() *ast.Document {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.rootRequested = true
-	return d.materializeRootLocked()
-}
-
-func (d *Doc) materializeRootLocked() *ast.Document {
-	if d.root == nil && d.semantic != nil {
-		d.root = d.semantic.materializeAST()
+// AST returns a new syntax tree for the document on each call. The caller owns
+// the tree; changing it does not affect the document.
+func (d *Doc) AST() *ast.Document {
+	if d.semantic == nil {
+		return &ast.Document{}
 	}
-	return d.root
+	tree := d.semantic.materializeAST()
+	tree.References = d.semantic.materializeReferences()
+	return tree
 }
 
-// SetRoot replaces the document tree and discards compact rendering caches.
-func (d *Doc) SetRoot(root *ast.Document) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.root = root
-	d.rootRequested = true
-	d.semantic = nil
-	d.references = nil
-}
-
-func (d *Doc) semanticRenderSnapshot() (tape *semanticTape, root *ast.Document, direct bool) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	if d.semantic != nil && !d.rootRequested {
-		return d.semantic, nil, true
+// tape returns the document's compact form, or an empty one for a zero Doc.
+func (d *Doc) tape() *semanticTape {
+	if d.semantic == nil {
+		d = NewDoc(nil)
 	}
-	return d.semantic, d.root, false
+	return d.semantic
 }
 
 // Position resolves a source position to a line and column. It returns the
@@ -79,39 +51,4 @@ func (d *Doc) Position(position ast.Pos) ast.Position {
 	}
 	line, col := d.source.position(position.Offset)
 	return ast.Position{Line: line, Column: col}
-}
-
-// Footnotes returns a newly built footnote-definition index for the current
-// typed tree. Mutating the returned map does not modify the tree; changing a
-// Footnote through Root is reflected the next time Footnotes is called.
-func (d *Doc) Footnotes() map[string]*ast.Footnote {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.rootRequested = true
-	footnotes := make(map[string]*ast.Footnote)
-	if root := d.materializeRootLocked(); root != nil {
-		ast.Preorder(root, func(node ast.Node) bool {
-			if footnote, ok := node.(*ast.Footnote); ok {
-				footnotes[footnote.Label] = footnote
-			}
-			return true
-		})
-	}
-	return footnotes
-}
-
-// References returns the shared mutable resolved-reference index,
-// materializing it on first use. Reference definitions are document metadata;
-// links and images already contain their resolved destinations.
-func (d *Doc) References() map[string]*ast.Reference {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.references == nil {
-		if d.semantic != nil {
-			d.references = d.semantic.materializeReferences()
-		} else {
-			d.references = make(map[string]*ast.Reference)
-		}
-	}
-	return d.references
 }

@@ -50,7 +50,7 @@ func TestFootnoteReferencesAcrossBlocks(t *testing.T) {
 			t.Errorf("%q:\ngot\n%s\nwant\n%s", tc.in, got, tc.want)
 		}
 		var labels []string
-		ast.Preorder(doc.Root(), func(n ast.Node) bool {
+		ast.Preorder(doc.AST(), func(n ast.Node) bool {
 			if ref, ok := n.(*ast.FootnoteReference); ok {
 				labels = append(labels, ref.Label)
 			}

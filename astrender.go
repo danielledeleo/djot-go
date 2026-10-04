@@ -22,7 +22,7 @@ func RenderAST(doc *Doc, positions bool) string {
 // the first write error encountered, if any.
 func RenderASTTo(w io.Writer, doc *Doc, positions bool) error {
 	r := &astRenderer{w: w, doc: doc, positions: positions}
-	r.renderNode(doc.Root(), 0)
+	r.renderNode(doc.AST(), 0)
 	return r.err
 }
 

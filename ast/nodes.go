@@ -192,6 +192,11 @@ func CopyMetadata(dst, src Node) {
 type Document struct {
 	nodeBase
 	Children []Block
+
+	// References holds the document's resolved reference definitions by
+	// normalized label, including the implicit references headings create.
+	// Links and images already carry their resolved destinations.
+	References map[string]*Reference
 }
 
 func (*Document) Kind() Kind { return KindDocument }

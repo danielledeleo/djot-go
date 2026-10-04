@@ -191,7 +191,7 @@ func TestTaskListTabContinuation(t *testing.T) {
 
 	var bad []string
 	zeroStart := -1
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		span := n.Span()
 		if span.Start.Offset < 0 || span.End.Offset < span.Start.Offset ||
 			span.End.Offset > len(input) {
@@ -229,7 +229,7 @@ func TestTabContinuationAllContainers(t *testing.T) {
 			if !strings.Contains(html, tc.want) {
 				t.Errorf("input %q: missing %q\nhtml:\n%s", tc.in, tc.want, html)
 			}
-			ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+			ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 				span := n.Span()
 				if span.Start.Offset < 0 || span.End.Offset < span.Start.Offset ||
 					span.End.Offset > len(tc.in) {

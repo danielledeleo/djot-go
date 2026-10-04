@@ -80,7 +80,7 @@ func TestSymbolConformance(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := flattenInlines(t, djot.Parse(tc.in).Root())
+			got := flattenInlines(t, djot.Parse(tc.in).AST())
 			if !equalStrings(got, tc.want) {
 				t.Errorf("Parse(%q) inlines = %v, want %v (reference djot.js)", tc.in, got, tc.want)
 			}

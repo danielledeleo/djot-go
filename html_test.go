@@ -70,7 +70,7 @@ func TestRenderHTMLToNilWriter(t *testing.T) {
 		t.Fatal("expected an error for a nil writer")
 	}
 	doc := djot.Parse("Hello")
-	_ = doc.Root()
+	_ = doc.AST()
 	if err := djot.RenderHTMLTo(nil, doc); err == nil {
 		t.Fatal("expected the same nil-writer error after AST materialization")
 	}
@@ -187,9 +187,9 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {
-			d := djot.Parse("# x")
+			tree := djot.Parse("# x").AST()
 			var sect *ast.Section
-			for _, child := range d.Root().Children {
+			for _, child := range tree.Children {
 				if section, ok := child.(*ast.Section); ok {
 					sect = section
 				}
@@ -204,7 +204,7 @@ func TestSetAttrRejectsInvalidKeys(t *testing.T) {
 			if got := sect.Attributes().Get(tc.key); got != "" {
 				t.Errorf("after rejected SetAttr, Attr(%q) = %q, want empty", tc.key, got)
 			}
-			if got := djot.RenderHTML(d); got != baseline {
+			if got := djot.RenderHTML(djot.NewDoc(tree)); got != baseline {
 				t.Errorf("rejected SetAttr leaked into output:\n got:      %q\n baseline: %q", got, baseline)
 			}
 		})
@@ -228,9 +228,9 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 
 	for _, k := range valid {
 		t.Run(k, func(t *testing.T) {
-			d := djot.Parse("# x")
+			tree := djot.Parse("# x").AST()
 			var sect *ast.Section
-			for _, child := range d.Root().Children {
+			for _, child := range tree.Children {
 				if section, ok := child.(*ast.Section); ok {
 					sect = section
 				}
@@ -244,7 +244,7 @@ func TestSetAttrAcceptsValidKeys(t *testing.T) {
 			if got := sect.Attributes().Get(k); got != "v" {
 				t.Errorf("Attr(%q) = %q, want %q", k, got, "v")
 			}
-			got := djot.RenderHTML(d)
+			got := djot.RenderHTML(djot.NewDoc(tree))
 			if !strings.Contains(got, k+`="v"`) {
 				t.Errorf("expected %s=\"v\" in output, got:\n%s", k, got)
 			}
@@ -257,7 +257,7 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 	// key must not mutate any state.
 	d := djot.Parse("# x")
 	var sect *ast.Section
-	for _, child := range d.Root().Children {
+	for _, child := range d.AST().Children {
 		if section, ok := child.(*ast.Section); ok {
 			sect = section
 		}
@@ -275,21 +275,20 @@ func TestSetAttrOverwriteThenRejectKeepsOriginal(t *testing.T) {
 }
 
 func TestAddClassWithSpecialValueStaysWellFormed(t *testing.T) {
-	d := djot.Parse("# x")
-	for _, child := range d.Root().Children {
+	tree := djot.Parse("# x").AST()
+	for _, child := range tree.Children {
 		if section, ok := child.(*ast.Section); ok {
 			section.Attributes().AddClass(`"><script>alert(1)</script>`)
 		}
 	}
-	got := djot.RenderHTML(d)
+	got := djot.RenderHTML(djot.NewDoc(tree))
 	if strings.Contains(got, "<script>") {
 		t.Errorf("class value should be escaped, got raw <script>:\n%s", got)
 	}
 }
 
 func TestParsedAttrsStillRender(t *testing.T) {
-	d := djot.Parse("{data-foo=\"v\" aria-label=\"x\"}\n# heading\n")
-	got := djot.RenderHTML(d)
+	got := djot.RenderHTML(djot.Parse("{data-foo=\"v\" aria-label=\"x\"}\n# heading\n"))
 	for _, want := range []string{`data-foo="v"`, `aria-label="x"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in output, got:\n%s", want, got)

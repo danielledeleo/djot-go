@@ -12,12 +12,10 @@ import (
 )
 
 func renderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
-	doc.Root()
-	tape := doc.semantic
-	doc.semantic = nil
-	result := RenderHTML(doc, opts...)
-	doc.semantic = tape
-	return result
+	var b strings.Builder
+	r := newHTMLRendererWithConfig(&b, doc.AST(), makeRenderConfig(opts))
+	r.renderDocument()
+	return b.String()
 }
 
 // RenderTreeHTMLForTest bypasses the compact tape for external tests.
@@ -50,139 +48,91 @@ func TestSemanticTapeDefaultRendering(t *testing.T) {
 		if doc.semantic == nil {
 			t.Fatal("Parse did not attach a semantic tape")
 		}
-		if !doc.semantic.matchesAST(doc.Root()) {
-			t.Fatal("freshly parsed AST does not match its semantic tape")
-		}
 		if got, want := renderSemanticHTML(doc.semantic), renderTreeHTMLForTest(doc); got != want {
 			t.Fatalf("tape output differs from tree renderer\nwant: %q\n got: %q", want, got)
 		}
 	}
 }
 
-func TestDocumentMaterializesLazily(t *testing.T) {
-	doc := Parse("text[^a]\n\n[^a]: note\n")
-	if doc.root != nil {
-		t.Fatal("Parse eagerly materialized the public AST")
+// AST returns a new tree on each call, and nothing done to it reaches the
+// document.
+func TestASTReturnsIndependentTrees(t *testing.T) {
+	doc := Parse("text[^a] and [label][]\n\n[^a]: note\n\n[label]: /target\n")
+	before := RenderHTML(doc)
+	first, second := doc.AST(), doc.AST()
+	if first == second {
+		t.Fatal("AST returned the same tree twice")
 	}
-	_ = RenderHTML(doc)
-	if doc.root != nil {
-		t.Fatal("default HTML rendering materialized the public AST")
+	if findTypedNode[*Footnote](first) == nil {
+		t.Fatal("AST has no footnote definition")
 	}
-
-	root := doc.Root()
-	if root == nil || doc.Root() != root {
-		t.Fatal("Root did not materialize exactly once")
+	if ref := first.References["label"]; ref == nil || ref.Destination != "/target" {
+		t.Fatalf("References[label] = %#v", ref)
 	}
-	footnote := doc.Footnotes()["a"]
-	if footnote == nil {
-		t.Fatal("Footnotes did not rebuild the parsed definition index")
+	findTypedNode[*Text](first).Value = "changed"
+	first.References["label"].Destination = "/changed"
+	if got := RenderHTML(doc); got != before {
+		t.Fatalf("editing an AST changed the document\nbefore: %q\n after: %q", before, got)
 	}
-	found := false
-	Walk(root, func(node Node) Action {
-		if node == footnote {
-			found = true
-		}
-		return Continue
-	})
-	if !found {
-		t.Fatal("Footnotes returned a node outside the materialized root")
+	if third := doc.AST(); findTypedNode[*Text](third).Value != "text" || third.References["label"].Destination != "/target" {
+		t.Fatal("editing an AST changed later trees")
 	}
 }
 
-func TestFootnotesReindexesMutatedTree(t *testing.T) {
-	doc := Parse("note[^a]\n\n[^a]: body\n")
-	first := doc.Footnotes()
-	first["injected"] = &Footnote{Label: "injected"}
-	first["a"].Label = "renamed"
-
-	second := doc.Footnotes()
-	if second["renamed"] != first["a"] {
-		t.Fatalf("mutated definition missing from rebuilt index: %#v", second)
+// NewDoc copies what it needs from the tree: later edits to the tree do not
+// reach the document, and references survive the trip.
+func TestNewDocIsIndependentOfItsTree(t *testing.T) {
+	tree := &Document{
+		Children:   []Block{&Paragraph{Children: []Inline{&Text{Value: "custom"}}}},
+		References: map[string]*Reference{"custom": {Destination: "/custom", DestinationSet: true}},
 	}
-	if _, ok := second["a"]; ok {
-		t.Fatalf("old label remained in rebuilt index: %#v", second)
-	}
-	if _, ok := second["injected"]; ok {
-		t.Fatalf("map-only mutation leaked into rebuilt index: %#v", second)
-	}
-}
-
-func TestDocumentMaterializesReferences(t *testing.T) {
-	doc := Parse("[label]: /target\n\n[label][]\n")
-	ref := doc.References()["label"]
-	if ref == nil || ref.Destination != "/target" {
-		t.Fatalf("References()[label] = %#v", ref)
-	}
-}
-
-func TestNewDocRendersMutableAST(t *testing.T) {
-	doc := NewDoc(&Document{
-		Children: []Block{&Paragraph{
-			Children: []Inline{&Text{Value: "custom"}},
-		}},
-	})
+	doc := NewDoc(tree)
 	if got, want := RenderHTML(doc), "<p>custom</p>\n"; got != want {
 		t.Fatalf("RenderHTML(NewDoc(...)) = %q, want %q", got, want)
 	}
-	findTypedNode[*Text](doc.Root()).Value = "changed"
-	if got, want := RenderHTML(doc), "<p>changed</p>\n"; got != want {
-		t.Fatalf("RenderHTML after mutation = %q, want %q", got, want)
+	findTypedNode[*Text](tree).Value = "changed"
+	if got, want := RenderHTML(doc), "<p>custom</p>\n"; got != want {
+		t.Fatalf("editing the tree changed the document: %q", got)
 	}
-	if got := NewDoc(nil).Footnotes(); len(got) != 0 {
-		t.Fatalf("NewDoc(nil).Footnotes() = %v, want empty", got)
+	if got, want := RenderHTML(NewDoc(tree)), "<p>changed</p>\n"; got != want {
+		t.Fatalf("RenderHTML(NewDoc(edited)) = %q, want %q", got, want)
 	}
-	refs := doc.References()
-	refs["custom"] = &Reference{Destination: "/custom", DestinationSet: true}
-	if doc.References()["custom"].Destination != "/custom" {
-		t.Fatal("NewDoc References map is not mutable and persistent")
+	if ref := doc.AST().References["custom"]; ref == nil || ref.Destination != "/custom" {
+		t.Fatalf("References did not survive NewDoc: %#v", ref)
 	}
-
-	replacement := &Document{Children: []Block{&Paragraph{
-		Children: []Inline{&Text{Value: "replacement"}},
-	}}}
-	doc.SetRoot(replacement)
-	if doc.Root() != replacement || RenderHTML(doc) != "<p>replacement</p>\n" {
-		t.Fatal("SetRoot did not replace the rendered AST")
+	if got := RenderHTML(NewDoc(nil)); got != "" {
+		t.Fatalf("RenderHTML(NewDoc(nil)) = %q, want empty", got)
+	}
+	if got := RenderHTML(&Doc{}); got != "" {
+		t.Fatalf("RenderHTML of a zero Doc = %q, want empty", got)
 	}
 }
 
-func TestDocumentLazyStateConcurrentFirstAccess(t *testing.T) {
+// A Doc is immutable, so concurrent rendering and tree building need no
+// coordination. Run under -race.
+func TestDocConcurrentUse(t *testing.T) {
 	doc := Parse("reference[^note]\n\n[^note]: body\n\n[label]: /target\n")
-	const workers = 32
-	roots := make([]*Document, workers)
-	start := make(chan struct{})
+	want := RenderHTML(doc)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := 0; i < 32; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			<-start
-			switch i % 4 {
+			switch i % 3 {
 			case 0:
-				roots[i] = doc.Root()
+				if got := RenderHTML(doc); got != want {
+					t.Errorf("concurrent render differs: %q", got)
+				}
 			case 1:
-				if doc.Footnotes()["note"] == nil {
-					t.Errorf("Footnotes()[note] is nil")
+				if doc.AST().References["label"] == nil {
+					t.Errorf("References[label] is nil")
 				}
-				roots[i] = doc.Root()
 			case 2:
-				if doc.References()["label"] == nil {
-					t.Errorf("References()[label] is nil")
-				}
-				roots[i] = doc.Root()
-			case 3:
-				_ = RenderHTML(doc)
-				roots[i] = doc.Root()
+				_ = doc.Position(doc.AST().Children[0].Span().Start)
 			}
 		}(i)
 	}
-	close(start)
 	wg.Wait()
-	for i, root := range roots {
-		if root == nil || root != roots[0] {
-			t.Fatalf("root %d = %p, want shared root %p", i, root, roots[0])
-		}
-	}
 }
 
 // The largest accepted enumerator round-trips through the tape, and the first
@@ -194,7 +144,7 @@ func TestSemanticTapePreservesWideOrderedListStart(t *testing.T) {
 	if got, want := RenderHTML(doc), "<ol start=\"2147483647\">\n<li>\nitem\n</li>\n</ol>\n"; got != want {
 		t.Fatalf("wide ordered-list render differs\nwant: %q\n got: %q", want, got)
 	}
-	list := findTypedNode[*OrderedList](doc.Root())
+	list := findTypedNode[*OrderedList](doc.AST())
 	if list == nil || list.Start != start {
 		t.Fatalf("materialized ListStart = %v, want %d", list, start)
 	}
@@ -269,11 +219,13 @@ func (w *firstWriteRecorder) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func TestSemanticTapeMutationFallback(t *testing.T) {
-	mutateFirst := func(kind Kind, mutate func(Node)) func(*Doc) {
-		return func(doc *Doc) {
+// Every field the renderer reads survives NewDoc: a tree edited through AST
+// and passed to NewDoc renders exactly as the tree renderer renders it.
+func TestNewDocRendersEditedTrees(t *testing.T) {
+	mutateFirst := func(kind Kind, mutate func(Node)) func(*Document) {
+		return func(tree *Document) {
 			var found Node
-			Walk(doc.Root(), func(node Node) Action {
+			Walk(tree, func(node Node) Action {
 				if found == nil && node.Kind() == kind {
 					found = node
 				}
@@ -288,34 +240,34 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
-		mutate func(*Doc)
+		mutate func(*Document)
 	}{
 		{
 			name:  "text",
 			input: "hello\n",
-			mutate: func(doc *Doc) {
-				findTypedNode[*Text](doc.Root()).Value = "changed"
+			mutate: func(tree *Document) {
+				findTypedNode[*Text](tree).Value = "changed"
 			},
 		},
 		{
 			name:  "attributes",
 			input: "# heading\n",
-			mutate: func(doc *Doc) {
-				findTypedNode[*Section](doc.Root()).Attributes().Set("class", "changed")
+			mutate: func(tree *Document) {
+				findTypedNode[*Section](tree).Attributes().Set("class", "changed")
 			},
 		},
 		{
 			name:  "target",
 			input: "[link](old)\n",
-			mutate: func(doc *Doc) {
-				findTypedNode[*Link](doc.Root()).Destination = "new"
+			mutate: func(tree *Document) {
+				findTypedNode[*Link](tree).Destination = "new"
 			},
 		},
 		{
 			name:  "children",
 			input: "one\n",
-			mutate: func(doc *Doc) {
-				doc.Root().Children = append(doc.Root().Children, &Paragraph{
+			mutate: func(tree *Document) {
+				tree.Children = append(tree.Children, &Paragraph{
 					Children: []Inline{&Text{Value: "two"}},
 				})
 			},
@@ -384,15 +336,14 @@ func TestSemanticTapeMutationFallback(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			doc := Parse(test.input)
-			test.mutate(doc)
-			if doc.semantic.matchesAST(doc.Root()) {
-				t.Fatal("mutated AST still matches immutable tape")
+			tree := Parse(test.input).AST()
+			test.mutate(tree)
+			doc := NewDoc(tree)
+			if before := RenderHTML(Parse(test.input)); RenderHTML(doc) == before {
+				t.Fatal("the edit did not change the output")
 			}
-			want := renderTreeHTMLForTest(doc)
-			got := RenderHTML(doc)
-			if got != want {
-				t.Fatalf("fallback output differs\nwant: %q\n got: %q", want, got)
+			if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
+				t.Fatalf("edited tree output differs\nwant: %q\n got: %q", want, got)
 			}
 		})
 	}
@@ -410,9 +361,6 @@ func TestSemanticTapeFootnoteOptionsStayCompact(t *testing.T) {
 	got := RenderHTML(doc, options...)
 	if got != want {
 		t.Fatalf("compact option output differs\nwant: %q\n got: %q", want, got)
-	}
-	if doc.root != nil || doc.rootRequested {
-		t.Fatal("footnote options materialized the typed AST")
 	}
 }
 
@@ -472,14 +420,10 @@ func BenchmarkProductionSemanticFastPath(b *testing.B) {
 	input := strings.Repeat("A paragraph with *emphasis*, **strong**, and [a link](https://example.com).\n\n", 2048)
 	compactDoc := Parse(input)
 	treeDoc := Parse(input)
-	_ = treeDoc.Root()
 	discardDoc := Parse(input)
-	inspectedDoc := Parse(input)
-	_ = inspectedDoc.Root()
 	footnoteOptionDoc := Parse(input)
 	footnoteOption := WithFootnotePrefix("post-")
 	nodeHookDoc := Parse(input)
-	_ = nodeHookDoc.Root()
 	nodeHook := WithNodeRenderer(KindCodeBlock, func(_ Node, r NodeRenderer) { r.Default() })
 	b.Run("CompactTape", func(b *testing.B) {
 		b.ReportAllocs()
@@ -497,14 +441,6 @@ func BenchmarkProductionSemanticFastPath(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			if err := RenderHTMLTo(io.Discard, discardDoc); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-	b.Run("RootThenTapeToDiscard", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			if err := RenderHTMLTo(io.Discard, inspectedDoc); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -539,7 +475,7 @@ func BenchmarkMaterializeTypedAST(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		doc := &Doc{semantic: parsed.semantic}
-		root := doc.Root()
+		root := doc.AST()
 		if root == nil {
 			b.Fatal("materialized nil root")
 		}

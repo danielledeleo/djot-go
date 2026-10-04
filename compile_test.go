@@ -12,13 +12,13 @@ func TestNewDocRoundTrip(t *testing.T) {
 	for file, cases := range loadOfficialTests(t) {
 		for _, tc := range cases {
 			want := djot.RenderHTML(djot.Parse(tc.Input))
-			if got := djot.RenderHTML(djot.NewDoc(djot.Parse(tc.Input).Root())); got != want {
+			if got := djot.RenderHTML(djot.NewDoc(djot.Parse(tc.Input).AST())); got != want {
 				t.Errorf("%s:%d round trip differs\ninput: %q\nwant: %q\n got: %q", file, tc.Line, tc.Input, want, got)
 			}
 		}
 	}
 	for _, src := range []string{smallDoc(), mediumDoc(), largeDoc(), hugeDoc()} {
-		if djot.RenderHTML(djot.NewDoc(djot.Parse(src).Root())) != djot.RenderHTML(djot.Parse(src)) {
+		if djot.RenderHTML(djot.NewDoc(djot.Parse(src).AST())) != djot.RenderHTML(djot.Parse(src)) {
 			t.Errorf("benchmark document round trip differs (%d bytes)", len(src))
 		}
 	}

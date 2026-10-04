@@ -26,7 +26,7 @@ func TestInlineSpansAreHalfOpen(t *testing.T) {
 					t.Fatalf("source slice = %q, want %q", got, input)
 				}
 			}
-			paragraph := doc.Root().Children[0].(*ast.Paragraph)
+			paragraph := doc.AST().Children[0].(*ast.Paragraph)
 			check(paragraph.Children[0].Span())
 		})
 	}
@@ -46,7 +46,7 @@ func TestInlineSpanSerializationKeepsInclusiveEnds(t *testing.T) {
 func TestReferenceSpanWithDefinition(t *testing.T) {
 	const input = "before [text][ref]\n\n[ref]: /url"
 	doc := djot.Parse(input)
-	link := doc.Root().Children[0].(*ast.Paragraph).Children[1].(*ast.Link)
+	link := doc.AST().Children[0].(*ast.Paragraph).Children[1].(*ast.Link)
 	span := link.Span()
 	if got := input[span.Start.Offset:span.End.Offset]; got != "[text][ref]" {
 		t.Fatalf("reference source = %q", got)

@@ -10,7 +10,7 @@ import (
 func TestWalkContinue(t *testing.T) {
 	doc := djot.Parse("Hello *world* and _more_")
 	var kinds []ast.Kind
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		kinds = append(kinds, n.Kind())
 		return ast.Continue
 	})
@@ -33,7 +33,7 @@ func TestWalkContinue(t *testing.T) {
 func TestWalkSkipChildren(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
 	var visited []ast.Kind
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		visited = append(visited, n.Kind())
 		if n.Kind() == ast.KindStrong {
 			return ast.SkipChildren
@@ -63,14 +63,14 @@ func TestWalkSkipChildren(t *testing.T) {
 }
 
 func TestWalkRemove(t *testing.T) {
-	doc := djot.Parse("Hello *world* goodbye")
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	tree := djot.Parse("Hello *world* goodbye").AST()
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if n.Kind() == ast.KindStrong {
 			return ast.Remove
 		}
 		return ast.Continue
 	})
-	html := djot.RenderHTML(doc)
+	html := djot.RenderHTML(djot.NewDoc(tree))
 	if got := html; contains(got, "<strong>") {
 		t.Errorf("Strong should have been removed, got: %s", got)
 	}
@@ -80,8 +80,8 @@ func TestWalkRemove(t *testing.T) {
 }
 
 func TestWalkReplace(t *testing.T) {
-	doc := djot.Parse("Hello *world*")
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	tree := djot.Parse("Hello *world*").AST()
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if n.Kind() == ast.KindStrong {
 			return ast.Replace(&ast.Emphasis{
 				Children: []ast.Inline{&ast.Text{Value: "replaced"}},
@@ -89,7 +89,7 @@ func TestWalkReplace(t *testing.T) {
 		}
 		return ast.Continue
 	})
-	html := djot.RenderHTML(doc)
+	html := djot.RenderHTML(djot.NewDoc(tree))
 	if !contains(html, "<em>replaced</em>") {
 		t.Errorf("expected replaced emphasis, got: %s", html)
 	}
@@ -102,7 +102,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 	doc := djot.Parse("*bold*")
 	var visitedAfterReplace []ast.Kind
 	replaced := false
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		if n.Kind() == ast.KindStrong && !replaced {
 			replaced = true
 			return ast.Replace(&ast.Emphasis{
@@ -129,7 +129,7 @@ func TestWalkReplaceVisitsReplacementChildren(t *testing.T) {
 func TestWalkVisitsRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	ast.Walk(doc.AST(), func(n ast.Node) ast.Action {
 		if n.Kind() == ast.KindDocument {
 			visitedRoot = true
 		}
@@ -141,14 +141,14 @@ func TestWalkVisitsRoot(t *testing.T) {
 }
 
 func TestWalkRemoveMultiple(t *testing.T) {
-	doc := djot.Parse("*a* *b* *c*")
-	ast.Walk(doc.Root(), func(n ast.Node) ast.Action {
+	tree := djot.Parse("*a* *b* *c*").AST()
+	ast.Walk(tree, func(n ast.Node) ast.Action {
 		if n.Kind() == ast.KindStrong {
 			return ast.Remove
 		}
 		return ast.Continue
 	})
-	html := djot.RenderHTML(doc)
+	html := djot.RenderHTML(djot.NewDoc(tree))
 	if contains(html, "<strong>") {
 		t.Errorf("all Strong nodes should have been removed, got: %s", html)
 	}
@@ -157,7 +157,7 @@ func TestWalkRemoveMultiple(t *testing.T) {
 func TestWalkBottomUp(t *testing.T) {
 	doc := djot.Parse("Hello *world*")
 	var kinds []ast.Kind
-	ast.WalkBottomUp(doc.Root(), func(n ast.Node) {
+	ast.WalkBottomUp(doc.AST(), func(n ast.Node) {
 		kinds = append(kinds, n.Kind())
 	})
 	if len(kinds) == 0 {
@@ -186,7 +186,7 @@ func TestWalkBottomUp(t *testing.T) {
 func TestWalkBottomUpVisitsRoot(t *testing.T) {
 	doc := djot.Parse("Hello")
 	visitedRoot := false
-	ast.WalkBottomUp(doc.Root(), func(n ast.Node) {
+	ast.WalkBottomUp(doc.AST(), func(n ast.Node) {
 		if n.Kind() == ast.KindDocument {
 			visitedRoot = true
 		}

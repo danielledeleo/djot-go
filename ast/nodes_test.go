@@ -93,7 +93,7 @@ func TestKindString(t *testing.T) {
 func TestPreorderVisitsRootAndStops(t *testing.T) {
 	doc := djot.Parse("one *two* three")
 	var kinds []ast.Kind
-	ast.Preorder(doc.Root(), func(node ast.Node) bool {
+	ast.Preorder(doc.AST(), func(node ast.Node) bool {
 		kinds = append(kinds, node.Kind())
 		return len(kinds) < 3
 	})
