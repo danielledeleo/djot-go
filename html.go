@@ -15,31 +15,48 @@ var errNilHTMLWriter = errors.New("djot: RenderHTMLTo called with a nil writer")
 // RenderOption configures HTML rendering. Pass to [RenderHTML] or [RenderHTMLTo].
 type RenderOption func(*renderConfig)
 
-// NodeRenderFunc is a hook that overrides rendering for a specific node kind.
-// It receives the node being rendered and a [NodeRenderer] for controlling output.
-type NodeRenderFunc func(n ast.Node, r NodeRenderer)
+type nodeRenderFunc func(n ast.Node, r NodeRenderer)
 
-// NodeRenderer provides methods for controlling output from within a render hook.
-//
-//   - [NodeRenderer.Write] emits raw HTML to the output.
-//   - [NodeRenderer.Children] renders the node's children through the full
-//     pipeline (including any hooks registered for child node kinds),
-//     without emitting the node's own wrapper element.
-//   - [NodeRenderer.Default] renders the node exactly as if no hook were
-//     registered. Calling Default does not re-trigger the hook.
-type NodeRenderer interface {
-	// Write emits a raw HTML string to the output.
-	Write(s string)
-	// Children renders this node's children through the full rendering
-	// pipeline, including any hooks for child node kinds.
-	Children()
-	// Default renders this node using the built-in renderer, as if no
-	// hook were registered. Does not re-trigger the hook.
-	Default()
+// NodeRenderer controls output from inside a [WithNodeRenderer] callback. It is
+// valid only during the callback; its zero value writes nothing.
+type NodeRenderer struct {
+	semantic *semanticHTMLRenderer
+	record   int
+	tree     *htmlRenderer
+	node     ast.Node
+}
+
+// Write writes raw HTML to the output. It does not escape s.
+func (r NodeRenderer) Write(s string) {
+	if r.semantic != nil {
+		r.semantic.write(s)
+	} else if r.tree != nil {
+		r.tree.write(s)
+	}
+}
+
+// Children renders the node's children, including any hooks registered for
+// their kinds, without the node's own wrapper element.
+func (r NodeRenderer) Children() {
+	if r.semantic != nil {
+		r.semantic.renderChildren(r.record)
+	} else if r.tree != nil {
+		ast.ForEachChild(r.node, r.tree.renderNode)
+	}
+}
+
+// Default renders the node as if no hook were registered for its kind. Hooks
+// registered for its descendants still run.
+func (r NodeRenderer) Default() {
+	if r.semantic != nil {
+		r.semantic.renderDefault(r.record)
+	} else if r.tree != nil {
+		r.tree.renderDefault(r.node)
+	}
 }
 
 type renderConfig struct {
-	hooks                 map[ast.Kind]NodeRenderFunc
+	hooks                 map[ast.Kind]nodeRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(num int) string
 	footnoteRefID         func(num, k int) string
@@ -131,11 +148,11 @@ func WithMultiBacklinks() RenderOption {
 //
 // Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
 // For a symbol hook that can avoid AST materialization, see [WithSymbolRenderer].
-func WithNodeRenderer(kind ast.Kind, fn NodeRenderFunc) RenderOption {
+func WithNodeRenderer(kind ast.Kind, fn func(n ast.Node, r NodeRenderer)) RenderOption {
 	requireElementHook(kind, fn != nil, "WithNodeRenderer")
 	return func(cfg *renderConfig) {
 		if cfg.hooks == nil {
-			cfg.hooks = make(map[ast.Kind]NodeRenderFunc)
+			cfg.hooks = make(map[ast.Kind]nodeRenderFunc)
 		}
 		cfg.hooks[kind] = fn
 	}
@@ -207,14 +224,7 @@ func WithRenderFunc(kind ast.Kind, fn func(n ast.Node) string) RenderOption {
 // [RenderOption] values customize rendering through node hooks and footnote
 // options.
 func RenderHTML(doc *Doc, opts ...RenderOption) string {
-	cfg := makeRenderConfig(opts)
-	if cfg.canRenderSemantic() {
-		return renderSemanticHTMLWithHooks(doc.tape(), cfg.semanticHooks())
-	}
-	var b strings.Builder
-	r := newHTMLRendererWithConfig(&b, doc.AST(), cfg)
-	r.renderDocument()
-	return b.String()
+	return renderSemanticHTMLWithHooks(doc.tape(), makeRenderConfig(opts).semanticHooks())
 }
 
 // RenderHTMLTo renders a parsed document as HTML to the given writer.
@@ -223,13 +233,7 @@ func RenderHTMLTo(w io.Writer, doc *Doc, opts ...RenderOption) error {
 	if w == nil {
 		return errNilHTMLWriter
 	}
-	cfg := makeRenderConfig(opts)
-	if cfg.canRenderSemantic() {
-		return renderSemanticHTMLToWithHooks(w, doc.tape(), cfg.semanticHooks())
-	}
-	r := newHTMLRendererWithConfig(w, doc.AST(), cfg)
-	r.renderDocument()
-	return r.err
+	return renderSemanticHTMLToWithHooks(w, doc.tape(), makeRenderConfig(opts).semanticHooks())
 }
 
 func makeRenderConfig(opts []RenderOption) renderConfig {
@@ -240,12 +244,9 @@ func makeRenderConfig(opts []RenderOption) renderConfig {
 	return cfg
 }
 
-func (cfg *renderConfig) canRenderSemantic() bool {
-	return len(cfg.hooks) == 0
-}
-
-func (cfg *renderConfig) semanticHooks() semanticRenderHooks {
+func (cfg renderConfig) semanticHooks() semanticRenderHooks {
 	return semanticRenderHooks{
+		nodes:          cfg.hooks,
 		multiBacklinks: cfg.multiBacklinks, footnoteID: cfg.footnoteID,
 		footnoteRefID: cfg.footnoteRefID, footnoteBacklinkLabel: cfg.footnoteBacklinkLabel,
 	}
@@ -262,7 +263,7 @@ type htmlRenderer struct {
 	err  error
 	root *ast.Document
 
-	hooks map[ast.Kind]NodeRenderFunc
+	hooks map[ast.Kind]nodeRenderFunc
 
 	// tight tracks whether we are rendering inside a tight list/definition list.
 	// Set by the list container before iterating children and restored after,
@@ -384,24 +385,6 @@ func (r *htmlRenderer) write(s string) {
 	_, r.err = io.WriteString(r.w, s)
 }
 
-// nodeRendererImpl implements NodeRenderer for use in hooks.
-type nodeRendererImpl struct {
-	r *htmlRenderer
-	n ast.Node
-}
-
-func (nr *nodeRendererImpl) Children() {
-	ast.ForEachChild(nr.n, nr.r.renderNode)
-}
-
-func (nr *nodeRendererImpl) Default() {
-	nr.r.renderDefault(nr.n)
-}
-
-func (nr *nodeRendererImpl) Write(s string) {
-	nr.r.write(s)
-}
-
 func (r *htmlRenderer) renderNode(n ast.Node) {
 	if r.err != nil {
 		return
@@ -415,7 +398,7 @@ func (r *htmlRenderer) renderNode(n ast.Node) {
 	}
 
 	if fn, ok := r.hooks[n.Kind()]; ok {
-		fn(n, &nodeRendererImpl{r: r, n: n})
+		fn(n, NodeRenderer{tree: r, node: n})
 		return
 	}
 	r.renderDefault(n)

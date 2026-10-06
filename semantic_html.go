@@ -21,6 +21,8 @@ type semanticHTMLRenderer struct {
 	err    error
 
 	hooks *semanticRenderHooks
+	// arena holds the nodes built for hooks during this render.
+	arena typedNodeArena
 
 	tight                 bool
 	footnotes             map[string]int
@@ -47,6 +49,7 @@ func renderSemanticHTMLTo(w io.Writer, tape *semanticTape) error {
 }
 
 type semanticRenderHooks struct {
+	nodes                 map[ast.Kind]nodeRenderFunc
 	multiBacklinks        bool
 	footnoteID            func(int) string
 	footnoteRefID         func(int, int) string
@@ -265,6 +268,13 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		defer func() { r.tight = previous }()
 	}
 
+	if r.hooks != nil {
+		if fn, ok := r.hooks.nodes[r.kind(i)]; ok {
+			node, _ := r.tape.materializeNode(i, &r.arena)
+			fn(node, NodeRenderer{semantic: r, record: i})
+			return
+		}
+	}
 	r.renderDefault(i)
 }
 
