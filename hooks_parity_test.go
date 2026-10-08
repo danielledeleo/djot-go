@@ -59,27 +59,28 @@ var hookParitySeeds = []string{
 	"- > first\n  >\n  > second\n- last\n",
 }
 
-// Hooks must behave identically on the compact form and on the typed tree.
-func TestHookedRenderMatchesTreeRenderer(t *testing.T) {
+// Hooks must behave the same on a parsed document and on one rebuilt from
+// its syntax tree.
+func TestHookedRenderSurvivesASTRoundTrip(t *testing.T) {
 	for _, src := range hookParitySeeds {
 		doc := Parse(src)
 		for seed := uint64(0); seed < 400; seed++ {
 			opts := hookOptionsForTest(seed * 0x9e3779b97f4a7c15)
-			if got, want := RenderHTML(doc, opts...), renderTreeHTMLForTest(doc, opts...); got != want {
+			if got, want := RenderHTML(doc, opts...), renderRoundTripForTest(doc, opts...); got != want {
 				t.Fatalf("seed %d: hooked render differs\ninput: %q\nwant: %q\n got: %q", seed, src, want, got)
 			}
 		}
 	}
 }
 
-func FuzzHookedRenderMatchesTreeRenderer(f *testing.F) {
+func FuzzHookedRenderSurvivesASTRoundTrip(f *testing.F) {
 	for i, s := range hookParitySeeds {
 		f.Add(s, uint64(i)*0x9e3779b97f4a7c15)
 	}
 	f.Fuzz(func(t *testing.T, src string, seed uint64) {
 		doc := Parse(src)
 		opts := hookOptionsForTest(seed)
-		if got, want := RenderHTML(doc, opts...), renderTreeHTMLForTest(doc, opts...); got != want {
+		if got, want := RenderHTML(doc, opts...), renderRoundTripForTest(doc, opts...); got != want {
 			t.Fatalf("hooked render differs\ninput: %q seed %d\nwant: %q\n got: %q", src, seed, want, got)
 		}
 	})

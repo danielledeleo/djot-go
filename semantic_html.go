@@ -21,8 +21,10 @@ type semanticHTMLRenderer struct {
 	err    error
 
 	hooks *semanticRenderHooks
-	// arena holds the nodes built for hooks during this render.
-	arena typedNodeArena
+	// nodeHooks is nil when no hooks are registered, so plain renders skip
+	// the lookup. arena holds the nodes built for hooks during this render.
+	nodeHooks map[ast.Kind]nodeRenderFunc
+	arena     typedNodeArena
 
 	tight                 bool
 	footnotes             map[string]int
@@ -78,6 +80,9 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 		footnoteParagraph: -1,
 	}
 	if hooks != nil {
+		if len(hooks.nodes) > 0 {
+			r.nodeHooks = hooks.nodes
+		}
 		r.multiBacklinks = hooks.multiBacklinks
 		r.footnoteID = hooks.footnoteID
 		r.footnoteRefID = hooks.footnoteRefID
@@ -268,10 +273,10 @@ func (r *semanticHTMLRenderer) renderNode(i int) {
 		defer func() { r.tight = previous }()
 	}
 
-	if r.hooks != nil {
-		if fn, ok := r.hooks.nodes[r.kind(i)]; ok {
+	if r.nodeHooks != nil {
+		if fn, ok := r.nodeHooks[r.kind(i)]; ok {
 			node, _ := r.tape.materializeNode(i, &r.arena)
-			fn(node, NodeRenderer{semantic: r, record: i})
+			fn(node, NodeRenderer{r: r, record: i})
 			return
 		}
 	}
@@ -569,7 +574,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 }
 
 func (r *semanticHTMLRenderer) collectText(i int) string {
-	return collectDocumentText(textElement{tape: r.tape, record: i})
+	return collectDocumentText(r.tape, i)
 }
 
 func (r *semanticHTMLRenderer) renderFootnotes() {

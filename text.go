@@ -6,64 +6,28 @@ import (
 	"github.com/danielledeleo/djot-go/ast"
 )
 
-// textElement is one element of either the compact tape or a typed tree, for
-// collecting presentation text such as image alt text.
-type textElement struct {
-	tape   *semanticTape
-	node   ast.Node
-	record int
-}
-
-func (e textElement) kind() ast.Kind {
-	if e.tape != nil {
-		return ast.Kind(e.tape.records[e.record].kind)
-	}
-	return e.node.Kind()
-}
-
-// collectDocumentText returns an element's presentation text: smart
-// punctuation and quotes as rendered, symbols as :name:, and code and math
-// contents.
-func collectDocumentText(element textElement) string {
+// collectDocumentText returns the presentation text of the tape record at
+// index, such as image alt text: smart punctuation and quotes as rendered,
+// symbols as :name:, and code and math contents.
+func collectDocumentText(tape *semanticTape, index int) string {
 	var text strings.Builder
-	appendDocumentText(&text, element)
+	appendDocumentText(&text, tape, index)
 	return text.String()
 }
 
-func appendDocumentText(text *strings.Builder, element textElement) {
+func appendDocumentText(text *strings.Builder, tape *semanticTape, index int) {
+	record := tape.records[index]
 	prefix, suffix := "", ""
-	switch element.kind() {
-	case ast.KindText:
-		if element.tape != nil {
-			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
-			return
-		}
-		text.WriteString(element.node.(*ast.Text).Value)
+	switch ast.Kind(record.kind) {
+	case ast.KindText, ast.KindVerbatim, ast.KindInlineMath, ast.KindDisplayMath:
+		text.WriteString(tape.text(record.payload))
 		return
 	case ast.KindSoftBreak, ast.KindHardBreak, ast.KindNonBreakingSpace:
 		text.WriteByte(' ')
 		return
-	case ast.KindVerbatim, ast.KindInlineMath, ast.KindDisplayMath:
-		if element.tape != nil {
-			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
-			return
-		}
-		switch node := element.node.(type) {
-		case *ast.Verbatim:
-			text.WriteString(node.Text)
-		case *ast.InlineMath:
-			text.WriteString(node.Text)
-		case *ast.DisplayMath:
-			text.WriteString(node.Text)
-		}
-		return
 	case ast.KindSymbol:
 		text.WriteByte(':')
-		if element.tape != nil {
-			text.WriteString(element.tape.text(element.tape.records[element.record].payload))
-		} else {
-			text.WriteString(element.node.(*ast.Symbol).Name)
-		}
+		text.WriteString(tape.text(record.payload))
 		text.WriteByte(':')
 		return
 	case ast.KindEllipsis:
@@ -80,18 +44,9 @@ func appendDocumentText(text *strings.Builder, element textElement) {
 	case ast.KindSingleQuoted:
 		prefix, suffix = "‘", "’"
 	}
-
 	text.WriteString(prefix)
-	if element.tape != nil {
-		tape := element.tape
-		for child, end := element.record+1, int(tape.records[element.record].subtreeEnd); child < end; {
-			appendDocumentText(text, textElement{tape: tape, record: child})
-			child = int(tape.records[child].subtreeEnd)
-		}
-	} else if element.node != nil {
-		ast.ForEachChild(element.node, func(child ast.Node) {
-			appendDocumentText(text, textElement{node: child})
-		})
+	for child, end := index+1, int(record.subtreeEnd); child < end; child = int(tape.records[child].subtreeEnd) {
+		appendDocumentText(text, tape, child)
 	}
 	text.WriteString(suffix)
 }

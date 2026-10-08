@@ -85,13 +85,13 @@ func mutateForTest(root *ast.Document, seed int64) *ast.Document {
 	return out.(*ast.Document)
 }
 
-// A compiled tree must render exactly as the typed-tree renderer renders it,
-// including after arbitrary edits.
-func TestCompiledTapeMatchesTreeRenderer(t *testing.T) {
+// An edited tree must render the same after a further round trip through
+// NewDoc and AST.
+func TestEditedTreeSurvivesRoundTrip(t *testing.T) {
 	for _, src := range compileSeeds {
 		for seed := int64(0); seed < 200; seed++ {
 			tree := mutateForTest(Parse(src).AST(), seed)
-			want := renderTreeHTMLForTest(NewDoc(tree))
+			want := renderRoundTripForTest(NewDoc(tree))
 			if got := renderCompiledForTest(tree); got != want {
 				t.Fatalf("seed %d: compiled tape differs\ninput: %q\nwant: %q\n got: %q", seed, src, want, got)
 			}
@@ -130,7 +130,7 @@ func TestNewDocScratchTree(t *testing.T) {
 		&ast.Section{},
 	}}
 	doc := NewDoc(tree)
-	if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
+	if got, want := RenderHTML(doc), renderRoundTripForTest(doc); got != want {
 		t.Fatalf("hand-built tree differs\nwant: %q\n got: %q", want, got)
 	}
 }
@@ -145,13 +145,13 @@ func TestNewDocNegativeSpan(t *testing.T) {
 	}
 }
 
-func FuzzCompiledTapeMatchesTreeRenderer(f *testing.F) {
+func FuzzEditedTreeSurvivesRoundTrip(f *testing.F) {
 	for i, s := range compileSeeds {
 		f.Add(s, int64(i))
 	}
 	f.Fuzz(func(t *testing.T, src string, seed int64) {
 		tree := mutateForTest(Parse(src).AST(), seed)
-		want := renderTreeHTMLForTest(NewDoc(tree))
+		want := renderRoundTripForTest(NewDoc(tree))
 		if got := renderCompiledForTest(tree); got != want {
 			t.Fatalf("compiled tape differs\ninput: %q seed %d\nwant: %q\n got: %q", src, seed, want, got)
 		}

@@ -9,12 +9,24 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Symbol shortcodes via WithRenderFunc
+// Symbol shortcodes
 // ---------------------------------------------------------------------------
+
+// symbolReplacer renders a symbol as fn's result, or by default when fn
+// returns "".
+func symbolReplacer(fn func(n ast.Node) string) djot.RenderOption {
+	return djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
+		if html := fn(n); html != "" {
+			r.Write(html)
+			return
+		}
+		r.Default()
+	})
+}
 
 func TestPatternSymbolIcons(t *testing.T) {
 	doc := djot.Parse("Click :arrow-right: to continue")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+	html := djot.RenderHTML(doc, symbolReplacer(func(n ast.Node) string {
 		return `<i class="lucide lucide-` + n.(*ast.Symbol).Name + `"></i>`
 	}))
 	if !strings.Contains(html, `<i class="lucide lucide-arrow-right"></i>`) {
@@ -29,7 +41,7 @@ func TestPatternSymbolEmoji(t *testing.T) {
 		"rocket": "🚀",
 	}
 	doc := djot.Parse("Launch :rocket: and :star: it")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+	html := djot.RenderHTML(doc, symbolReplacer(func(n ast.Node) string {
 		return emoji[n.(*ast.Symbol).Name] // unknown returns "" and falls through
 	}))
 	if !strings.Contains(html, "🚀") || !strings.Contains(html, "⭐") {
@@ -39,7 +51,7 @@ func TestPatternSymbolEmoji(t *testing.T) {
 
 func TestPatternSymbolFallthrough(t *testing.T) {
 	doc := djot.Parse(":known: and :unknown:")
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+	html := djot.RenderHTML(doc, symbolReplacer(func(n ast.Node) string {
 		if n.(*ast.Symbol).Name == "known" {
 			return "REPLACED"
 		}
@@ -55,7 +67,7 @@ func TestPatternSymbolFallthrough(t *testing.T) {
 
 func TestPatternSymbolYouTubeEmbed(t *testing.T) {
 	doc := djot.Parse(`:youtube:{id="dQw4w9WgXcQ"}`)
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+	html := djot.RenderHTML(doc, symbolReplacer(func(n ast.Node) string {
 		if n.(*ast.Symbol).Name == "youtube" {
 			id := n.Attributes().Get("id")
 			if id != "" {
@@ -71,7 +83,7 @@ func TestPatternSymbolYouTubeEmbed(t *testing.T) {
 
 func TestPatternSymbolDataWidget(t *testing.T) {
 	doc := djot.Parse(`:chart:{type="bar" data="1,2,3,4"}`)
-	html := djot.RenderHTML(doc, djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+	html := djot.RenderHTML(doc, symbolReplacer(func(n ast.Node) string {
 		if n.(*ast.Symbol).Name == "chart" {
 			return `<div class="chart" data-type="` + n.Attributes().Get("type") + `" data-values="` + n.Attributes().Get("data") + `"></div>`
 		}
@@ -240,7 +252,7 @@ Regular :star: outside.`
 			r.Default()
 		}),
 		// Icons
-		djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
+		symbolReplacer(func(n ast.Node) string {
 			name := n.(*ast.Symbol).Name
 			if e, ok := emoji[name]; ok {
 				return e

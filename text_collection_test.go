@@ -24,18 +24,12 @@ func TestDeepTextCollectorsDoNotAllocatePerLevel(t *testing.T) {
 	for range depth {
 		node = &Emphasis{Children: []Inline{node}}
 	}
-	if got := collectText(node); got != "x" {
-		t.Fatalf("node text = %q, want x", got)
-	}
-	if allocations := testing.AllocsPerRun(10, func() { collectText(node) }); allocations > 20 {
-		t.Fatalf("node text allocations = %.0f, want at most 20", allocations)
-	}
-	if got := collectDocumentText(textElement{node: node}); got != "x" {
+	// Doc, paragraph, then the outermost emphasis at record 2.
+	tape := NewDoc(&Document{Children: []Block{&Paragraph{Children: []Inline{node}}}}).semantic
+	if got := collectDocumentText(tape, 2); got != "x" {
 		t.Fatalf("document text = %q, want x", got)
 	}
-	if allocations := testing.AllocsPerRun(10, func() {
-		collectDocumentText(textElement{node: node})
-	}); allocations > 20 {
+	if allocations := testing.AllocsPerRun(10, func() { collectDocumentText(tape, 2) }); allocations > 20 {
 		t.Fatalf("document text allocations = %.0f, want at most 20", allocations)
 	}
 }

@@ -9,13 +9,13 @@ import (
 )
 
 func TestRenderHooks(t *testing.T) {
-	t.Run("generic renderer infers concrete kind", func(t *testing.T) {
+	t.Run("hook receives the concrete node", func(t *testing.T) {
 		doc := djot.Parse(":rocket:")
-		html := djot.RenderHTML(doc, djot.WithRenderer(func(symbol *ast.Symbol, r djot.NodeRenderer) {
-			r.Write("[" + symbol.Name + "]")
+		html := djot.RenderHTML(doc, djot.WithNodeRenderer(ast.KindSymbol, func(n ast.Node, r djot.NodeRenderer) {
+			r.Write("[" + n.(*ast.Symbol).Name + "]")
 		}))
 		if !strings.Contains(html, "[rocket]") {
-			t.Fatalf("typed renderer did not run: %s", html)
+			t.Fatalf("symbol hook did not run: %s", html)
 		}
 	})
 
@@ -152,8 +152,8 @@ func TestRenderHooks(t *testing.T) {
 			djot.WithNodeRenderer(ast.KindHeading, func(n ast.Node, r djot.NodeRenderer) {
 				r.Default()
 			}),
-			djot.WithRenderFunc(ast.KindSymbol, func(n ast.Node) string {
-				return "STAR"
+			djot.WithNodeRenderer(ast.KindSymbol, func(_ ast.Node, r djot.NodeRenderer) {
+				r.Write("STAR")
 			}),
 		)
 		if !strings.Contains(html, "STAR") {
@@ -284,13 +284,4 @@ func TestElementHooksRejectSyntheticRoots(t *testing.T) {
 			test.make()
 		})
 	}
-}
-
-func TestWithRendererRejectsInterfaceType(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("WithRenderer accepted Node as its inferred type")
-		}
-	}()
-	djot.WithRenderer(func(ast.Node, djot.NodeRenderer) {})
 }

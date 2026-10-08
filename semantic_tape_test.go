@@ -11,16 +11,15 @@ import (
 	. "github.com/danielledeleo/djot-go/ast"
 )
 
-func renderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
-	var b strings.Builder
-	r := newHTMLRendererWithConfig(&b, doc.AST(), makeRenderConfig(opts))
-	r.renderDocument()
-	return b.String()
+// renderRoundTripForTest renders the document after a round trip through its
+// syntax tree: AST, then NewDoc. It must match rendering the document itself.
+func renderRoundTripForTest(doc *Doc, opts ...RenderOption) string {
+	return RenderHTML(NewDoc(doc.AST()), opts...)
 }
 
-// RenderTreeHTMLForTest bypasses the compact tape for external tests.
-func RenderTreeHTMLForTest(doc *Doc, opts ...RenderOption) string {
-	return renderTreeHTMLForTest(doc, opts...)
+// RenderRoundTripForTest exposes renderRoundTripForTest to external tests.
+func RenderRoundTripForTest(doc *Doc, opts ...RenderOption) string {
+	return renderRoundTripForTest(doc, opts...)
 }
 
 func findTypedNode[T Node](root Node) T {
@@ -48,8 +47,8 @@ func TestSemanticTapeDefaultRendering(t *testing.T) {
 		if doc.semantic == nil {
 			t.Fatal("Parse did not attach a semantic tape")
 		}
-		if got, want := renderSemanticHTML(doc.semantic), renderTreeHTMLForTest(doc); got != want {
-			t.Fatalf("tape output differs from tree renderer\nwant: %q\n got: %q", want, got)
+		if got, want := renderSemanticHTML(doc.semantic), renderRoundTripForTest(doc); got != want {
+			t.Fatalf("output differs after an AST round trip\nwant: %q\n got: %q", want, got)
 		}
 	}
 }
@@ -220,7 +219,7 @@ func (w *firstWriteRecorder) Write(p []byte) (int, error) {
 }
 
 // Every field the renderer reads survives NewDoc: a tree edited through AST
-// and passed to NewDoc renders exactly as the tree renderer renders it.
+// and passed to NewDoc renders the same after a further round trip.
 func TestNewDocRendersEditedTrees(t *testing.T) {
 	mutateFirst := func(kind Kind, mutate func(Node)) func(*Document) {
 		return func(tree *Document) {
@@ -342,7 +341,7 @@ func TestNewDocRendersEditedTrees(t *testing.T) {
 			if before := RenderHTML(Parse(test.input)); RenderHTML(doc) == before {
 				t.Fatal("the edit did not change the output")
 			}
-			if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
+			if got, want := RenderHTML(doc), renderRoundTripForTest(doc); got != want {
 				t.Fatalf("edited tree output differs\nwant: %q\n got: %q", want, got)
 			}
 		})
@@ -356,7 +355,7 @@ func TestSemanticTapeFootnoteOptionsStayCompact(t *testing.T) {
 		WithFootnotePrefix(`p"<&`),
 		WithFootnoteBacklinkLabel(func(_, k, _ int) string { return "<" + strconv.Itoa(k) + ">" }),
 	}
-	want := renderTreeHTMLForTest(Parse(input), options...)
+	want := renderRoundTripForTest(Parse(input), options...)
 	doc := Parse(input)
 	got := RenderHTML(doc, options...)
 	if got != want {
@@ -370,12 +369,12 @@ func TestSemanticTapeSourceTextAndStoredText(t *testing.T) {
 	if spans == 0 || values == 0 {
 		t.Fatalf("expected source-backed and stored text, got spans=%d values=%d", spans, values)
 	}
-	if got, want := RenderHTML(doc), renderTreeHTMLForTest(doc); got != want {
+	if got, want := RenderHTML(doc), renderRoundTripForTest(doc); got != want {
 		t.Fatalf("mixed text storage differs\nwant: %q\n got: %q", want, got)
 	}
 }
 
-func FuzzSemanticTapeHTMLParity(f *testing.F) {
+func FuzzRenderSurvivesASTRoundTrip(f *testing.F) {
 	for _, seed := range []string{
 		"plain text\n",
 		"# heading\n\n*emphasis* and [link](target)\n",
@@ -387,14 +386,14 @@ func FuzzSemanticTapeHTMLParity(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := Parse(input)
 		got := RenderHTML(doc)
-		want := renderTreeHTMLForTest(doc)
+		want := renderRoundTripForTest(doc)
 		if got != want {
-			t.Fatalf("tape output differs from AST renderer\ninput: %q\nwant: %q\n got: %q", input, want, got)
+			t.Fatalf("output differs after an AST round trip\ninput: %q\nwant: %q\n got: %q", input, want, got)
 		}
 	})
 }
 
-func FuzzSemanticTapeFootnoteOptionParity(f *testing.F) {
+func FuzzFootnoteOptionsSurviveASTRoundTrip(f *testing.F) {
 	for _, seed := range []string{
 		"plain text\n",
 		"reference[^a] again[^a]\n\n[^a]: note\n",
@@ -409,9 +408,9 @@ func FuzzSemanticTapeFootnoteOptionParity(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		got := RenderHTML(Parse(input), options...)
-		want := renderTreeHTMLForTest(Parse(input), options...)
+		want := renderRoundTripForTest(Parse(input), options...)
 		if got != want {
-			t.Fatalf("compact footnote options differ from tree renderer\ninput: %q\nwant: %q\n got: %q", input, want, got)
+			t.Fatalf("footnote options differ after an AST round trip\ninput: %q\nwant: %q\n got: %q", input, want, got)
 		}
 	})
 }
@@ -419,7 +418,6 @@ func FuzzSemanticTapeFootnoteOptionParity(f *testing.F) {
 func BenchmarkProductionSemanticFastPath(b *testing.B) {
 	input := strings.Repeat("A paragraph with *emphasis*, **strong**, and [a link](https://example.com).\n\n", 2048)
 	compactDoc := Parse(input)
-	treeDoc := Parse(input)
 	discardDoc := Parse(input)
 	footnoteOptionDoc := Parse(input)
 	footnoteOption := WithFootnotePrefix("post-")
@@ -429,12 +427,6 @@ func BenchmarkProductionSemanticFastPath(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			_ = RenderHTML(compactDoc)
-		}
-	})
-	b.Run("TreeAST", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_ = renderTreeHTMLForTest(treeDoc)
 		}
 	})
 	b.Run("TapeToDiscard", func(b *testing.B) {

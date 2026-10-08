@@ -32,10 +32,10 @@ func TestOfficial(t *testing.T) {
 					}
 
 					if !tc.IsAST {
-						tree := djot.RenderTreeHTMLForTest(doc)
+						tree := djot.RenderRoundTripForTest(doc)
 						tree = trimTrailingNewline(tree)
 						if tree != expected {
-							t.Errorf("tree renderer: file: %s line: %d\ninput:\n%s\n\nexpected:\n%s\n\ngot:\n%s",
+							t.Errorf("after AST round trip: file: %s line: %d\ninput:\n%s\n\nexpected:\n%s\n\ngot:\n%s",
 								tc.File, tc.Line, tc.Input, expected, tree)
 						}
 					}
