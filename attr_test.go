@@ -58,8 +58,18 @@ func TestParseAttrs(t *testing.T) {
 			expected: map[string]string{"key": "value"},
 		},
 		{
-			name:     "boolean attribute",
+			name:     "key without value",
 			input:    "hidden",
+			expected: nil,
+		},
+		{
+			name:     "key without value among others",
+			input:    ".a hidden",
+			expected: nil,
+		},
+		{
+			name:     "quoted empty value",
+			input:    `hidden=""`,
 			expected: map[string]string{"hidden": ""},
 		},
 

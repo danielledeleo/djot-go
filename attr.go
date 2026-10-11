@@ -89,10 +89,8 @@ func (p *attrParser) parse() (map[string]string, []string) {
 				key = string(buf)
 				state = attrScanningValue
 			} else {
-				// Boolean attribute (key with no value).
-				p.setAttr(string(buf), "")
-				state = attrScanning
-				continue
+				// A key needs a value; `{key}` is not an attribute.
+				return nil, nil
 			}
 
 		case attrScanningValue:
@@ -161,9 +159,6 @@ func (p *attrParser) parse() (map[string]string, []string) {
 			return nil, nil
 		}
 		p.setAttr("id", string(buf))
-	case attrScanningKey:
-		// Boolean attribute at end.
-		p.setAttr(string(buf), "")
 	case attrScanningBare:
 		p.setAttr(key, string(buf))
 	default:

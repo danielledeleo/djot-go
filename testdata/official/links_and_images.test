@@ -262,6 +262,91 @@ _hello [link](a_b) world_
 <p><em>hello <a href="a_b">link</a> world</em></p>
 ```
 
+```
+[x](a{"b)
+.
+<p><a href="a{&quot;b">x</a></p>
+```
+
+```
+[x](a{'b)
+.
+<p><a href="a{'b">x</a></p>
+```
+
+```
+![x](a{"b)
+.
+<p><img alt="x" src="a{&quot;b"></p>
+```
+
+```
+![x](a{'b)
+.
+<p><img alt="x" src="a{'b"></p>
+```
+
+```
+[x](a{"b"}c)
+.
+<p><a href="a{&quot;b&quot;}c">x</a></p>
+```
+
+```
+[x](a{'b'}c)
+.
+<p><a href="a{'b'}c">x</a></p>
+```
+
+```
+![x](a{"b"}c)
+.
+<p><img alt="x" src="a{&quot;b&quot;}c"></p>
+```
+
+```
+![x](a{'b'}c)
+.
+<p><img alt="x" src="a{'b'}c"></p>
+```
+
+```
+[x](a"}b)
+.
+<p><a href="a&quot;}b">x</a></p>
+```
+
+```
+[x][double]
+[x][single]
+
+[double]: a{"b
+[single]: a{'b
+.
+<p><a href="a{&quot;b">x</a>
+<a href="a{'b">x</a></p>
+```
+
+```
+[x](a{_b)
+.
+<p><a href="a{_b">x</a></p>
+```
+
+```
+[x](a{_b
+.
+<p>[x](a{_b</p>
+```
+
+```
+[x][a{"b]
+
+[a{"b]: url
+.
+<p><a href="url">x</a></p>
+```
+
 Link in link?
 ```
 [[foo](bar)](baz)
@@ -287,9 +372,17 @@ Autolinks:
 ```
 <http://example.com/foo>
 <me@example.com>
+<me.and.you+something@example.com>
+<mailto:me@example.com>
+<https://example.com?email=me@example.com>
+<tel:+1-555-555-5555>
 .
 <p><a href="http://example.com/foo">http://example.com/foo</a>
-<a href="mailto:me@example.com">me@example.com</a></p>
+<a href="mailto:me@example.com">me@example.com</a>
+<a href="mailto:me.and.you+something@example.com">me.and.you+something@example.com</a>
+<a href="mailto:me@example.com">mailto:me@example.com</a>
+<a href="https://example.com?email=me@example.com">https://example.com?email=me@example.com</a>
+<a href="tel:+1-555-555-5555">tel:+1-555-555-5555</a></p>
 ```
 
 Openers inside `[..](` or `[..][` or `[..]{` can't match

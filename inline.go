@@ -423,43 +423,52 @@ func (p *inlineParser) parseImageOpen() {
 }
 
 func (p *inlineParser) parseAutolink() {
-	// Check for <url> or <email> autolink
-	start := p.pos
-	p.pos++
-	end := strings.IndexByte(p.input[p.pos:], '>')
-	if end == -1 {
+	end := strings.IndexByte(p.input[p.pos+1:], '>')
+	if end <= 0 {
 		p.addTextChar('<')
+		p.pos++
 		return
 	}
-
-	content := p.input[p.pos : p.pos+end]
-
-	// Don't allow newlines in autolinks
-	if strings.ContainsAny(content, "\n") {
-		p.pos = start
+	content := p.input[p.pos+1 : p.pos+1+end]
+	if strings.IndexByte(content, '<') >= 0 || strings.IndexFunc(content, isJSSpace) >= 0 {
 		p.addTextChar('<')
 		p.pos++
 		return
 	}
 
-	// Check for URL autolink (contains ://)
-	if strings.Contains(content, "://") {
-		p.add(parseNodeSpec{Kind: ast.KindLink, Target: content, Children: []*parseNode{{Kind: ast.KindText, Text: content}}})
-		p.pos += end + 1
+	target := content
+	switch {
+	case isAutolinkEmail(content):
+		target = "mailto:" + content
+	case isAutolinkURL(content):
+	default:
+		p.addTextChar('<')
+		p.pos++
 		return
 	}
+	p.add(parseNodeSpec{Kind: ast.KindLink, Target: target, Children: []*parseNode{{Kind: ast.KindText, Text: content}}})
+	p.pos += end + 2
+}
 
-	// Check for email autolink (contains @ and no spaces)
-	if strings.Contains(content, "@") && !strings.Contains(content, " ") {
-		p.add(parseNodeSpec{Kind: ast.KindLink, Target: "mailto:" + content, Children: []*parseNode{{Kind: ast.KindText, Text: content}}})
-		p.pos += end + 1
-		return
+// isAutolinkEmail reports whether autolink content is an email address: an @
+// with at least one character before it and no colon before it.
+func isAutolinkEmail(content string) bool {
+	i := strings.IndexAny(content, ":@")
+	return i > 0 && content[i] == '@'
+}
+
+// isAutolinkURL reports whether autolink content starts with a URL scheme
+// followed by a colon.
+func isAutolinkURL(content string) bool {
+	i := 0
+	for i < len(content) && isSchemeChar(content[i]) {
+		i++
 	}
+	return i > 0 && i < len(content) && content[i] == ':'
+}
 
-	// Not a valid autolink
-	p.pos = start
-	p.addTextChar('<')
-	p.pos++
+func isSchemeChar(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '+' || c == '.' || c == '-'
 }
 
 func (p *inlineParser) parseDelimiter(char byte) {

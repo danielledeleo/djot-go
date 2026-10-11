@@ -1622,7 +1622,8 @@ func isFootnoteDefinition(s string) bool {
 
 func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped string, indent int, prefix string) {
 	closeBracket := strings.IndexByte(stripped, ']')
-	label := stripped[2:closeBracket]
+	// Definition labels are normalized like reference labels.
+	label := collapseWhitespace(stripped[2:closeBracket])
 
 	after := ""
 	if closeBracket+2 < len(stripped) {
