@@ -193,9 +193,10 @@ type Document struct {
 	nodeBase
 	Children []Block
 
-	// References holds the document's resolved reference definitions by
-	// normalized label, including the implicit references headings create.
-	// Links and images already carry their resolved destinations.
+	// References holds the document's reference definitions by normalized
+	// label, as parsed, including the implicit references headings create.
+	// Reference links and images are resolved against them during parsing,
+	// so they carry their own destinations.
 	References map[string]*Reference
 }
 

@@ -8,18 +8,17 @@
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/danielledeleo/djot-go/blob/main/go.mod)
 
 A zero-dependency Go parser and HTML renderer for
-[djot](https://djot.net), John MacFarlane's light markup language.
+[Djot](https://djot.net), John MacFarlane's light markup language.
 
-djot-go provides a compact direct-to-HTML path for ordinary rendering and a
-typed, mutable [`ast`](https://pkg.go.dev/github.com/danielledeleo/djot-go/ast)
-package for inspection and transformation.
+`djot-go` parses and renders Djot markup directly to HTML, and hands you a
+typed [AST](https://pkg.go.dev/github.com/danielledeleo/djot-go/ast) whenever
+you want to inspect or transform it.
 
 - Compatible with djot.js and the official syntax and rendering tests
-- Streaming HTML, text-AST, and JSON output
 - Source positions and ordered attributes
-- Compact render hooks for elements, subtrees, and document indexes
-- Full mutable-tree hooks when arbitrary inspection is needed
-- A `djot` command-line tool
+- Custom HTML for any standard element: render `:memo:` as 📝
+- Edit the AST and render the result with `NewDoc`
+- A `djot` command-line tool with HTML, AST, and JSON output
 
 ## Install
 
@@ -80,21 +79,26 @@ $ echo 'Hello *world*' | djot
 | [Getting started](docs/getting-started.md) | Parsing, writers, output formats, the CLI, and common workflows |
 | [Working with the AST](docs/ast.md) | Traversal, mutation, construction, attributes, and source positions |
 | [Rendering and extensions](docs/rendering.md) | Choosing hooks, compact rendering, custom HTML, document indexes, and footnotes |
-| [Compatibility](docs/compatibility.md) | djot.js policy, supported syntax, conformance tests, and security |
+| [Compatibility notes](docs/compatibility.md) | djot.js policy, supported syntax, conformance tests, and security |
 
 API references: [`djot`](https://pkg.go.dev/github.com/danielledeleo/djot-go)
 and [`djot/ast`](https://pkg.go.dev/github.com/danielledeleo/djot-go/ast).
 
 ## Compatibility
 
-djot-go targets djot.js, the reference implementation. Where djot.js and the
-prose syntax reference differ, djot-go follows djot.js unless documented
-otherwise. See the [compatibility guide](docs/compatibility.md) for details.
+`djot-go` aims to implement the Djot spec published at [djot.net](https://djot.net),
+but does not guarantee byte-for-byte parity with any other implementation.
+`djot-go` passes the whole djot.js test suite, excluding Lua filters. There are
+some places where `djot-go` and other implementations differ; see the
+[compatibility notes](docs/compatibility.md) for details.
 
 ## Security
 
-HTML output is not sanitized. Pass rendered output through an HTML sanitizer
-when processing untrusted input; see [Security](docs/compatibility.md#security).
+HTML output is not sanitized, and Djot's
+[raw HTML](https://github.com/jgm/djot/blob/main/doc/quickstart-for-markdown-users.md#raw-html)
+syntax passes through unchanged. Sanitize rendered output, for example with
+[bluemonday](https://github.com/microcosm-cc/bluemonday), when processing
+untrusted input; see [Security](docs/compatibility.md#security).
 
 ## Contributing
 

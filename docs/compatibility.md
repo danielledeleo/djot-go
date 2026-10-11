@@ -1,4 +1,4 @@
-# Compatibility
+# Compatibility notes
 
 djot-go targets compatibility with
 [djot.js](https://github.com/jgm/djot.js), the reference implementation of
