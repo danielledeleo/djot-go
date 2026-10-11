@@ -54,8 +54,7 @@ type renderConfig struct {
 	footnoteBacklinkLabel func(num, k, total int) string
 }
 
-// Default footnote id/label producers. Callers can override each independently
-// via the WithFootnote* options; these reproduce djot-go's standard output.
+// Default footnote id/label producers; these reproduce djot-go's standard output.
 
 func defaultFootnoteID(num int) string { return "fn" + strconv.Itoa(num) }
 
@@ -68,28 +67,6 @@ func defaultFootnoteBacklinkLabel(_, k, total int) string {
 	return backrefLabel(k)
 }
 
-// WithFootnoteID overrides the id of a footnote definition — the value used in
-// both the <li id="…"> of the endnotes list and the "#…" target of every
-// reference to that footnote. num is the footnote's 1-based number. The default
-// is fmt.Sprintf("fn%d", num). Use this (with [WithFootnoteRefID]) to namespace
-// footnote ids when embedding rendered output in a larger page; see also the
-// [WithFootnotePrefix] convenience. The returned value is HTML-attribute
-// escaped.
-func WithFootnoteID(fn func(num int) string) RenderOption {
-	requireRenderCallback(fn != nil, "WithFootnoteID")
-	return func(cfg *renderConfig) { cfg.footnoteID = fn }
-}
-
-// WithFootnoteRefID overrides the back-anchor id of the k-th reference (1-based)
-// to footnote num — the id on the reference's <a> and the "#…" target of the
-// matching backlink. The default is "fnrefN" for the first reference and
-// "fnrefN-k" for later ones. Both ends of the link use this function, so they
-// always agree. The returned value is HTML-attribute escaped.
-func WithFootnoteRefID(fn func(num, k int) string) RenderOption {
-	requireRenderCallback(fn != nil, "WithFootnoteRefID")
-	return func(cfg *renderConfig) { cfg.footnoteRefID = fn }
-}
-
 // WithFootnoteBacklinkLabel overrides the visible text of the k-th backlink for
 // a footnote, where total is the number of backlinks that footnote has (1 unless
 // [WithMultiBacklinks] is set). The default is "↩︎" when total is 1 and the
@@ -100,12 +77,10 @@ func WithFootnoteBacklinkLabel(fn func(num, k, total int) string) RenderOption {
 	return func(cfg *renderConfig) { cfg.footnoteBacklinkLabel = fn }
 }
 
-// WithFootnotePrefix is a convenience that namespaces every footnote id by
-// prefixing the defaults: footnote ids become prefix+"fnN" and reference ids
-// prefix+"fnrefN"(-k). It is shorthand for setting [WithFootnoteID] and
-// [WithFootnoteRefID] together, useful when embedding output in a page that may
-// already use fn/fnref ids. A later WithFootnoteID/WithFootnoteRefID option
-// overrides the corresponding half.
+// WithFootnotePrefix namespaces every footnote id: footnote ids become
+// prefix+"fnN" and reference ids prefix+"fnrefN"(-k). Use it when embedding
+// output in a page that may already use fn/fnref ids. The prefix is
+// HTML-attribute escaped.
 func WithFootnotePrefix(prefix string) RenderOption {
 	return func(cfg *renderConfig) {
 		cfg.footnoteID = func(num int) string { return prefix + defaultFootnoteID(num) }

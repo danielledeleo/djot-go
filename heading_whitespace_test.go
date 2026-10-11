@@ -26,7 +26,7 @@ func TestHeadingAndFootnoteKeepUnicodeWhitespace(t *testing.T) {
 		{"x[^1]\n\n[^1]:\ta\t\n", "str text=\"a\\t\""},
 	}
 	for _, tc := range cases {
-		got := djot.RenderAST(djot.Parse(tc.in), false)
+		got := renderAST(djot.Parse(tc.in), false)
 		if !strings.Contains(got, tc.want) {
 			t.Errorf("%q: want %s in\n%s", tc.in, tc.want, got)
 		}

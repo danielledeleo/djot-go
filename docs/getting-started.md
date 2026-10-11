@@ -60,28 +60,16 @@ trees can still use compact rendering, while mutations become authoritative.
 
 ## Inspect parser output
 
-The text AST is useful while developing syntax or diagnosing a document:
+The `djot` command prints the parsed AST, which is useful while developing
+syntax or diagnosing a document:
 
-```go
-fmt.Print(djot.RenderAST(doc, false))
+```sh
+djot --to ast doc.dj
+djot --to ast --sourcepos doc.dj
+djot --to json doc.dj
 ```
 
-Pass `true` to include source positions:
-
-```go
-fmt.Print(djot.RenderAST(doc, true))
-```
-
-JSON output mirrors the same tags and fields:
-
-```go
-if err := djot.RenderASTJSONTo(os.Stdout, doc, true); err != nil {
-    return err
-}
-```
-
-The string-returning equivalents are `RenderAST` and `RenderASTJSON`; the
-writer variants are `RenderASTTo` and `RenderASTJSONTo`.
+In Go, `doc.AST()` returns the typed tree; see [AST](ast.md).
 
 ## Use the command-line tool
 

@@ -47,7 +47,7 @@ func TestRenderASTJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := compactJSON(t, djot.RenderASTJSON(djot.Parse(tc.in), false))
+			got := compactJSON(t, renderASTJSON(djot.Parse(tc.in), false))
 			if got != tc.want {
 				t.Errorf("RenderASTJSON(%q) =\n  %s\nwant:\n  %s", tc.in, got, tc.want)
 			}
@@ -56,7 +56,7 @@ func TestRenderASTJSON(t *testing.T) {
 }
 
 func TestRenderASTJSONIndented(t *testing.T) {
-	out := djot.RenderASTJSON(djot.Parse("hi"), false)
+	out := renderASTJSON(djot.Parse("hi"), false)
 	if !strings.Contains(out, "\n  \"tag\"") {
 		t.Errorf("expected 2-space indented JSON, got:\n%s", out)
 	}
@@ -66,8 +66,8 @@ func TestRenderASTJSONIndented(t *testing.T) {
 }
 
 func TestRenderASTJSONPositions(t *testing.T) {
-	got := compactJSON(t, djot.RenderASTJSON(djot.Parse("hi"), true))
-	// The document root carries no position (matches RenderAST).
+	got := compactJSON(t, renderASTJSON(djot.Parse("hi"), true))
+	// The document root carries no position (matches the text format).
 	if !strings.HasPrefix(got, `{"tag":"doc","children":`) {
 		t.Errorf("doc root should have no pos field, got:\n%s", got)
 	}

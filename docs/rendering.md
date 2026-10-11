@@ -229,8 +229,7 @@ html := djot.RenderHTML(doc,
 )
 ```
 
-For individual control, use `WithFootnoteID`, `WithFootnoteRefID`, and
-`WithFootnoteBacklinkLabel`. Callback results are escaped for their HTML context.
+The prefix and the backlink labels are escaped for their HTML context.
 
 Footnote numbering describes the logical document and is computed before render
 hooks run. Suppressing a rendered subtree does not remove its logical footnotes.

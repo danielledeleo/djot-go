@@ -17,7 +17,7 @@ func TestOfficial(t *testing.T) {
 					doc := djot.Parse(tc.Input)
 					var got string
 					if tc.IsAST {
-						got = djot.RenderAST(doc, tc.ASTPositions)
+						got = renderAST(doc, tc.ASTPositions)
 					} else {
 						got = djot.RenderHTML(doc)
 					}

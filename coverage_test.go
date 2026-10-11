@@ -85,7 +85,7 @@ func TestTableAlignments(t *testing.T) {
 func TestTableAlignmentsAST(t *testing.T) {
 	input := "| L | C | R |\n|:--|:-:|--:|\n| a | b | c |"
 	doc := djot.Parse(input)
-	ast := djot.RenderAST(doc, false)
+	ast := renderAST(doc, false)
 	if !strings.Contains(ast, `align="left"`) {
 		t.Errorf("expected left in AST, got:\n%s", ast)
 	}
@@ -133,7 +133,7 @@ func TestOrderedListStylesAST(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := djot.Parse(tc.input)
-			ast := djot.RenderAST(doc, false)
+			ast := renderAST(doc, false)
 			if !strings.Contains(ast, tc.want) {
 				t.Errorf("expected %s in AST, got:\n%s", tc.want, ast)
 			}

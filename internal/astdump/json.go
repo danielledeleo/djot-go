@@ -1,34 +1,25 @@
-package djot
+package astdump
 
 import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"strings"
 
+	"github.com/danielledeleo/djot-go"
 	"github.com/danielledeleo/djot-go/ast"
 )
 
-// RenderASTJSON renders a parsed document to indented JSON that mirrors
-// djot-go's AST. Each node becomes an object with a "tag" (the same tag names
-// used by [RenderAST]), its kind-specific fields, an optional "attributes"
-// object, an optional "pos" object, and a "children" array. If positions is
-// true, every node except the document root carries a "pos" object with start
-// and end line, column, and offset. Inline end offsets are inclusive in this
-// format, unlike the half-open ranges returned by ast.Node.Span. The output
-// ends with a newline.
+// JSON writes doc's AST to w as indented JSON. Each node becomes an object
+// with a "tag" (the same tag names as Text), its kind-specific fields, an
+// optional "attributes" object, an optional "pos" object, and a "children"
+// array. If positions is true, every node except the document root carries a
+// "pos" object with start and end line, column, and offset. Inline end offsets
+// are inclusive. The output ends with a newline.
 //
 // The shape follows djot-go's own AST rather than reproducing djot.js's
-// reference-resolution tables, so it is convenient for tooling and diffing but
-// not byte-for-byte identical to djot.js's "ast" JSON.
-func RenderASTJSON(doc *Doc, positions bool) string {
-	var b strings.Builder
-	_ = RenderASTJSONTo(&b, doc, positions)
-	return b.String()
-}
-
-// RenderASTJSONTo writes the JSON AST (see [RenderASTJSON]) to w.
-func RenderASTJSONTo(w io.Writer, doc *Doc, positions bool) error {
+// reference-resolution tables, so it is not byte-for-byte identical to
+// djot.js's "ast" JSON.
+func JSON(w io.Writer, doc *djot.Doc, positions bool) error {
 	root := astJSONNode(doc, doc.AST(), positions)
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -41,7 +32,7 @@ func RenderASTJSONTo(w io.Writer, doc *Doc, positions bool) error {
 	return err
 }
 
-func astJSONNode(doc *Doc, n ast.Node, positions bool) *jsonObj {
+func astJSONNode(doc *djot.Doc, n ast.Node, positions bool) *jsonObj {
 	o := &jsonObj{}
 	o.set("tag", astTagName(n))
 
@@ -74,25 +65,21 @@ func astJSONNode(doc *Doc, n ast.Node, positions bool) *jsonObj {
 	return o
 }
 
-func astJSONPos(doc *Doc, n ast.Node) *jsonObj {
-	if doc == nil || doc.source == nil {
+func astJSONPos(doc *djot.Doc, n ast.Node) *jsonObj {
+	startPos, endPos, ok := astSpan(doc, n)
+	if !ok {
 		return nil
 	}
-	span := n.Span()
-	src := doc.source
-	sLine, sCol := src.position(span.Start.Offset)
-	endOffset := astOutputEnd(n)
-	eLine, eCol := astEndPosition(src, endOffset)
 
 	start := &jsonObj{}
-	start.set("line", sLine)
-	start.set("col", sCol)
-	start.set("offset", span.Start.Offset)
+	start.set("line", startPos.Line)
+	start.set("col", startPos.Column)
+	start.set("offset", n.Span().Start.Offset)
 
 	end := &jsonObj{}
-	end.set("line", eLine)
-	end.set("col", eCol)
-	end.set("offset", endOffset)
+	end.set("line", endPos.Line)
+	end.set("col", endPos.Column)
+	end.set("offset", astOutputEnd(n))
 
 	pos := &jsonObj{}
 	pos.set("start", start)

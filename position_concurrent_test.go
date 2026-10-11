@@ -24,9 +24,9 @@ func TestConcurrentPositionReads(t *testing.T) {
 					t.Errorf("position = %d:%d, want 501:1", got.Line, got.Column)
 				}
 			case 1:
-				djot.RenderAST(doc, true)
+				renderAST(doc, true)
 			case 2:
-				djot.RenderASTJSON(doc, true)
+				renderASTJSON(doc, true)
 			}
 		}(i)
 	}

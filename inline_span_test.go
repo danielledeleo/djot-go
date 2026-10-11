@@ -34,10 +34,10 @@ func TestInlineSpansAreHalfOpen(t *testing.T) {
 
 func TestInlineSpanSerializationKeepsInclusiveEnds(t *testing.T) {
 	doc := djot.Parse("hello")
-	if got := djot.RenderAST(doc, true); !strings.Contains(got, "str (1:1:0-1:5:4)") {
+	if got := renderAST(doc, true); !strings.Contains(got, "str (1:1:0-1:5:4)") {
 		t.Fatalf("unexpected text AST positions:\n%s", got)
 	}
-	got := compactJSON(t, djot.RenderASTJSON(doc, true))
+	got := compactJSON(t, renderASTJSON(doc, true))
 	if !strings.Contains(got, `"end":{"line":1,"col":5,"offset":4}`) {
 		t.Fatalf("unexpected JSON positions: %s", got)
 	}

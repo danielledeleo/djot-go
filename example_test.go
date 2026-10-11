@@ -96,15 +96,3 @@ func ExampleWithNodeRenderer() {
 	// Output:
 	// <p>Visit <a href="https://djot.net" target="_blank">djot</a>.</p>
 }
-
-func ExampleRenderAST() {
-	doc := djot.Parse("Hello *world*!")
-	fmt.Println(djot.RenderAST(doc, false))
-	// Output:
-	// doc
-	//   para
-	//     str text="Hello "
-	//     strong
-	//       str text="world"
-	//     str text="!"
-}

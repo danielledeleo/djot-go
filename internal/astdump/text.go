@@ -1,26 +1,21 @@
-package djot
+// Package astdump writes a document's AST in the text and JSON formats used by
+// the djot.js test suite and the djot command's --to ast and --to json.
+package astdump
 
 import (
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/danielledeleo/djot-go"
 	"github.com/danielledeleo/djot-go/ast"
 )
 
-// RenderAST renders a parsed document to the djot AST text format,
-// compatible with the official djot.js test suite. If positions is true,
-// source positions are included in the output. Inline end offsets are inclusive
-// in this format, unlike the half-open ranges returned by ast.Node.Span.
-func RenderAST(doc *Doc, positions bool) string {
-	var b strings.Builder
-	_ = RenderASTTo(&b, doc, positions)
-	return b.String()
-}
-
-// RenderASTTo renders the AST text format (see [RenderAST]) to w. It returns
-// the first write error encountered, if any.
-func RenderASTTo(w io.Writer, doc *Doc, positions bool) error {
+// Text writes doc's AST in the djot.js text format to w. If positions is true,
+// source positions are included. Inline end offsets are inclusive in this
+// format, unlike the half-open ranges returned by ast.Node.Span. It returns the
+// first write error, if any.
+func Text(w io.Writer, doc *djot.Doc, positions bool) error {
 	r := &astRenderer{w: w, doc: doc, positions: positions}
 	r.renderNode(doc.AST(), 0)
 	return r.err
@@ -28,7 +23,7 @@ func RenderASTTo(w io.Writer, doc *Doc, positions bool) error {
 
 type astRenderer struct {
 	w         io.Writer
-	doc       *Doc
+	doc       *djot.Doc
 	positions bool
 	err       error
 }
@@ -56,17 +51,22 @@ func (r *astRenderer) renderNode(n ast.Node, indent int) {
 }
 
 func (r *astRenderer) renderPos(n ast.Node) {
-	if r.doc == nil || r.doc.source == nil {
+	start, end, ok := astSpan(r.doc, n)
+	if !ok {
 		return
 	}
-	span := n.Span()
-	src := r.doc.source
-	sLine, sCol := src.position(span.Start.Offset)
-	endOffset := astOutputEnd(n)
-	eLine, eCol := astEndPosition(src, endOffset)
 	r.write(fmt.Sprintf(" (%d:%d:%d-%d:%d:%d)",
-		sLine, sCol, span.Start.Offset,
-		eLine, eCol, endOffset))
+		start.Line, start.Column, n.Span().Start.Offset,
+		end.Line, end.Column, astOutputEnd(n)))
+}
+
+// astSpan returns the start and end positions of n in the AST formats. It
+// reports false when doc has no source text (a Doc built by NewDoc).
+func astSpan(doc *djot.Doc, n ast.Node) (start, end ast.Position, ok bool) {
+	if doc.Position(ast.Pos{}).Line == 0 {
+		return start, end, false
+	}
+	return doc.Position(n.Span().Start), astEndPosition(doc, astOutputEnd(n)), true
 }
 
 // astOutputEnd preserves the text/JSON AST format's inclusive inline ends.
@@ -81,14 +81,13 @@ func astOutputEnd(n ast.Node) int {
 
 // astEndPosition resolves an end offset to line:col using the djot.js
 // convention: newline characters and end-of-input map to the next line at
-// column 0.
-func astEndPosition(src *sourceFile, offset int) (line, col int) {
-	text := src.text
-	if offset >= len(text) || text[offset] == '\n' {
-		line, _ = src.position(offset)
-		return line + 1, 0
+// column 0. The offset is at a newline or the end of input exactly when the
+// following offset starts a line or is out of range.
+func astEndPosition(doc *djot.Doc, offset int) ast.Position {
+	if next := doc.Position(ast.Pos{Offset: offset + 1}); next.Line == 0 || next.Column == 1 {
+		return ast.Position{Line: doc.Position(ast.Pos{Offset: offset}).Line + 1}
 	}
-	return src.position(offset)
+	return doc.Position(ast.Pos{Offset: offset})
 }
 
 func (r *astRenderer) renderFields(n ast.Node) {
@@ -106,7 +105,7 @@ func (r *astRenderer) renderFields(n ast.Node) {
 
 // astField is one kind-specific field of an AST node, paired with its value
 // (always a string, int, or bool). astFields returns these in the canonical
-// order shared by RenderAST (text format) and RenderASTJSON (JSON format), so
+// order shared by Text and JSON, so
 // the two renderers never drift.
 type astField struct {
 	key string

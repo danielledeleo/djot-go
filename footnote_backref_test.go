@@ -235,42 +235,16 @@ func TestFootnoteCustomBacklinkLabel(t *testing.T) {
 	assertAnchorIntegrity(t, got, true)
 }
 
-// Fully custom id producers (WithFootnoteID + WithFootnoteRefID) still link up
-// correctly: the integrity invariant holds regardless of the chosen scheme.
-func TestFootnoteCustomIDs(t *testing.T) {
-	got := djot.RenderHTML(djot.Parse(multiRefInput),
-		djot.WithMultiBacklinks(),
-		djot.WithFootnoteID(func(num int) string {
-			return "note-" + strconv.Itoa(num)
-		}),
-		djot.WithFootnoteRefID(func(num, k int) string {
-			return "cite-" + strconv.Itoa(num) + "-" + strconv.Itoa(k)
-		}))
-
-	if !strings.Contains(got, `<li id="note-1">`) {
-		t.Errorf("custom note id missing:\n%s", got)
-	}
-	if !strings.Contains(got, `<a id="cite-1-1" href="#note-1" role="doc-noteref">`) ||
-		!strings.Contains(got, `<a id="cite-1-2" href="#note-1" role="doc-noteref">`) {
-		t.Errorf("custom reference ids missing:\n%s", got)
-	}
-	if !strings.Contains(got, `<a href="#cite-1-1" role="doc-backlink">a</a>`) {
-		t.Errorf("backlink not linked to custom reference id:\n%s", got)
-	}
-	assertAnchorIntegrity(t, got, true)
-}
-
 func TestFootnoteCustomizationEscapesHTML(t *testing.T) {
 	got := djot.RenderHTML(djot.Parse("note[^a]\n\n[^a]: body\n"),
-		djot.WithFootnoteID(func(int) string { return `note"<&` }),
-		djot.WithFootnoteRefID(func(int, int) string { return `ref"<&` }),
+		djot.WithFootnotePrefix(`x"<&`),
 		djot.WithFootnoteBacklinkLabel(func(int, int, int) string { return `<back&>` }),
 	)
 	for _, want := range []string{
-		`id="ref&quot;&lt;&amp;"`,
-		`href="#note&quot;&lt;&amp;"`,
-		`id="note&quot;&lt;&amp;"`,
-		`href="#ref&quot;&lt;&amp;"`,
+		`id="x&quot;&lt;&amp;fnref1"`,
+		`href="#x&quot;&lt;&amp;fn1"`,
+		`id="x&quot;&lt;&amp;fn1"`,
+		`href="#x&quot;&lt;&amp;fnref1"`,
 		`&lt;back&amp;&gt;`,
 	} {
 		if !strings.Contains(got, want) {

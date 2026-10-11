@@ -12,14 +12,14 @@ const parserTestInput = "# Title\n\nSee [the title][Title] and a note.[^n]\n\n[^
 // Parse, a Parser from NewParser, and the zero Parser all use the default
 // configuration, so they must produce identical documents.
 func TestParserMatchesParse(t *testing.T) {
-	want := djot.RenderAST(djot.Parse(parserTestInput), true)
+	want := renderAST(djot.Parse(parserTestInput), true)
 
 	var zero djot.Parser
 	for name, parser := range map[string]*djot.Parser{
 		"NewParser": djot.NewParser(),
 		"zero":      &zero,
 	} {
-		if got := djot.RenderAST(parser.Parse(parserTestInput), true); got != want {
+		if got := renderAST(parser.Parse(parserTestInput), true); got != want {
 			t.Errorf("%s: AST differs from Parse\ngot:\n%s\nwant:\n%s", name, got, want)
 		}
 	}

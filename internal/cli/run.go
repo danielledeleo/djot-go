@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/danielledeleo/djot-go"
+	"github.com/danielledeleo/djot-go/internal/astdump"
 )
 
 // Exit codes returned by Run.
@@ -104,10 +105,10 @@ var renderers = map[string]func(w io.Writer, doc *djot.Doc, sourcepos bool) erro
 		return djot.RenderHTMLTo(w, doc)
 	},
 	"ast": func(w io.Writer, doc *djot.Doc, sourcepos bool) error {
-		return djot.RenderASTTo(w, doc, sourcepos)
+		return astdump.Text(w, doc, sourcepos)
 	},
 	"json": func(w io.Writer, doc *djot.Doc, sourcepos bool) error {
-		return djot.RenderASTJSONTo(w, doc, sourcepos)
+		return astdump.JSON(w, doc, sourcepos)
 	},
 }
 

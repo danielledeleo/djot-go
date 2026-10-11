@@ -45,7 +45,7 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		doc := djot.Parse(input)
 		_ = djot.RenderHTML(doc)
-		_ = djot.RenderAST(doc, true)
+		_ = renderAST(doc, true)
 	})
 }
 

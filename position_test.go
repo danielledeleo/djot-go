@@ -296,7 +296,7 @@ func TestPositionSubParsers(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := djot.Parse(tc.input)
-			got := trimTrailingNewline(djot.RenderAST(doc, true))
+			got := trimTrailingNewline(renderAST(doc, true))
 			expected := trimTrailingNewline(tc.expected)
 			if got != expected {
 				t.Errorf("input: %q\n\nexpected:\n%s\n\ngot:\n%s", tc.input, expected, got)
