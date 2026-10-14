@@ -30,8 +30,9 @@ type semanticHTMLRenderer struct {
 	footnotes             map[string]int
 	footnoteNums          map[string]int
 	footnoteOrder         []semanticFootnote
-	fnrefTotal            map[string]int
 	fnrefSeen             map[string]int
+	endnotes              *strings.Builder // non-nil while endnotes are buffered
+	backlinkHoles         []backlinkHole
 	footnoteParagraph     int
 	footnoteParagraphInfo *semanticFootnote
 	multiBacklinks        bool
@@ -75,7 +76,6 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 		hooks:             hooks,
 		footnotes:         make(map[string]int),
 		footnoteNums:      make(map[string]int),
-		fnrefTotal:        make(map[string]int),
 		fnrefSeen:         make(map[string]int),
 		footnoteParagraph: -1,
 	}
@@ -102,21 +102,9 @@ func renderSemanticHTMLInto(tape *semanticTape, writer io.Writer, hooks *semanti
 			r.footnotes[r.label(i)] = i
 		}
 	}
-	r.walkRefs(0)
-	for i := 0; i < len(r.footnoteOrder); i++ {
-		if node := r.footnoteOrder[i].node; node >= 0 {
-			r.children(node, r.walkRefs)
-		}
-	}
-	r.renderDocument()
-	return r
-}
-
-func (r *semanticHTMLRenderer) renderDocument() {
-	clear(r.fnrefSeen)
-	r.tight = false
 	r.renderChildren(0)
 	r.renderFootnotes()
+	return r
 }
 
 func (r *semanticHTMLRenderer) write(value string) {
@@ -192,18 +180,8 @@ func (r *semanticHTMLRenderer) children(i int, fn func(int)) {
 	}
 }
 
-func (r *semanticHTMLRenderer) walkRefs(i int) {
-	if r.kind(i) == ast.KindFootnote {
-		return
-	}
-	if r.kind(i) == ast.KindFootnoteReference {
-		label := r.label(i)
-		r.footnoteNum(label)
-		r.fnrefTotal[label]++
-	}
-	r.children(i, r.walkRefs)
-}
-
+// footnoteNum returns the number of the footnote with label, numbering it
+// when its first reference is rendered.
 func (r *semanticHTMLRenderer) footnoteNum(label string) int {
 	if num, ok := r.footnoteNums[label]; ok {
 		return num
@@ -542,7 +520,7 @@ func (r *semanticHTMLRenderer) renderDefault(i int) {
 		return
 	case ast.KindFootnoteReference:
 		label := r.label(i)
-		num := r.footnoteNums[label]
+		num := r.footnoteNum(label)
 		r.fnrefSeen[label]++
 		k := r.fnrefSeen[label]
 		r.write(`<a`)
@@ -577,12 +555,32 @@ func (r *semanticHTMLRenderer) collectText(i int) string {
 	return collectDocumentText(r.tape, i)
 }
 
+// backlinkHole marks where a footnote's backlinks go in buffered endnotes.
+type backlinkHole struct {
+	offset   int
+	footnote semanticFootnote
+}
+
+// renderFootnotes lists the footnotes whose references were rendered, in
+// number order. A footnote can first be referenced from another footnote's
+// content, so the list grows as it renders.
+//
+// With multiple backlinks, a footnote needs one backlink per rendered
+// reference, and later footnotes can still reference it. The endnotes are
+// buffered with holes for the backlinks, which are filled once every
+// reference has been counted.
 func (r *semanticHTMLRenderer) renderFootnotes() {
 	if len(r.footnoteOrder) == 0 {
 		return
 	}
+	writer := r.writer
+	if r.multiBacklinks {
+		r.endnotes = &strings.Builder{}
+		r.writer = r.endnotes
+	}
 	r.write("<section role=\"doc-endnotes\">\n<hr>\n<ol>\n")
-	for _, footnote := range r.footnoteOrder {
+	for n := 0; n < len(r.footnoteOrder); n++ {
+		footnote := r.footnoteOrder[n]
 		r.write(`<li id="`)
 		r.write(escapeAttr(r.footnoteID(footnote.num)))
 		r.write(`">` + "\n")
@@ -616,12 +614,33 @@ func (r *semanticHTMLRenderer) renderFootnotes() {
 		r.write("</li>\n")
 	}
 	r.write("</ol>\n</section>\n")
+	if !r.multiBacklinks {
+		return
+	}
+
+	text := r.endnotes.String()
+	r.writer, r.endnotes = writer, nil
+	holes := r.backlinkHoles
+	r.backlinkHoles = nil
+	start := 0
+	for _, hole := range holes {
+		r.write(text[start:hole.offset])
+		r.renderBackref(hole.footnote)
+		start = hole.offset
+	}
+	r.write(text[start:])
 }
 
+// renderBackref writes a footnote's backlinks, or marks where they go while
+// endnotes are buffered.
 func (r *semanticHTMLRenderer) renderBackref(footnote semanticFootnote) {
+	if r.endnotes != nil {
+		r.backlinkHoles = append(r.backlinkHoles, backlinkHole{offset: r.endnotes.Len(), footnote: footnote})
+		return
+	}
 	total := 1
-	if r.multiBacklinks && r.fnrefTotal[footnote.label] > 1 {
-		total = r.fnrefTotal[footnote.label]
+	if r.multiBacklinks && r.fnrefSeen[footnote.label] > 1 {
+		total = r.fnrefSeen[footnote.label]
 	}
 	for k := 1; k <= total; k++ {
 		if k > 1 {

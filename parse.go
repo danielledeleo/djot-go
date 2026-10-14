@@ -38,7 +38,7 @@ func Parse(input string) *Doc {
 }
 
 // Parse parses a djot document with resolved references, footnotes, and
-// auto-generated section IDs. The mutable AST is materialized lazily by Root.
+// auto-generated section IDs.
 func (p *Parser) Parse(input string) *Doc {
 	input = strings.ReplaceAll(input, "\r\n", "\n")
 	input = strings.ReplaceAll(input, "\r", "\n")

@@ -107,13 +107,9 @@ func WithMultiBacklinks() RenderOption {
 // The hook receives the [ast.Node] and a [NodeRenderer] for full control over output.
 // If called multiple times for the same kind, the last one wins.
 //
-// KindDocument and KindFootnote are not directly rendered elements; use
-// [WithDocumentRenderer] for the document and render hooks for a footnote's
-// block children. WithNodeRenderer panics for either synthetic root kind, an
-// invalid kind, or a nil callback.
-//
-// Use this when you need access to [NodeRenderer.Children] or [NodeRenderer.Default].
-// For a symbol hook that can avoid AST materialization, see [WithSymbolRenderer].
+// KindDocument and KindFootnote are not directly rendered elements; hook a
+// footnote's block children instead. WithNodeRenderer panics for either kind,
+// an invalid kind, or a nil callback.
 func WithNodeRenderer(kind ast.Kind, fn func(n ast.Node, r NodeRenderer)) RenderOption {
 	requireElementHook(kind, fn != nil, "WithNodeRenderer")
 	return func(cfg *renderConfig) {
