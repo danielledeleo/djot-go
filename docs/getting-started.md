@@ -2,7 +2,7 @@
 
 This guide covers the common path from djot source to rendered output. For
 tree transformations, continue to [Working with the AST](ast.md). For custom
-HTML, see [Rendering and extensions](rendering.md).
+HTML, see [Rendering](rendering.md).
 
 ## Install
 

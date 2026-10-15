@@ -2,7 +2,9 @@ package djot_test
 
 import (
 	"fmt"
+	"html"
 	"os"
+	"strings"
 
 	"github.com/danielledeleo/djot-go"
 	"github.com/danielledeleo/djot-go/ast"
@@ -95,4 +97,48 @@ func ExampleWithNodeRenderer() {
 	fmt.Println(html)
 	// Output:
 	// <p>Visit <a href="https://djot.net" target="_blank">djot</a>.</p>
+}
+
+// Example_tableOfContents is shown in docs/rendering.md under "Whole-document
+// context". Update the doc when this example changes.
+func Example_tableOfContents() {
+	doc := djot.Parse("# Intro\n\ntext\n\n## Getting *started*\n\ntext\n")
+
+	var toc strings.Builder
+	toc.WriteString("<nav><ul>\n")
+	ast.Preorder(doc.AST(), func(n ast.Node) bool {
+		section, ok := n.(*ast.Section)
+		if !ok {
+			return true
+		}
+		heading := section.Children[0].(*ast.Heading)
+		var text strings.Builder
+		ast.Preorder(heading, func(n ast.Node) bool {
+			if t, ok := n.(*ast.Text); ok {
+				text.WriteString(t.Value)
+			}
+			return true
+		})
+		fmt.Fprintf(&toc, "<li><a href=\"#%s\">%s</a></li>\n",
+			html.EscapeString(section.Attributes().Get("id")),
+			html.EscapeString(text.String()))
+		return true
+	})
+	toc.WriteString("</ul></nav>\n")
+
+	page := toc.String() + djot.RenderHTML(doc)
+	fmt.Print(page)
+	// Output:
+	// <nav><ul>
+	// <li><a href="#Intro">Intro</a></li>
+	// <li><a href="#Getting-started">Getting started</a></li>
+	// </ul></nav>
+	// <section id="Intro">
+	// <h1>Intro</h1>
+	// <p>text</p>
+	// <section id="Getting-started">
+	// <h2>Getting <strong>started</strong></h2>
+	// <p>text</p>
+	// </section>
+	// </section>
 }

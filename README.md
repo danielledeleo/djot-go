@@ -78,7 +78,7 @@ $ echo 'Hello *world*' | djot
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Parsing, writers, output formats, the CLI, and common workflows |
 | [Working with the AST](docs/ast.md) | Traversal, mutation, construction, attributes, and source positions |
-| [Rendering and extensions](docs/rendering.md) | Choosing hooks, compact rendering, custom HTML, document indexes, and footnotes |
+| [Rendering](docs/rendering.md) | Choosing hooks, compact rendering, custom HTML, document indexes, and footnotes |
 | [Compatibility notes](docs/compatibility.md) | djot.js policy, supported syntax, conformance tests, and security |
 
 API references: [`djot`](https://pkg.go.dev/github.com/danielledeleo/djot-go)

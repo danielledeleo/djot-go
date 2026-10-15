@@ -188,7 +188,7 @@ for label, footnote := range doc.Footnotes() {
 ```
 
 For read-only document summaries that avoid materializing the AST, use
-`djot.WithDocumentRenderer`; see [Rendering and extensions](rendering.md).
+`djot.WithDocumentRenderer`; see [Rendering](rendering.md).
 
 ---
 
