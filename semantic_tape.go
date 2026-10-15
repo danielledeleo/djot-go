@@ -6,9 +6,9 @@ import (
 	"github.com/danielledeleo/djot-go/ast"
 )
 
-// semanticTape is the compact, immutable rendering representation attached to
-// parser-produced documents. It is deliberately private: the public mutable
-// AST remains authoritative whenever its render-visible semantics differ.
+// semanticTape is the compact, immutable representation every Doc renders
+// from. Parse builds it from the parser's tree; NewDoc compiles it from an
+// ast.Document; Doc.AST materializes a tree from it.
 type semanticTape struct {
 	source     string
 	records    []semanticRecord

@@ -1,6 +1,6 @@
 # Working with the AST
 
-The `ast` package defines djot-go's typed, mutable syntax tree. Parsing and
+The `ast` package defines `djot-go`'s typed, mutable syntax tree. Parsing and
 rendering remain in the root `djot` package.
 
 ```go
@@ -10,19 +10,23 @@ import (
 )
 ```
 
-## Materialization and ownership
-
-`djot.Parse` initially keeps a compact semantic representation. `Doc.Root`
-materializes and returns its shared typed tree:
+## Get a tree
 
 ```go
 doc := djot.Parse("Hello *world*!")
-root := doc.Root()
+tree := doc.AST()
 ```
 
-Repeated calls return the same root. Mutations are therefore authoritative for
-later rendering. Concurrent read-only first access is safe; callers must
-synchronize subsequent mutation with other tree users.
+`AST` returns a new copy of the tree on each call. Changes to it don't affect
+`doc`; render the changed tree with `NewDoc`:
+
+```go
+tree.Children = append(tree.Children, &ast.ThematicBreak{})
+html := djot.RenderHTML(djot.NewDoc(tree))
+```
+
+`doc` itself never changes, so it can be rendered or read from many goroutines
+at once.
 
 ## Read-only traversal
 
@@ -31,7 +35,7 @@ walk:
 
 ```go
 var links []string
-ast.Preorder(doc.Root(), func(node ast.Node) bool {
+ast.Preorder(tree, func(node ast.Node) bool {
     if link, ok := node.(*ast.Link); ok {
         links = append(links, link.Destination)
     }
@@ -73,7 +77,7 @@ case kind.IsInline():
 This changes strong emphasis to regular emphasis:
 
 ```go
-ast.Walk(doc.Root(), func(node ast.Node) ast.Action {
+ast.Walk(tree, func(node ast.Node) ast.Action {
     strong, ok := node.(*ast.Strong)
     if !ok {
         return ast.Continue
@@ -97,12 +101,12 @@ remain cells. Invalid replacements panic instead of creating a malformed tree.
 When replacing the root itself, use the value returned by `Walk`:
 
 ```go
-next := ast.Walk(doc.Root(), transform)
+next := ast.Walk(tree, transform)
 root, ok := next.(*ast.Document)
 if !ok {
     return errors.New("transform removed the document root")
 }
-doc.SetRoot(root)
+html := djot.RenderHTML(djot.NewDoc(root))
 ```
 
 ## Construct a tree
@@ -146,7 +150,7 @@ heading.Attributes().Set("data-level", "2")
 ```
 
 Available operations include `Get`, `Lookup`, `Set`, `Delete`, `AddClass`,
-`Len`, `Range`, `Entries`, and `Clone`. `Set` rejects keys outside the djot
+`Len`, `Range`, `Entries`, and `Clone`. `Set` rejects keys outside the Djot
 attribute-name grammar and leaves the collection unchanged.
 
 ## Source positions
@@ -156,41 +160,46 @@ through the document:
 
 ```go
 doc := djot.Parse("# Heading")
-section := doc.Root().Children[0].(*ast.Section)
+section := doc.AST().Children[0].(*ast.Section)
 heading := section.Children[0].(*ast.Heading)
 pos := doc.Position(heading.Span().Start)
 fmt.Printf("%d:%d\n", pos.Line, pos.Column)
 ```
 
 Line and column are one-based. `ast.Pos.Offset` is a byte offset, which matters
-for UTF-8 input. The text and JSON AST output retain the djot.js convention
-of inclusive inline end offsets; use `Span` when slicing source text.
+for UTF-8 input. The `djot` command's `ast` and `json` output keep the djot.js
+convention of inclusive inline end offsets; use `Span` when slicing source
+text.
 
 `Position` returns the zero `ast.Position` when the offset is outside the
 source, or when the document has no source text, as for one built with
-`djot.NewDoc`. Position lookups and positioned AST rendering support concurrent
-reads.
+`djot.NewDoc`.
 
 ## References and footnotes
 
-`Doc.References` returns the mutable resolved-reference metadata, including
-implicit heading references. `Doc.Footnotes` rebuilds an index of footnote
-definitions from the current tree:
+`tree.References` holds the document's reference definitions as parsed,
+including the implicit references headings create. Reference links are
+resolved during parsing, so each link already carries its destination:
 
 ```go
-for label, reference := range doc.References() {
+for label, reference := range tree.References {
     fmt.Println(label, reference.Destination)
-}
-
-for label, footnote := range doc.Footnotes() {
-    fmt.Println(label, len(footnote.Children))
 }
 ```
 
-For read-only document summaries that avoid materializing the AST, use
-`djot.WithDocumentRenderer`; see [Rendering](rendering.md).
+Footnote definitions are ordinary `ast.Footnote` nodes, found where they
+appear in the source:
+
+```go
+ast.Preorder(tree, func(n ast.Node) bool {
+    if footnote, ok := n.(*ast.Footnote); ok {
+        fmt.Println(footnote.Label, len(footnote.Children))
+    }
+    return true
+})
+```
 
 ---
 
 [README](../README.md) · [Getting started](getting-started.md) ·
-[Rendering](rendering.md) · [Compatibility](compatibility.md)
+[Rendering](rendering.md) · [Compatibility notes](compatibility.md)

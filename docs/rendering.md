@@ -1,7 +1,5 @@
 # Rendering
 
-The default path is intentionally small:
-
 ```go
 doc := djot.Parse(source)
 html := djot.RenderHTML(doc)
@@ -95,7 +93,7 @@ again.
 Callbacks may panic, and those panics are not recovered. Writer errors stop
 further rendering and are returned by `RenderHTMLTo`.
 
-## Footnote backlinks
+## Footnotes
 
 By default, repeated references follow djot.js behavior: only the first
 reference carries an `id`, and the footnote emits one `↩︎` backlink.

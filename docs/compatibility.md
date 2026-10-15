@@ -1,24 +1,19 @@
 # Compatibility notes
 
-djot-go targets compatibility with
-[djot.js](https://github.com/jgm/djot.js), the reference implementation of
-[djot](https://djot.net).
-
-Where the prose [syntax reference] and djot.js differ, djot-go follows djot.js
-unless a difference is explicitly documented. This policy keeps behavior
-predictable for users moving documents between implementations.
+`djot-go` follows [djot.js](https://github.com/jgm/djot.js), the reference
+implementation of [Djot](https://djot.net). Where the prose [syntax reference]
+and djot.js differ, `djot-go` does what djot.js does, unless a difference is
+listed below.
 
 ## Conformance testing
 
-The repository includes the official syntax and rendering fixtures under
-`testdata/official`. They run as part of `go test ./...`.
+The djot.js test suite is vendored under `testdata/official` and runs as part
+of `go test ./...`. `testdata/README` records the djot.js commit it was taken
+from. Every test passes except the filter tests, which run Lua filters;
+`djot-go` has no filter runtime.
 
-The Lua-only filter fixtures do not apply because djot-go does not embed the Lua
-filter runtime. This exception concerns filter execution, not parsing or HTML
-rendering.
-
-A separate Docker differential test compares generated output with djot.js on
-hand-written and generated edge cases. See
+A separate differential test, run in Docker, compares `djot-go` with djot.js at
+the same commit on hand-written and generated edge cases. See
 [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests) to run it.
 
 ## Supported syntax
@@ -44,14 +39,14 @@ Inline elements:
 - Smart quotes, ellipses, em dashes, and en dashes
 
 Block attributes can be attached to block elements. Inline attributes apply to
-spans and other supported inline elements. Ordered attributes are retained in
-the typed AST and renderer views.
+spans and other supported inline elements. Attributes keep their order in the
+typed AST and in HTML output.
 
 ## Documented differences
 
 ### Ordered list enumerator bound
 
-djot-go accepts decimal ordered-list enumerators up to 2147483647. A line whose
+`djot-go` accepts decimal ordered-list enumerators up to 2147483647. A line whose
 enumerator exceeds that is not a list; it stays a paragraph:
 
 ```
@@ -68,43 +63,62 @@ djot.js reads enumerators with `parseInt`, so it has no explicit bound and
 accepts larger values, exactly up to 2^53 and with rounding above that. Alpha
 and Roman enumerators are far below any of these limits and are unaffected.
 
+### Nested parentheses in link destinations
+
+For `[link](url_(with_(nested)_parens))`, `djot-go` keeps the whole
+destination. djot.js ends the destination at the first unbalanced `)` and
+emits the rest as text.
+
+### Block quotes in tight lists
+
+In a tight list, a list item's own paragraphs are not wrapped in `<p>`.
+`djot-go` applies that only to the item's own paragraphs. djot.js also drops
+the `<p>` from paragraphs inside a block quote in the item:
+
+```
+- > quote    ->  djot-go: <blockquote>\n<p>quote</p>\n</blockquote>
+                 djot.js: <blockquote>\nquote\n</blockquote>
+```
+
 ## Known divergences
 
-The differential suite described in [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests)
-compares generated edge cases against djot.js. Nine still diverge. They need
-unbalanced or invalid delimiters; the equivalent well-formed inputs agree.
+The differential test in [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests)
+finds nine cases where `djot-go` and djot.js disagree. Two are the differences
+listed above. The rest need unbalanced or malformed delimiters; the equivalent
+well-formed inputs agree.
 
 - **An unpaired opening `"` inside emphasis or strong.** `*"x*` renders the
   quote literally rather than as `“`. A paired quote (`_"x" y_`), an unpaired
   quote outside a span (`"x`), and a closing quote after a digit (`*a 5" pipe*`)
   all agree.
 - **Smart punctuation inside an unterminated attribute block.** `a{#id---`
-  converts the dashes; djot.js leaves them literal. Closed specifiers agree.
+  converts the dashes; djot.js leaves them literal. Closed attribute blocks
+  agree.
 - **An escaped `$` before a verbatim span**, in one generated case that does not
   reduce to a smaller input.
-
-One further difference runs the other way and is not treated as a divergence to
-fix: for `[link](url_(with_(nested)_parens))` djot-go keeps the whole
-destination, while djot.js truncates it at the first unbalanced `)` and emits
-the remainder as text.
+- **A `^` right before a footnote reference.** In `a^[^1]`, djot.js reads the
+  `^` inside `[^1]` as closing a superscript and renders `a<sup>[</sup>1]`;
+  `djot-go` renders a footnote reference.
+- **A footnote definition with no space after the colon.** djot.js requires a
+  space or line end after `[^1]:`; `djot-go` also accepts `[^1]:text` as a
+  definition.
 
 ## Output formats
 
-The library and CLI produce:
+The library renders HTML. The `djot` command can also print:
 
-- HTML
-- The official text AST representation, optionally with source positions
-- JSON mirroring the text AST's tags and fields, optionally with positions
+- The text AST format used by the djot.js tests, optionally with source
+  positions
+- JSON with the same tags and fields, optionally with positions
 
-The JSON format is djot-go's structural output rather than a promise to match a
-separate djot.js JSON schema.
+The JSON follows `djot-go`'s AST. It does not match djot.js's JSON output.
 
 ## Reporting a difference
 
 When reporting parser or renderer behavior, include:
 
-- The smallest djot input that demonstrates it
-- djot-go's output
+- The smallest Djot input that demonstrates it
+- `djot-go`'s output
 - djot.js's output
 - The expected behavior and relevant syntax-reference section, if known
 
@@ -114,8 +128,8 @@ reference-implementation choice.
 
 ## Security
 
-djot-go does not sanitize rendered HTML. Raw HTML constructs and renderer hooks
-may intentionally emit HTML, and ordinary URLs may still need application-level
+`djot-go` does not sanitize rendered HTML. Raw HTML and render hooks can emit
+any HTML, and ordinary URLs may still need application-level
 scheme validation.
 
 When processing untrusted input, sanitize the complete rendered result with a

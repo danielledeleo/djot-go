@@ -2,9 +2,9 @@ package djot
 
 import "github.com/danielledeleo/djot-go/ast"
 
-// Doc is a parsed document. It is immutable: rendering reads its compact form
-// directly, and AST returns a copy of its syntax tree for inspection or
-// editing. To render an edited tree, pass it to NewDoc.
+// Doc is a parsed document. It never changes after it is created: AST returns
+// a copy of its syntax tree for inspection or editing, and NewDoc turns an
+// edited tree back into a Doc.
 type Doc struct {
 	source   *sourceFile
 	semantic *semanticTape
@@ -23,8 +23,8 @@ func NewDoc(tree *ast.Document) *Doc {
 	return &Doc{semantic: compileSemanticTape(tree, tree.References)}
 }
 
-// AST returns a new syntax tree for the document on each call. The caller owns
-// the tree; changing it does not affect the document.
+// AST returns a new copy of the document's syntax tree on each call. Changes
+// to it do not affect the document.
 func (d *Doc) AST() *ast.Document {
 	if d.semantic == nil {
 		return &ast.Document{}

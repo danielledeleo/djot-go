@@ -1,12 +1,12 @@
 # Getting started
 
-This guide covers the common path from djot source to rendered output. For
+This guide covers the common path from Djot source to rendered output. For
 tree transformations, continue to [Working with the AST](ast.md). For custom
 HTML, see [Rendering](rendering.md).
 
 ## Install
 
-djot-go requires Go 1.22 or later and has no third-party dependencies.
+`djot-go` requires Go 1.22 or later and has no third-party dependencies.
 
 ```sh
 go get github.com/danielledeleo/djot-go
@@ -34,15 +34,13 @@ doc := djot.Parse(source)
 html := djot.RenderHTML(doc)
 ```
 
-`RenderHTML` returns a string. `RenderHTMLTo` streams to an `io.Writer` and
-reports write errors:
+`RenderHTML` returns a string. `RenderHTMLTo` writes to an `io.Writer` and
+returns the first write error:
 
 ```go
-var output strings.Builder
-if err := djot.RenderHTMLTo(&output, doc); err != nil {
+if err := djot.RenderHTMLTo(os.Stdout, doc); err != nil {
     return err
 }
-fmt.Print(output.String())
 ```
 
 `Parse` uses the default configuration. To configure parsing, create a
@@ -54,22 +52,8 @@ parser := djot.NewParser()
 doc := parser.Parse(source)
 ```
 
-Documents can be rendered repeatedly. An untouched parsed document uses the
-compact representation directly. `Root` materializes the typed tree; unchanged
-trees can still use compact rendering, while mutations become authoritative.
-
-## Inspect parser output
-
-The `djot` command prints the parsed AST, which is useful while developing
-syntax or diagnosing a document:
-
-```sh
-djot --to ast doc.dj
-djot --to ast --sourcepos doc.dj
-djot --to json doc.dj
-```
-
-In Go, `doc.AST()` returns the typed tree; see [AST](ast.md).
+A document never changes after parsing, so it can be rendered any number of
+times, from any goroutine.
 
 ## Use the command-line tool
 
@@ -89,7 +73,8 @@ $ djot article.dj
 $ djot article.dj appendix.dj
 ```
 
-Choose text-AST or JSON output with `--to`:
+Print the parsed AST, as text or JSON, with `--to`. This is useful when
+checking how a document was parsed:
 
 ```console
 $ djot --to ast article.dj
@@ -108,44 +93,29 @@ $ djot -t html -o article.html article.dj
 Multiple input files are concatenated in argument order. Diagnostics go to
 standard error and invalid options return a nonzero exit status.
 
-## Reuse or replace a document tree
+## Edit and render again
 
-Calling `doc.Root()` materializes the typed tree on demand. Mutations to that
-shared tree are reflected by later renders:
-
-```go
-root := doc.Root()
-// Inspect or mutate root.
-fmt.Print(djot.RenderHTML(doc))
-```
-
-Use `SetRoot` when replacing the complete document tree:
+`doc.AST()` returns a copy of the parsed tree. Edit the copy, then render it
+with `NewDoc`:
 
 ```go
-root := &ast.Document{
-    Children: []ast.Block{
-        &ast.Paragraph{Children: []ast.Inline{
-            &ast.Text{Value: "constructed in Go"},
-        }},
-    },
-}
-doc.SetRoot(root)
+tree := doc.AST()
+tree.Children = append(tree.Children, &ast.Paragraph{
+    Children: []ast.Inline{&ast.Text{Value: "Added in Go."}},
+})
+html := djot.RenderHTML(djot.NewDoc(tree))
 ```
 
-Use `NewDoc` when starting with an independently constructed tree:
-
-```go
-doc := djot.NewDoc(root)
-html := djot.RenderHTML(doc)
-```
+`NewDoc` also renders trees built from scratch; see [Working with the
+AST](ast.md).
 
 ## Next steps
 
 - [Traverse and transform the typed AST](ast.md)
-- [Choose an HTML rendering hook](rendering.md)
-- [Review syntax compatibility and security](compatibility.md)
+- [Customize HTML output](rendering.md)
+- [Read the compatibility notes](compatibility.md)
 
 ---
 
 [README](../README.md) · [AST](ast.md) · [Rendering](rendering.md) ·
-[Compatibility](compatibility.md)
+[Compatibility notes](compatibility.md)
