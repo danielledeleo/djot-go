@@ -54,7 +54,7 @@ The build context is the repository root, not the difftest directory: the
 Dockerfile copies `go.mod` and the package sources from the root.
 
 Most cases are machine-generated punctuation soup used to probe edge cases, and
-nine of the 279 diverge from djot.js. They are not part of `go test ./...` or
+eight of the 279 diverge from djot.js. They are not part of `go test ./...` or
 CI; the test sits behind a `difftest` build tag. The djot.js test suite in
 `testdata/official` is the compatibility gate, and it runs by default. The
 divergences are listed in [docs/compatibility.md](docs/compatibility.md).

@@ -1617,7 +1617,9 @@ func isFootnoteDefinition(s string) bool {
 	if closeBracket+1 >= len(s) || s[closeBracket+1] != ':' {
 		return false
 	}
-	return true
+	// As in djot.js, the colon must be followed by whitespace or end the line.
+	rest := s[closeBracket+2:]
+	return rest == "" || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '\r' || rest[0] == '\n'
 }
 
 func (bp *blockParser) parseFootnoteDefinition(parent *parseNode, stripped string, indent int, prefix string) {

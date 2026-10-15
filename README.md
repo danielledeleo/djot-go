@@ -93,6 +93,18 @@ but does not guarantee byte-for-byte parity with any other implementation.
 some places where `djot-go` and other implementations differ; see the
 [compatibility notes](docs/compatibility.md) for details.
 
+## Stability
+
+From v1.0.0, `djot-go` follows semantic versioning. Within a major version:
+
+- Exported names in the `djot` and `ast` packages keep their meaning, types,
+  and fields.
+- Minor versions may add node kinds, node fields, options, and functions. Refer
+  to kinds by their constants, not their numeric values, and give type switches
+  over nodes a default case.
+- HTML output may change in a minor version, to follow djot.js or to fix a bug.
+- The `djot` command's flags and output formats may change in any release.
+
 ## Security
 
 HTML output is not sanitized, and Djot's

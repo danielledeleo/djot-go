@@ -83,7 +83,7 @@ the `<p>` from paragraphs inside a block quote in the item:
 ## Known divergences
 
 The differential test in [CONTRIBUTING.md](../CONTRIBUTING.md#differential-tests)
-finds nine cases where `djot-go` and djot.js disagree. Two are the differences
+finds eight cases where `djot-go` and djot.js disagree. Two are the differences
 listed above. The rest need unbalanced or malformed delimiters; the equivalent
 well-formed inputs agree.
 
@@ -99,9 +99,6 @@ well-formed inputs agree.
 - **A `^` right before a footnote reference.** In `a^[^1]`, djot.js reads the
   `^` inside `[^1]` as closing a superscript and renders `a<sup>[</sup>1]`;
   `djot-go` renders a footnote reference.
-- **A footnote definition with no space after the colon.** djot.js requires a
-  space or line end after `[^1]:`; `djot-go` also accepts `[^1]:text` as a
-  definition.
 
 ## Output formats
 

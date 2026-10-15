@@ -57,6 +57,23 @@ func TestFootnoteEdges(t *testing.T) {
 			input: "[^a[b]c]",
 			want:  "<p>[^a[b]c]</p>\n",
 		},
+		{
+			// A definition's colon must be followed by whitespace or end the
+			// line, so "[^1]:text" is a paragraph starting with a reference.
+			name:  "no space after footnote definition colon",
+			input: "x[^1]\n\n[^1]:text\n",
+			want: `<p>x<a id="fnref1" href="#fn1" role="doc-noteref"><sup>1</sup></a></p>
+<p><a href="#fn1" role="doc-noteref"><sup>1</sup></a>:text</p>
+<section role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn1">
+<p><a href="#fnref1" role="doc-backlink">↩︎</a></p>
+</li>
+</ol>
+</section>
+`,
+		},
 	}
 
 	for _, tt := range tests {
