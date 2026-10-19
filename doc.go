@@ -16,8 +16,9 @@
 //
 // The parser follows djot.js, the reference implementation, and passes the
 // djot.js test suite, excluding Lua filters. Where the prose [Djot syntax
-// reference] and djot.js differ, this package follows djot.js unless
-// documented otherwise.
+// reference] and djot.js differ, this package follows djot.js. Where djot.js's
+// behaviour is ambiguous or apparently unintentional, this package may differ
+// in subtle ways.
 //
 // # Traversing the AST
 //

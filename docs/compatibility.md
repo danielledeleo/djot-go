@@ -2,8 +2,9 @@
 
 `djot-go` follows [djot.js](https://github.com/jgm/djot.js), the reference
 implementation of [Djot](https://djot.net). Where the prose [syntax reference]
-and djot.js differ, `djot-go` does what djot.js does, unless a difference is
-listed below.
+and djot.js differ, `djot-go` follows djot.js. Where djot.js's behaviour is
+ambiguous or apparently unintentional, `djot-go` may differ in subtle ways;
+known differences are listed below.
 
 ## Conformance testing
 

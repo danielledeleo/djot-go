@@ -46,11 +46,12 @@ referenced footnotes are listed. A hook that drops content therefore drops its
 footnotes too, and numbering always matches what is on the page. djot.js does
 the same.
 
-## djot.js decides
+## Following djot.js
 
 Where the prose syntax reference and djot.js disagree, `djot-go` follows djot.js
-and runs the djot.js test suite. Each difference that remains is listed in the
-[compatibility notes](compatibility.md).
+and runs the djot.js test suite. Where djot.js's behaviour is ambiguous or
+apparently unintentional, `djot-go` may differ in subtle ways. Known
+differences are listed in the [compatibility notes](compatibility.md).
 
 ## A small API
 
